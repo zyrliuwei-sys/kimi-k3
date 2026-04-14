@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "title": "我的应用",
+    "description": "快速构建你的 SaaS"
+  },
+  "sign": {
+    "sign_in_title": "登录",
+    "sign_in_description": "欢迎回来",
+    "sign_up_title": "注册",
+    "sign_up_description": "免费开始使用",
+    "email_title": "邮箱",
+    "email_placeholder": "输入邮箱地址",
+    "password_title": "密码",
+    "password_placeholder": "输入密码",
+    "name_title": "姓名",
+    "name_placeholder": "输入姓名",
+    "no_account": "还没有账号？",
+    "already_have_account": "已有账号？",
+    "or": "或者继续使用",
+    "sign_out_title": "退出登录",
+    "google_sign_in": "使用 Google 登录",
+    "github_sign_in": "使用 GitHub 登录"
+  },
+  "nav": {
+    "dashboard": "控制台",
+    "settings": "设置",
+    "billing": "账单",
+    "api_keys": "API 密钥",
+    "sign_in": "登录",
+    "get_started": "开始使用"
+  }
+}

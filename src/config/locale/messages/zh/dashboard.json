@@ -1,0 +1,50 @@
+{
+  "title": "控制台",
+  "welcome": "欢迎回来，{name}",
+  "placeholder": "你的应用内容在这里。",
+  "nav": {
+    "overview": "概览",
+    "settings": "设置",
+    "billing": "账单",
+    "api_keys": "API 密钥"
+  },
+  "settings": {
+    "title": "设置",
+    "description": "管理你的账户",
+    "profile": "个人资料",
+    "name": "姓名",
+    "email": "邮箱",
+    "save": "保存",
+    "saved": "设置已保存",
+    "loading": "加载中..."
+  },
+  "billing": {
+    "title": "账单",
+    "description": "管理你的订阅和额度",
+    "credits": "额度",
+    "credits_description": "你的可用额度余额"
+  },
+  "api_keys": {
+    "title": "API 密钥",
+    "description": "管理你的 API 密钥",
+    "your_keys": "你的密钥",
+    "your_keys_description": "使用这些密钥来认证 API 请求",
+    "create_key": "创建密钥",
+    "create_title": "创建 API 密钥",
+    "create_description": "给密钥起个名字以便识别",
+    "key_name": "密钥名称",
+    "key_name_placeholder": "例如：生产环境、开发环境",
+    "cancel": "取消",
+    "create": "创建",
+    "creating": "创建中...",
+    "created": "API 密钥已创建",
+    "copied": "已复制到剪贴板",
+    "key_copied": "密钥已复制到剪贴板",
+    "deleted": "密钥已删除",
+    "failed": "创建密钥失败",
+    "no_keys": "还没有 API 密钥，创建一个开始使用。",
+    "name_col": "名称",
+    "key_col": "密钥",
+    "actions_col": "操作"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "title": "Dashboard",
+  "welcome": "Welcome back, {name}",
+  "placeholder": "Your app content goes here.",
+  "nav": {
+    "overview": "Overview",
+    "settings": "Settings",
+    "billing": "Billing",
+    "api_keys": "API Keys"
+  },
+  "settings": {
+    "title": "Settings",
+    "description": "Manage your account",
+    "profile": "Profile",
+    "name": "Name",
+    "email": "Email",
+    "save": "Save",
+    "saved": "Settings saved",
+    "loading": "Loading..."
+  },
+  "billing": {
+    "title": "Billing",
+    "description": "Manage your subscription and credits",
+    "credits": "Credits",
+    "credits_description": "Your available credit balance"
+  },
+  "api_keys": {
+    "title": "API Keys",
+    "description": "Manage your API keys for programmatic access",
+    "your_keys": "Your Keys",
+    "your_keys_description": "Use these keys to authenticate API requests",
+    "create_key": "Create Key",
+    "create_title": "Create API Key",
+    "create_description": "Give your key a name to identify it later",
+    "key_name": "Key Name",
+    "key_name_placeholder": "e.g. Production, Development",
+    "cancel": "Cancel",
+    "create": "Create",
+    "creating": "Creating...",
+    "created": "API key created",
+    "copied": "Copied to clipboard",
+    "key_copied": "Key copied to clipboard",
+    "deleted": "Key deleted",
+    "failed": "Failed to create key",
+    "no_keys": "No API keys yet. Create one to get started.",
+    "name_col": "Name",
+    "key_col": "Key",
+    "actions_col": "Actions"
+  }
+}

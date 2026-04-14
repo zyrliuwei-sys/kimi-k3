@@ -1,0 +1,32 @@
+{
+  "metadata": {
+    "title": "My App",
+    "description": "Ship your SaaS faster"
+  },
+  "sign": {
+    "sign_in_title": "Sign In",
+    "sign_in_description": "Welcome back",
+    "sign_up_title": "Sign Up",
+    "sign_up_description": "Get started for free",
+    "email_title": "Email",
+    "email_placeholder": "Enter your email",
+    "password_title": "Password",
+    "password_placeholder": "Enter your password",
+    "name_title": "Name",
+    "name_placeholder": "Enter your name",
+    "no_account": "Don't have an account?",
+    "already_have_account": "Already have an account?",
+    "or": "Or continue with",
+    "sign_out_title": "Sign Out",
+    "google_sign_in": "Sign in with Google",
+    "github_sign_in": "Sign in with GitHub"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "settings": "Settings",
+    "billing": "Billing",
+    "api_keys": "API Keys",
+    "sign_in": "Sign In",
+    "get_started": "Get Started"
+  }
+}

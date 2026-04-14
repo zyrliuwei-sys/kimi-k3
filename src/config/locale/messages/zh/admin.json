@@ -1,0 +1,44 @@
+{
+  "title": "管理后台",
+  "description": "系统概览",
+  "loading": "加载中...",
+  "back_to_dashboard": "控制台",
+  "nav": {
+    "overview": "概览",
+    "users": "用户",
+    "roles": "角色",
+    "settings": "设置"
+  },
+  "stats": {
+    "total_users": "总用户数",
+    "roles": "角色数"
+  },
+  "users": {
+    "title": "用户管理",
+    "description": "管理所有注册用户",
+    "all_users": "所有用户",
+    "count": "共 {count} 个注册用户",
+    "no_users": "暂无用户",
+    "user_col": "用户",
+    "email_col": "邮箱",
+    "joined_col": "注册时间"
+  },
+  "roles": {
+    "title": "角色管理",
+    "description": "管理系统角色和权限",
+    "all_roles": "所有角色",
+    "count": "共 {count} 个角色",
+    "no_roles": "暂未定义角色",
+    "name_col": "名称",
+    "title_col": "标题",
+    "status_col": "状态",
+    "description_col": "描述"
+  },
+  "settings": {
+    "title": "系统设置",
+    "description": "配置系统级设置",
+    "configuration": "配置",
+    "configuration_description": "系统配置通过环境变量和配置表管理",
+    "placeholder": "系统设置界面在这里。"
+  }
+}

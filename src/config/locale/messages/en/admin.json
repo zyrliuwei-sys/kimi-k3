@@ -1,0 +1,44 @@
+{
+  "title": "Admin",
+  "description": "System overview",
+  "loading": "Loading...",
+  "back_to_dashboard": "Dashboard",
+  "nav": {
+    "overview": "Overview",
+    "users": "Users",
+    "roles": "Roles",
+    "settings": "Settings"
+  },
+  "stats": {
+    "total_users": "Total Users",
+    "roles": "Roles"
+  },
+  "users": {
+    "title": "Users",
+    "description": "Manage all registered users",
+    "all_users": "All Users",
+    "count": "{count} users registered",
+    "no_users": "No users yet",
+    "user_col": "User",
+    "email_col": "Email",
+    "joined_col": "Joined"
+  },
+  "roles": {
+    "title": "Roles",
+    "description": "Manage system roles and permissions",
+    "all_roles": "All Roles",
+    "count": "{count} roles defined",
+    "no_roles": "No roles defined yet",
+    "name_col": "Name",
+    "title_col": "Title",
+    "status_col": "Status",
+    "description_col": "Description"
+  },
+  "settings": {
+    "title": "System Settings",
+    "description": "Configure system-wide settings",
+    "configuration": "Configuration",
+    "configuration_description": "System configuration is managed via environment variables and the config table",
+    "placeholder": "System settings interface goes here."
+  }
+}
