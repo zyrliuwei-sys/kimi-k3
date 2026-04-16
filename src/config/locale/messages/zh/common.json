@@ -21,6 +21,12 @@
     "google_sign_in": "使用 Google 登录",
     "github_sign_in": "使用 GitHub 登录"
   },
+  "table": {
+    "no_data": "暂无数据",
+    "page_info": "第 {current} 页，共 {total} 页",
+    "previous": "上一页",
+    "next": "下一页"
+  },
   "nav": {
     "dashboard": "控制台",
     "settings": "设置",

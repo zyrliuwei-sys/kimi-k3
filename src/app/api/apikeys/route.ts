@@ -1,9 +1,9 @@
 import { headers } from 'next/headers';
-import { respData, respOk, respErr } from '@/lib/resp';
+import { respPage, respData, respOk, respErr } from '@/lib/resp';
 import { getAuth } from '@/core/auth';
 import * as apikeys from '@/modules/apikeys/service';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const auth = getAuth();
     const headersList = await headers();
@@ -13,8 +13,12 @@ export async function GET() {
       return respErr('Unauthorized');
     }
 
-    const keys = await apikeys.list(session.user.id);
-    return respData(keys);
+    const { searchParams } = new URL(req.url);
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') || '10')));
+
+    const { items, total } = await apikeys.list(session.user.id, page, pageSize);
+    return respPage(items, total);
   } catch (error: any) {
     return respErr(error.message || 'Failed to list API keys');
   }

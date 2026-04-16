@@ -1,8 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { LayoutDashboard, Users, Shield, Settings } from "lucide-react";
-import { Link } from "@/core/i18n/navigation";
+import { LayoutDashboard, Users, Shield, KeyRound, Settings } from "lucide-react";
 import { envConfigs } from "@/config";
 import { AppLayout } from "@/components/app-layout";
 
@@ -15,30 +14,18 @@ export default function AdminLayout({
 
   const navItems = [
     { href: "/admin", label: t("nav.overview"), icon: LayoutDashboard },
-    { href: "/admin/users", label: t("nav.users"), icon: Users },
-    { href: "/admin/roles", label: t("nav.roles"), icon: Shield },
     { href: "/admin/settings", label: t("nav.settings"), icon: Settings },
+    { href: "/admin/users", label: t("nav.users"), icon: Users, group: t("nav.rbac") },
+    { href: "/admin/roles", label: t("nav.roles"), icon: Shield, group: t("nav.rbac") },
+    { href: "/admin/permissions", label: t("nav.permissions"), icon: KeyRound, group: t("nav.rbac") },
   ];
-
-  const brand = (
-    <>
-      {envConfigs.app_name}
-      <span className="ml-2 text-xs font-normal text-muted-foreground">Admin</span>
-    </>
-  );
 
   return (
     <AppLayout
       navItems={navItems}
-      brand={brand}
+      brand={envConfigs.app_name}
       brandHref="/admin"
-      mobileBrand={`${envConfigs.app_name} Admin`}
       requirePermission="admin.*"
-      headerExtra={
-        <Link href="/dashboard" className="text-sm text-muted-foreground hover:text-foreground">
-          {t("back_to_dashboard")}
-        </Link>
-      }
     >
       {children}
     </AppLayout>

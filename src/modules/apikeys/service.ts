@@ -1,4 +1,4 @@
-import { eq, and, isNull } from 'drizzle-orm';
+import { eq, and, isNull, count } from 'drizzle-orm';
 import { getUuid, getNonceStr } from '@/lib/hash';
 import { db } from '@/core/db';
 import { apikey } from '@/config/db/schema';
@@ -28,10 +28,21 @@ export async function create(params: {
 }
 
 /**
- * List all active API keys for a user.
+ * List active API keys for a user with pagination.
  */
-export async function list(userId: string) {
-  return db()
+export async function list(userId: string, page = 1, pageSize = 10) {
+  const where = and(
+    eq(apikey.userId, userId),
+    eq(apikey.status, 'active'),
+    isNull(apikey.deletedAt)
+  );
+
+  const [totalResult] = await db()
+    .select({ count: count() })
+    .from(apikey)
+    .where(where);
+
+  const items = await db()
     .select({
       id: apikey.id,
       key: apikey.key,
@@ -40,13 +51,11 @@ export async function list(userId: string) {
       createdAt: apikey.createdAt,
     })
     .from(apikey)
-    .where(
-      and(
-        eq(apikey.userId, userId),
-        eq(apikey.status, 'active'),
-        isNull(apikey.deletedAt)
-      )
-    );
+    .where(where)
+    .limit(pageSize)
+    .offset((page - 1) * pageSize);
+
+  return { items, total: totalResult.count };
 }
 
 /**

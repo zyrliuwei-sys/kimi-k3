@@ -55,6 +55,8 @@ export function getSettingGroups(): SettingGroup[] {
     { name: 'basic_payment', title: 'Basic', description: 'Payment general settings', tab: 'payment' },
     { name: 'stripe', title: 'Stripe', description: 'Stripe payment gateway', tab: 'payment' },
     { name: 'paypal', title: 'PayPal', description: 'PayPal payment gateway', tab: 'payment' },
+    { name: 'alipay', title: 'Alipay', description: 'Alipay payment gateway (native)', tab: 'payment' },
+    { name: 'wechat', title: 'WeChat Pay', description: 'WeChat Pay gateway (native)', tab: 'payment' },
 
     // Email
     { name: 'resend', title: 'Resend', description: 'Resend email service', tab: 'email' },
@@ -101,11 +103,14 @@ export function getSettings(): Setting[] {
 
     // ─── Payment / Basic ─────────────────────────────────────────────
     { name: 'select_payment_enabled', title: 'Show payment method selector', type: 'switch', group: 'basic_payment', tab: 'payment' },
+    { name: 'payment_test_amount', title: 'Test amount (分)', type: 'number', placeholder: '留空使用实际金额，填 1 则支付 ¥0.01', group: 'basic_payment', tab: 'payment' },
     {
       name: 'default_payment_provider', title: 'Default provider', type: 'select',
       options: [
         { label: 'Stripe', value: 'stripe' },
         { label: 'PayPal', value: 'paypal' },
+        { label: 'Alipay', value: 'alipay' },
+        { label: 'WeChat Pay', value: 'wechat' },
       ],
       group: 'basic_payment', tab: 'payment',
     },
@@ -129,6 +134,22 @@ export function getSettings(): Setting[] {
       ],
       group: 'paypal', tab: 'payment',
     },
+
+    // ─── Payment / Alipay ─────────────────────────────────────────────
+    { name: 'alipay_enabled', title: 'Enable Alipay', type: 'switch', group: 'alipay', tab: 'payment' },
+    { name: 'alipay_app_id', title: 'App ID', type: 'text', placeholder: '2021xxx', group: 'alipay', tab: 'payment' },
+    { name: 'alipay_private_key', title: 'Private Key (RSA2)', type: 'textarea', placeholder: 'MIIEvQIBADANBgkq...', group: 'alipay', tab: 'payment' },
+    { name: 'alipay_public_key', title: 'Alipay Public Key', type: 'textarea', placeholder: 'MIIBIjANBgkq...', group: 'alipay', tab: 'payment' },
+    { name: 'alipay_notify_url', title: 'Notify URL (Webhook)', type: 'text', placeholder: 'https://hersoul.cn/api/payment/notify/alipay', group: 'alipay', tab: 'payment' },
+
+    // ─── Payment / WeChat Pay ───────────────────────────────────────
+    { name: 'wechat_enabled', title: 'Enable WeChat Pay', type: 'switch', group: 'wechat', tab: 'payment' },
+    { name: 'wechat_app_id', title: 'AppID', type: 'text', placeholder: 'wx1234567890', group: 'wechat', tab: 'payment' },
+    { name: 'wechat_mch_id', title: 'Merchant ID (商户号)', type: 'text', placeholder: '1900000001', group: 'wechat', tab: 'payment' },
+    { name: 'wechat_api_v3_key', title: 'APIv3 Key (32位密钥)', type: 'password', placeholder: '32 chars', group: 'wechat', tab: 'payment' },
+    { name: 'wechat_private_key', title: 'Merchant Private Key (PEM)', type: 'textarea', placeholder: 'MIIEvgIBADANBgkq...', group: 'wechat', tab: 'payment' },
+    { name: 'wechat_serial_no', title: 'Certificate Serial No', type: 'text', placeholder: 'xxx', group: 'wechat', tab: 'payment' },
+    { name: 'wechat_notify_url', title: 'Notify URL (Webhook)', type: 'text', placeholder: 'https://hersoul.cn/api/payment/notify/wechat', group: 'wechat', tab: 'payment' },
 
     // ─── Email / Resend ──────────────────────────────────────────────
     { name: 'resend_api_key', title: 'API Key', type: 'password', placeholder: 're_xxx', group: 'resend', tab: 'email' },

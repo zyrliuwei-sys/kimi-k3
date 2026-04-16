@@ -1,7 +1,9 @@
 "use client";
 
 import { type LucideIcon } from "lucide-react";
+import Image from "next/image";
 import { Link, usePathname } from "@/core/i18n/navigation";
+import { envConfigs } from "@/config";
 import {
   Sidebar,
   SidebarContent,
@@ -49,9 +51,16 @@ export function AppSidebar({
 
   return (
     <Sidebar variant="inset">
-      <SidebarHeader className="p-4 pb-2">
-        <Link href={brandHref} className="flex items-center gap-2 px-2 py-3">
-          <span className="text-lg font-bold tracking-tight">{brand}</span>
+      <SidebarHeader>
+        <Link href={brandHref} className="flex items-center gap-2 px-2 py-1">
+          <Image
+            src={envConfigs.app_logo}
+            alt={typeof brand === 'string' ? brand : 'Logo'}
+            width={24}
+            height={24}
+            className="size-6 rounded-md"
+          />
+          <span className="text-sm font-semibold">{brand}</span>
         </Link>
       </SidebarHeader>
 

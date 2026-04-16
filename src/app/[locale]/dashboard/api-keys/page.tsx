@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { Copy, Plus, Trash2 } from "lucide-react";
@@ -13,14 +13,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -31,6 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { DataTable, type Column } from "@/components/data-table";
 
 interface ApiKey {
   id: string;
@@ -39,22 +32,31 @@ interface ApiKey {
   createdAt: string;
 }
 
+const PAGE_SIZE = 10;
+
 export default function ApiKeysPage() {
   const t = useTranslations();
   const [keys, setKeys] = useState<ApiKey[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [newKeyName, setNewKeyName] = useState("");
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  async function fetchKeys() {
-    const res = await fetch("/api/apikeys");
-    const data = await res.json();
-    if (data.code === 0) setKeys(data.data);
-  }
+  const fetchKeys = useCallback((p: number) => {
+    fetch(`/api/apikeys?page=${p}&pageSize=${PAGE_SIZE}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.code === 0) {
+          setKeys(res.data.items);
+          setTotal(res.data.total);
+        }
+      });
+  }, []);
 
   useEffect(() => {
-    fetchKeys();
-  }, []);
+    fetchKeys(page);
+  }, [page, fetchKeys]);
 
   async function handleCreate() {
     if (!newKeyName.trim()) return;
@@ -72,7 +74,7 @@ export default function ApiKeysPage() {
         toast.info(t("dashboard.api_keys.key_copied"));
         setOpen(false);
         setNewKeyName("");
-        fetchKeys();
+        fetchKeys(page);
       } else {
         toast.error(data.message);
       }
@@ -88,7 +90,7 @@ export default function ApiKeysPage() {
     const data = await res.json();
     if (data.code === 0) {
       toast.success(t("dashboard.api_keys.deleted"));
-      fetchKeys();
+      fetchKeys(page);
     }
   }
 
@@ -96,6 +98,43 @@ export default function ApiKeysPage() {
     await navigator.clipboard.writeText(key);
     toast.success(t("dashboard.api_keys.copied"));
   }
+
+  const columns: Column<ApiKey>[] = [
+    {
+      header: t("dashboard.api_keys.name_col"),
+      cell: (k) => <span className="font-medium">{k.title}</span>,
+    },
+    {
+      header: t("dashboard.api_keys.key_col"),
+      cell: (k) => (
+        <span className="font-mono text-xs">{k.key.slice(0, 12)}...</span>
+      ),
+    },
+    {
+      header: t("dashboard.api_keys.actions_col"),
+      className: "w-[100px]",
+      cell: (k) => (
+        <div className="flex gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => handleCopy(k.key)}
+          >
+            <Copy className="size-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="size-7"
+            onClick={() => handleDelete(k.id)}
+          >
+            <Trash2 className="size-3" />
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div className="p-6 space-y-6">
@@ -147,56 +186,16 @@ export default function ApiKeysPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>{t("dashboard.api_keys.name_col")}</TableHead>
-                <TableHead>{t("dashboard.api_keys.key_col")}</TableHead>
-                <TableHead className="w-[100px]">{t("dashboard.api_keys.actions_col")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {keys.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={3}
-                    className="text-center text-muted-foreground py-8"
-                  >
-                    {t("dashboard.api_keys.no_keys")}
-                  </TableCell>
-                </TableRow>
-              ) : (
-                keys.map((key) => (
-                  <TableRow key={key.id}>
-                    <TableCell className="font-medium">{key.title}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {key.key.slice(0, 12)}...
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          onClick={() => handleCopy(key.key)}
-                        >
-                          <Copy className="size-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-7"
-                          onClick={() => handleDelete(key.id)}
-                        >
-                          <Trash2 className="size-3" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+          <DataTable
+            columns={columns}
+            data={keys}
+            total={total}
+            page={page}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            rowKey={(k) => k.id}
+            emptyText={t("dashboard.api_keys.no_keys")}
+          />
         </CardContent>
       </Card>
     </div>

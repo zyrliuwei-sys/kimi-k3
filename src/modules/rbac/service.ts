@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or, gt } from 'drizzle-orm';
+import { and, desc, eq, isNull, or, gt, inArray } from 'drizzle-orm';
 import { matchPermission, matchAnyPermission, ROLES } from '@/core/auth/rbac';
 import { getUuid } from '@/lib/hash';
 import { db } from '@/core/db';
@@ -78,6 +78,53 @@ export async function removeRoleFromUser(userId: string, roleId: string) {
     .where(and(eq(userRole.userId, userId), eq(userRole.roleId, roleId)));
 }
 
+// --- Role update/delete ---
+
+export async function updateRole(id: string, data: { name?: string; title?: string; description?: string }) {
+  const [result] = await db().update(role).set(data).where(eq(role.id, id)).returning();
+  return result;
+}
+
+export async function deleteRole(id: string) {
+  await db().update(role).set({ status: 'inactive' }).where(eq(role.id, id));
+}
+
+// --- Permission update/delete ---
+
+export async function updatePermission(id: string, data: { code?: string; resource?: string; action?: string; title?: string; description?: string }) {
+  const [result] = await db().update(permission).set(data).where(eq(permission.id, id)).returning();
+  return result;
+}
+
+export async function deletePermission(id: string) {
+  await db().delete(permission).where(eq(permission.id, id));
+}
+
+// --- Role-Permission read ---
+
+export async function getRolePermissions(roleId: string) {
+  return db()
+    .select({ permissionId: rolePermission.permissionId })
+    .from(rolePermission)
+    .where(eq(rolePermission.roleId, roleId));
+}
+
+// --- User-Role read ---
+
+export async function getUserRoles(userId: string) {
+  return db()
+    .select({
+      id: userRole.id,
+      roleId: userRole.roleId,
+      expiresAt: userRole.expiresAt,
+      roleName: role.name,
+      roleTitle: role.title,
+    })
+    .from(userRole)
+    .innerJoin(role, eq(userRole.roleId, role.id))
+    .where(eq(userRole.userId, userId));
+}
+
 // --- Permission checks ---
 
 export async function getUserPermissionCodes(userId: string): Promise<string[]> {
@@ -103,11 +150,7 @@ export async function getUserPermissionCodes(userId: string): Promise<string[]> 
     .select({ code: permission.code })
     .from(rolePermission)
     .innerJoin(permission, eq(rolePermission.permissionId, permission.id))
-    .where(
-      and(
-        ...roleIds.map((rid: string) => eq(rolePermission.roleId, rid))
-      )
-    );
+    .where(inArray(rolePermission.roleId, roleIds));
 
   // Deduplicate
   return [...new Set(perms.map((p: any) => p.code))] as string[];

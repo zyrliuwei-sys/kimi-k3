@@ -21,6 +21,12 @@
     "google_sign_in": "Sign in with Google",
     "github_sign_in": "Sign in with GitHub"
   },
+  "table": {
+    "no_data": "No data",
+    "page_info": "Page {current} of {total}",
+    "previous": "Previous",
+    "next": "Next"
+  },
   "nav": {
     "dashboard": "Dashboard",
     "settings": "Settings",

@@ -10,6 +10,10 @@ export function respErr(message: string) {
   return respJson(-1, message);
 }
 
+export function respPage(items: any[], total: number) {
+  return respJson(0, 'ok', { items, total });
+}
+
 export function respJson(code: number, message: string, data?: any) {
   let json: Record<string, any> = {
     code: code,

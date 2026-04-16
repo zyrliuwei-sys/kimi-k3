@@ -73,12 +73,12 @@ export default function AdminSettingsPage() {
       });
       const data = await res.json();
       if (data.code === 0) {
-        toast.success("Settings saved");
+        toast.success(t("settings.save_success"));
       } else {
         toast.error(data.message);
       }
     } catch {
-      toast.error("Failed to save");
+      toast.error(t("settings.save_error"));
     } finally {
       setSaving(false);
     }
@@ -96,7 +96,7 @@ export default function AdminSettingsPage() {
         </div>
         <Button onClick={handleSave} disabled={saving} className="gap-2">
           <Save className="size-4" />
-          {saving ? "Saving..." : "Save"}
+          {saving ? t("settings.saving") : t("settings.save")}
         </Button>
       </div>
 
@@ -113,7 +113,7 @@ export default function AdminSettingsPage() {
                 : "border-transparent text-muted-foreground hover:text-foreground"
             )}
           >
-            {tab.title}
+            {t(`settings.tabs.${tab.name}`)}
           </button>
         ))}
       </div>
@@ -129,9 +129,9 @@ export default function AdminSettingsPage() {
           return (
             <Card key={group.name}>
               <CardHeader>
-                <CardTitle>{group.title}</CardTitle>
+                <CardTitle>{t(`settings.groups.${group.name}.title`)}</CardTitle>
                 {group.description && (
-                  <CardDescription>{group.description}</CardDescription>
+                  <CardDescription>{t(`settings.groups.${group.name}.description`)}</CardDescription>
                 )}
               </CardHeader>
               <CardContent className="space-y-4">
@@ -139,6 +139,7 @@ export default function AdminSettingsPage() {
                   <SettingField
                     key={setting.name}
                     setting={setting}
+                    label={t(`settings.fields.${setting.name}`)}
                     value={configs[setting.name] || ""}
                     onChange={(v) => handleChange(setting.name, v)}
                   />
@@ -154,17 +155,19 @@ export default function AdminSettingsPage() {
 
 function SettingField({
   setting,
+  label,
   value,
   onChange,
 }: {
   setting: Setting;
+  label: string;
   value: string;
   onChange: (value: string) => void;
 }) {
   if (setting.type === "switch") {
     return (
       <div className="flex items-center justify-between">
-        <Label htmlFor={setting.name}>{setting.title}</Label>
+        <Label htmlFor={setting.name}>{label}</Label>
         <Switch
           id={setting.name}
           checked={value === "true"}
@@ -177,7 +180,7 @@ function SettingField({
   if (setting.type === "select" && setting.options) {
     return (
       <div className="space-y-2">
-        <Label htmlFor={setting.name}>{setting.title}</Label>
+        <Label htmlFor={setting.name}>{label}</Label>
         <Select value={value} onValueChange={(v) => onChange(v || "")}>
           <SelectTrigger>
             <SelectValue placeholder={setting.placeholder || "Select..."} />
@@ -197,7 +200,7 @@ function SettingField({
   if (setting.type === "textarea") {
     return (
       <div className="space-y-2">
-        <Label htmlFor={setting.name}>{setting.title}</Label>
+        <Label htmlFor={setting.name}>{label}</Label>
         <textarea
           id={setting.name}
           value={value}
@@ -212,7 +215,7 @@ function SettingField({
 
   return (
     <div className="space-y-2">
-      <Label htmlFor={setting.name}>{setting.title}</Label>
+      <Label htmlFor={setting.name}>{label}</Label>
       <Input
         id={setting.name}
         type={setting.type === "password" ? "password" : setting.type === "number" ? "number" : "text"}
