@@ -2,7 +2,6 @@
 
 import { Link } from "@/core/i18n/navigation";
 import { useTranslations } from "next-intl";
-import Image from "next/image";
 import { ArrowRight, Menu, X } from "lucide-react";
 import { useState } from "react";
 import { buttonVariants } from "@/components/ui/button";
@@ -17,7 +16,7 @@ export interface NavLink {
   external?: boolean;
 }
 
-export function LandingHeader({
+export function SiteHeader({
   navLinks,
 }: {
   navLinks?: NavLink[];
@@ -29,15 +28,8 @@ export function LandingHeader({
     <header className="sticky top-0 z-50 w-full bg-background/80 backdrop-blur-sm">
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         {/* Brand */}
-        <Link href="/" className="flex items-center gap-2">
-          <Image
-            src={envConfigs.app_logo}
-            alt={envConfigs.app_name}
-            width={24}
-            height={24}
-            className="size-6 rounded-md"
-          />
-          <span className="font-semibold">{envConfigs.app_name}</span>
+        <Link href="/" className="flex items-center">
+          <span className="font-serif italic text-lg">{envConfigs.app_name}</span>
         </Link>
 
         {/* Desktop nav */}
@@ -59,12 +51,6 @@ export function LandingHeader({
         <div className="hidden items-center gap-2 md:flex">
           <LocaleSelector />
           <ThemeToggle />
-          <Link
-            href="/sign-in"
-            className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-          >
-            {t("nav.sign_in")}
-          </Link>
           <Link
             href="/sign-up"
             className={cn(buttonVariants({ size: "sm" }), "gap-1")}
@@ -104,13 +90,6 @@ export function LandingHeader({
             <LocaleSelector />
             <ThemeToggle />
             <div className="flex-1" />
-            <Link
-              href="/sign-in"
-              className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
-              onClick={() => setMobileOpen(false)}
-            >
-              {t("nav.sign_in")}
-            </Link>
             <Link
               href="/sign-up"
               className={cn(buttonVariants({ size: "sm" }), "gap-1")}

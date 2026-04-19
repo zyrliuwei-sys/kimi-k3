@@ -156,15 +156,39 @@ Then continue to Phase 3 (Dashboard Pages) and beyond.
 
 **Mode C — Generated from scratch:**
 
-Build a modern SaaS landing page with these sections:
-1. **Header** — logo (app name text), nav links (Features, Pricing), Sign In, Get Started CTA. Use `Link` from `@/core/i18n/navigation`, `LocaleSelector` from `@/components/locale-selector`, `ThemeToggle` from `@/components/theme-toggle`
-2. **Hero** — large heading, subtext, 1-2 CTAs, optional hero image/illustration
-3. **Features** — 3-6 feature cards with icons, titles, descriptions (from user's brief)
-4. **How It Works** — 3-step process or visual flow (if applicable)
-5. **Pricing** — tier cards with feature lists, connected to payment module
-6. **FAQ** — accordion with common questions
-7. **CTA** — final call-to-action section
-8. **Footer** — links (Privacy Policy → `/privacy-policy`, Terms → `/terms-of-service`), copyright, social icons
+The repo ships with a default landing page composed of demo blocks in `src/blocks/` (`header`, `hero`, `features`, `pricing`, `footer`). **Rewrite those blocks with the user's content; keep the primitives in `src/components/`.**
+
+Workflow:
+
+1. **Reuse the primitives** — don't reinvent these:
+   - `components/site-header.tsx` → `SiteHeader` (takes `navLinks`)
+   - `components/site-footer.tsx` → `SiteFooter` (takes `tagline`, `columns`, `socials`)
+   - `components/pricing-table.tsx` → `PricingTable` (takes `groups`)
+   - `components/ui/*` — shadcn primitives (Button, Card, Accordion, etc.)
+
+2. **Rewrite the blocks** — each block reads i18n and passes content to a primitive. Keep this file-per-section pattern:
+   - `blocks/header.tsx` — wraps `SiteHeader`
+   - `blocks/hero.tsx` — large heading, subtext, 1-2 CTAs, optional hero image
+   - `blocks/features.tsx` — 3-6 feature cards (user's brief)
+   - `blocks/how-it-works.tsx` — add if applicable (3-step flow)
+   - `blocks/pricing.tsx` — wraps `PricingTable` with tier config
+   - `blocks/faq.tsx` — add if applicable (use shadcn Accordion)
+   - `blocks/cta.tsx` — final CTA section
+   - `blocks/footer.tsx` — wraps `SiteFooter`
+
+3. **Rewrite `page.tsx`** — pure composition, ~15 lines. Example:
+   ```tsx
+   <Header />
+   <Hero />
+   <Features />
+   <HowItWorks />
+   <Pricing />
+   <FAQ />
+   <CTA />
+   <Footer />
+   ```
+
+4. **Rewrite `config/locale/messages/{en,zh}/landing.json`** — the block translations.
 
 Make it visually polished — use gradients, subtle shadows, proper spacing, animations (fade-in on scroll). Don't generate a "template-looking" page.
 

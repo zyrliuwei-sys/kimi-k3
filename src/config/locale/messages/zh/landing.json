@@ -4,7 +4,7 @@
     "pricing": "价格"
   },
   "hero": {
-    "headline": "你的下一个 SaaS 的 Headless 引擎。",
+    "headline": "一小时上线你的 AI 产品",
     "subheadline": "认证、支付、订阅、积分、权限、内容管理和国际化 — 全部预置就绪，直接在上面构建你的产品。",
     "cta": "立即开始",
     "secondary": "控制台"
@@ -51,6 +51,7 @@
     "title": "简单透明的价格",
     "description": "选择适合你的方案。",
     "monthly": "月付",
+    "yearly": "年付",
     "popular": "热门",
     "starter": "入门版",
     "starter_desc": "适合个人用户",
@@ -70,7 +71,38 @@
     "feature_dedicated_support": "专属支持",
     "feature_custom_integrations": "定制集成"
   },
+  "faq": {
+    "title": "常见问题",
+    "description": "开始之前你可能想了解的一切。",
+    "stack": {
+      "question": "用的是什么技术栈？",
+      "answer": "Next.js 16（App Router）、React 19、TypeScript 严格模式、Tailwind CSS 4、shadcn/ui、Drizzle ORM 和 better-auth。所有业务逻辑都内置在代码里——支付、邮件、存储、AI 都不依赖外部包。"
+    },
+    "payment": {
+      "question": "支持哪些支付方式？",
+      "answer": "开箱即用支持 Stripe、PayPal、Creem、支付宝和微信支付。通过 PaymentManager 抽象层，只需实现一个接口就能接入新的支付渠道。"
+    },
+    "database": {
+      "question": "支持哪些数据库？",
+      "answer": "Drizzle ORM 支持 PostgreSQL、MySQL、SQLite、Turso 和 Cloudflare D1。只需修改 .env 中的 DATABASE_PROVIDER——schema 模板和 drizzle 配置会自动适配。"
+    },
+    "customize": {
+      "question": "落地页可以自定义到什么程度？",
+      "answer": "src/blocks/ 下的 section 都是示例内容，本来就是要每个项目自己重写的。src/components/ 里才是长期沉淀的基础组件——换品牌只动 blocks 和翻译，底层架构不变。"
+    },
+    "license": {
+      "question": "可以用于商业项目吗？",
+      "answer": "可以。ShipAny Next 就是为生产级 SaaS 打造的。克隆之后代码归你——没有按用户数收费，也不依赖我们的任何基础设施。"
+    }
+  },
+  "cta": {
+    "headline": "准备好构建你的 SaaS 了吗？",
+    "subheadline": "别再从零搭建认证、支付和权限系统了。用 ShipAny Next 起步，专注打造真正让产品与众不同的东西。",
+    "button": "免费开始使用"
+  },
   "footer": {
+    "tagline": "极速发布你的 AI 产品",
+    "feature": "功能",
     "product": "产品",
     "resources": "资源",
     "legal": "法律信息",

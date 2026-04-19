@@ -82,7 +82,11 @@ src/
 │   │   └── dashboard/           # Dashboard pages
 │   └── api/                     # REST endpoints (NOT under [locale])
 │
-├── components/ui/               # shadcn/ui (add via `npx shadcn add`)
+├── blocks/                      # Zero-config page sections: read i18n, wire data into components
+│                                # e.g. hero, features, pricing-section, header, footer
+├── components/                  # Reusable UI: all content via props, no i18n reads
+│   │                            # e.g. site-header, site-footer, pricing, app-sidebar
+│   └── ui/                      # shadcn/ui primitives (add via `npx shadcn add`)
 └── lib/                         # Utilities (hash, resp, cookie, cache, rate-limit, time, env, cn)
 ```
 
@@ -189,6 +193,28 @@ const rows = await db().select().from(someTable).where(eq(someTable.userId, id))
 - **No `asChild` prop.** Use `className={cn(buttonVariants())}` on Link instead.
 - Add components: `npx shadcn add button card dialog`
 - Theme colors in `src/app/globals.css` as CSS variables (oklch)
+
+### Blocks vs Components
+
+- **`src/blocks/`** — zero-config page sections. Read i18n (`getTranslations`/`useTranslations`), build the content config, and pass it to a component. Drop into pages as `<Hero />`, `<Pricing />`, `<Header />`, `<Footer />` with no props.
+- **`src/components/`** — reusable UI. All content arrives via props; no i18n reads inside. Covers shadcn primitives (`components/ui/`), marketing shells (`SiteHeader`, `SiteFooter`), authenticated-app shells (`AppSidebar`, `AppLayout`), and pure primitives like `PricingTable`.
+- **Rule:** a file reads translations → block. A file takes all content via props → component.
+- **Pattern:** pages consume only blocks. Blocks read i18n and configure components. Components render — they don't know the app's content.
+- **Naming:** `site-*` = public marketing chrome (`SiteHeader`, `SiteFooter`). `app-*` = authenticated-app chrome (`AppSidebar`, `AppLayout`). These are separate surfaces — don't merge them.
+
+### Template Philosophy: Blocks Are Disposable, Components Are Durable
+
+This repo ships with a default landing page (`blocks/header`, `hero`, `features`, `pricing`, `footer`) so a fresh clone has something to render. **That content is demo material — it's expected to be rewritten for any real project.**
+
+When starting a new project:
+1. **Keep** `src/components/*` and `src/components/ui/*` — they're the durable primitives (`PricingTable`, `SiteHeader`, `SiteFooter`, `AppSidebar`, shadcn UI). These are the chassis.
+2. **Rewrite** `src/blocks/*` — delete the demo blocks, write new ones that wire the user's real content and i18n into the primitives. Or compose fresh sections directly.
+3. **Rewrite** `src/app/[locale]/page.tsx` — it's ~17 lines of pure composition. Recompose from the new blocks.
+4. **Rewrite** `src/config/locale/messages/{en,zh}/landing.json` — the translations that feed the blocks.
+
+The `/quick-start` and `/clone-website` skills automate this workflow.
+
+The split is not cosmetic — it's **what survives a rebrand**. Primitives survive; block content doesn't.
 
 ## Adding a New Feature
 

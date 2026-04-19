@@ -51,6 +51,7 @@
     "title": "Simple pricing",
     "description": "Choose the plan that works for you.",
     "monthly": "Monthly",
+    "yearly": "Yearly",
     "popular": "Popular",
     "starter": "Starter",
     "starter_desc": "For individuals",
@@ -70,7 +71,38 @@
     "feature_dedicated_support": "Dedicated support",
     "feature_custom_integrations": "Custom integrations"
   },
+  "faq": {
+    "title": "Frequently asked questions",
+    "description": "Everything you need to know before getting started.",
+    "stack": {
+      "question": "What's the tech stack?",
+      "answer": "Next.js 16 with the App Router, React 19, TypeScript strict mode, Tailwind CSS 4, shadcn/ui, Drizzle ORM, and better-auth. Every piece of business logic is inlined — no external packages for payment, email, storage, or AI."
+    },
+    "payment": {
+      "question": "Which payment providers are supported?",
+      "answer": "Stripe, PayPal, Creem, Alipay, and WeChat Pay out of the box. The PaymentManager abstraction makes it straightforward to add more providers by implementing a single interface."
+    },
+    "database": {
+      "question": "Which databases can I use?",
+      "answer": "Drizzle ORM handles PostgreSQL, MySQL, SQLite, Turso, and Cloudflare D1. Switch providers by editing DATABASE_PROVIDER in your .env — the schema templates and drizzle config adapt automatically."
+    },
+    "customize": {
+      "question": "How customizable is the landing page?",
+      "answer": "The src/blocks/ directory ships with demo sections — they're designed to be rewritten per project. The durable primitives live in src/components/, so your rebrand touches blocks and translations, not the chassis."
+    },
+    "license": {
+      "question": "Can I use this for commercial projects?",
+      "answer": "Yes. ShipAny Next is built for shipping production SaaS products. You own the code after cloning — no per-seat fees, no runtime dependencies on our infrastructure."
+    }
+  },
+  "cta": {
+    "headline": "Ready to ship your SaaS?",
+    "subheadline": "Stop wiring auth, payments, and RBAC from scratch. Start with ShipAny Next and build what actually makes your product unique.",
+    "button": "Get started for free"
+  },
   "footer": {
+    "tagline": "Ship faster, iterate smarter.",
+    "feature": "Feature",
     "product": "Product",
     "resources": "Resources",
     "legal": "Legal",
