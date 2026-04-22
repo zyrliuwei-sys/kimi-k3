@@ -16,8 +16,9 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
     const pageSize = Math.min(100, Math.max(1, parseInt(searchParams.get('pageSize') || '10')));
+    const search = searchParams.get('search') || undefined;
 
-    const { items, total } = await apikeys.list(session.user.id, page, pageSize);
+    const { items, total } = await apikeys.list(session.user.id, page, pageSize, search);
     return respPage(items, total);
   } catch (error: any) {
     return respErr(error.message || 'Failed to list API keys');

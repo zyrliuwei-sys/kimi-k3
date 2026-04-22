@@ -1,4 +1,4 @@
-import { eq, and, isNull, count } from 'drizzle-orm';
+import { eq, and, isNull, count, like, type SQL } from 'drizzle-orm';
 import { getUuid, getNonceStr } from '@/lib/hash';
 import { db } from '@/core/db';
 import { apikey } from '@/config/db/schema';
@@ -28,14 +28,23 @@ export async function create(params: {
 }
 
 /**
- * List active API keys for a user with pagination.
+ * List active API keys for a user with pagination and optional search on title.
  */
-export async function list(userId: string, page = 1, pageSize = 10) {
-  const where = and(
+export async function list(
+  userId: string,
+  page = 1,
+  pageSize = 10,
+  search?: string
+) {
+  const conditions: SQL[] = [
     eq(apikey.userId, userId),
     eq(apikey.status, 'active'),
-    isNull(apikey.deletedAt)
-  );
+    isNull(apikey.deletedAt) as unknown as SQL,
+  ];
+  if (search) {
+    conditions.push(like(apikey.title, `%${search}%`));
+  }
+  const where = and(...conditions);
 
   const [totalResult] = await db()
     .select({ count: count() })

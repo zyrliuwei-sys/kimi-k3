@@ -5,13 +5,7 @@ import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import { Copy, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -39,12 +33,15 @@ export default function ApiKeysPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
   const [newKeyName, setNewKeyName] = useState("");
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const fetchKeys = useCallback((p: number) => {
-    fetch(`/api/apikeys?page=${p}&pageSize=${PAGE_SIZE}`)
+  const fetchKeys = useCallback((p: number, s: string) => {
+    const params = new URLSearchParams({ page: String(p), pageSize: String(PAGE_SIZE) });
+    if (s) params.set("search", s);
+    fetch(`/api/apikeys?${params}`)
       .then((r) => r.json())
       .then((res) => {
         if (res.code === 0) {
@@ -55,8 +52,13 @@ export default function ApiKeysPage() {
   }, []);
 
   useEffect(() => {
-    fetchKeys(page);
-  }, [page, fetchKeys]);
+    const timer = setTimeout(() => fetchKeys(page, search), 300);
+    return () => clearTimeout(timer);
+  }, [page, search, fetchKeys]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
 
   async function handleCreate() {
     if (!newKeyName.trim()) return;
@@ -74,7 +76,7 @@ export default function ApiKeysPage() {
         toast.info(t("dashboard.apikeys.key_copied"));
         setOpen(false);
         setNewKeyName("");
-        fetchKeys(page);
+        fetchKeys(page, search);
       } else {
         toast.error(data.message);
       }
@@ -90,7 +92,7 @@ export default function ApiKeysPage() {
     const data = await res.json();
     if (data.code === 0) {
       toast.success(t("dashboard.apikeys.deleted"));
-      fetchKeys(page);
+      fetchKeys(page, search);
     }
   }
 
@@ -179,12 +181,6 @@ export default function ApiKeysPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{t("dashboard.apikeys.your_keys")}</CardTitle>
-          <CardDescription>
-            {t("dashboard.apikeys.your_keys_description")}
-          </CardDescription>
-        </CardHeader>
         <CardContent>
           <DataTable
             columns={columns}
@@ -195,6 +191,8 @@ export default function ApiKeysPage() {
             onPageChange={setPage}
             rowKey={(k) => k.id}
             emptyText={t("dashboard.apikeys.no_keys")}
+            search={search}
+            onSearchChange={setSearch}
           />
         </CardContent>
       </Card>

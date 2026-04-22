@@ -1,23 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { ExternalLink } from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { DataTable, type Column } from "@/components/data-table";
 import { cn } from "@/lib/utils";
 
 type Order = {
@@ -38,6 +26,8 @@ type Order = {
 const TABS = ["all", "one-time", "subscription", "renew"] as const;
 type Tab = (typeof TABS)[number];
 
+const PAGE_SIZE = 20;
+
 function formatAmount(amount: number, currency: string) {
   const normalized = (currency || "usd").toUpperCase();
   return new Intl.NumberFormat(undefined, {
@@ -56,23 +46,88 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
 export default function PaymentsPage() {
   const t = useTranslations("dashboard.payments");
   const [orders, setOrders] = useState<Order[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [total, setTotal] = useState(0);
   const [tab, setTab] = useState<Tab>("all");
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    fetch("/api/user/orders")
-      .then((r) => r.json())
-      .then((res) => {
-        if (res?.code === 0 && Array.isArray(res.data)) setOrders(res.data);
-        setLoaded(true);
-      })
-      .catch(() => setLoaded(true));
+  const fetchOrders = useCallback(async (p: number, tb: Tab, s: string) => {
+    const params = new URLSearchParams({
+      page: String(p),
+      pageSize: String(PAGE_SIZE),
+    });
+    if (tb !== "all") params.set("paymentType", tb);
+    if (s) params.set("search", s);
+    const res = await fetch(`/api/user/orders?${params}`).then((r) => r.json()).catch(() => null);
+    if (res?.code === 0) {
+      setOrders(res.data.items);
+      setTotal(res.data.total);
+    }
   }, []);
 
-  const filtered = useMemo(() => {
-    if (tab === "all") return orders;
-    return orders.filter((o) => (o.paymentType || "") === tab);
-  }, [orders, tab]);
+  useEffect(() => {
+    const timer = setTimeout(() => fetchOrders(page, tab, search), 300);
+    return () => clearTimeout(timer);
+  }, [page, tab, search, fetchOrders]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, search]);
+
+  const columns: Column<Order>[] = [
+    {
+      header: t("order_no"),
+      cell: (o) => <span className="font-mono text-xs">{o.orderNo}</span>,
+    },
+    {
+      header: t("product"),
+      cell: (o) => <span>{o.planName || o.productName || "—"}</span>,
+    },
+    {
+      header: t("amount"),
+      cell: (o) => (
+        <span className="font-medium">{formatAmount(o.amount, o.currency)}</span>
+      ),
+    },
+    {
+      header: t("status"),
+      cell: (o) => <Badge variant={statusVariant(o.status)}>{o.status}</Badge>,
+    },
+    {
+      header: t("type"),
+      cell: (o) => o.paymentType || "—",
+    },
+    {
+      header: t("provider"),
+      cell: (o) => <span className="capitalize">{o.paymentProvider}</span>,
+    },
+    {
+      header: t("date"),
+      cell: (o) => (
+        <span className="text-muted-foreground text-sm">
+          {new Date(o.paidAt || o.createdAt).toLocaleDateString()}
+        </span>
+      ),
+    },
+    {
+      header: t("invoice"),
+      className: "w-[60px]",
+      cell: (o) =>
+        o.invoiceUrl ? (
+          <a
+            href={o.invoiceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+            aria-label={t("invoice")}
+          >
+            <ExternalLink className="size-3.5" />
+          </a>
+        ) : (
+          <span className="text-muted-foreground">—</span>
+        ),
+    },
+  ];
 
   return (
     <div className="p-6 space-y-6">
@@ -99,64 +154,19 @@ export default function PaymentsPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{t("title")}</CardTitle>
-        </CardHeader>
         <CardContent>
-          {!loaded ? (
-            <p className="text-muted-foreground text-sm">…</p>
-          ) : filtered.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{t("no_payments")}</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("order_no")}</TableHead>
-                    <TableHead>{t("product")}</TableHead>
-                    <TableHead>{t("amount")}</TableHead>
-                    <TableHead>{t("status")}</TableHead>
-                    <TableHead>{t("type")}</TableHead>
-                    <TableHead>{t("provider")}</TableHead>
-                    <TableHead>{t("date")}</TableHead>
-                    <TableHead className="w-10" />
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((o) => (
-                    <TableRow key={o.id}>
-                      <TableCell className="font-mono text-xs">{o.orderNo}</TableCell>
-                      <TableCell>{o.planName || o.productName || "—"}</TableCell>
-                      <TableCell className="font-medium">
-                        {formatAmount(o.amount, o.currency)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariant(o.status)}>{o.status}</Badge>
-                      </TableCell>
-                      <TableCell>{o.paymentType || "—"}</TableCell>
-                      <TableCell className="capitalize">{o.paymentProvider}</TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {new Date(o.paidAt || o.createdAt).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        {o.invoiceUrl ? (
-                          <a
-                            href={o.invoiceUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
-                            aria-label={t("invoice")}
-                          >
-                            <ExternalLink className="size-3.5" />
-                          </a>
-                        ) : null}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+          <DataTable
+            columns={columns}
+            data={orders}
+            total={total}
+            page={page}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            rowKey={(o) => o.id}
+            emptyText={t("no_payments")}
+            search={search}
+            onSearchChange={setSearch}
+          />
         </CardContent>
       </Card>
     </div>

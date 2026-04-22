@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Coins } from "lucide-react";
 import { Link } from "@/core/i18n/navigation";
@@ -12,14 +12,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { DataTable, type Column } from "@/components/data-table";
 import { cn } from "@/lib/utils";
 
 type CreditRow = {
@@ -38,30 +31,113 @@ type CreditRow = {
 const TABS = ["all", "grant", "consume"] as const;
 type Tab = (typeof TABS)[number];
 
+const PAGE_SIZE = 20;
+
 export default function CreditsPage() {
   const t = useTranslations("dashboard.credits");
   const [balance, setBalance] = useState<number | null>(null);
-  const [history, setHistory] = useState<CreditRow[]>([]);
-  const [loaded, setLoaded] = useState(false);
+  const [balanceLoaded, setBalanceLoaded] = useState(false);
+  const [rows, setRows] = useState<CreditRow[]>([]);
+  const [total, setTotal] = useState(0);
   const [tab, setTab] = useState<Tab>("all");
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     fetch("/api/credits")
       .then((r) => r.json())
       .then((res) => {
-        if (res?.code === 0) {
-          setBalance(res.data.balance);
-          if (Array.isArray(res.data.history)) setHistory(res.data.history);
-        }
-        setLoaded(true);
+        if (res?.code === 0) setBalance(res.data.balance);
+        setBalanceLoaded(true);
       })
-      .catch(() => setLoaded(true));
+      .catch(() => setBalanceLoaded(true));
   }, []);
 
-  const filtered = useMemo(() => {
-    if (tab === "all") return history;
-    return history.filter((r) => r.transactionType === tab);
-  }, [history, tab]);
+  const fetchCredits = useCallback(async (p: number, tb: Tab, s: string) => {
+    const params = new URLSearchParams({
+      page: String(p),
+      pageSize: String(PAGE_SIZE),
+    });
+    if (tb !== "all") params.set("transactionType", tb);
+    if (s) params.set("search", s);
+    const res = await fetch(`/api/user/credits?${params}`).then((r) => r.json()).catch(() => null);
+    if (res?.code === 0) {
+      setRows(res.data.items);
+      setTotal(res.data.total);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => fetchCredits(page, tab, search), 300);
+    return () => clearTimeout(timer);
+  }, [page, tab, search, fetchCredits]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [tab, search]);
+
+  const columns: Column<CreditRow>[] = [
+    {
+      header: t("transaction_no"),
+      cell: (r) => <span className="font-mono text-xs">{r.transactionNo}</span>,
+    },
+    {
+      header: t("description_col"),
+      cell: (r) => <span>{r.description || "—"}</span>,
+    },
+    {
+      header: t("type"),
+      cell: (r) => (
+        <Badge variant={r.transactionType === "consume" ? "secondary" : "default"}>
+          {r.transactionType}
+        </Badge>
+      ),
+    },
+    {
+      header: t("scene"),
+      cell: (r) => r.transactionScene || "—",
+    },
+    {
+      header: t("credits"),
+      className: "text-right",
+      cell: (r) => (
+        <span
+          className={cn(
+            "font-medium tabular-nums",
+            r.transactionType === "consume" && "text-muted-foreground",
+          )}
+        >
+          {r.transactionType === "consume" ? "-" : "+"}
+          {r.credits}
+        </span>
+      ),
+    },
+    {
+      header: t("remaining"),
+      className: "text-right",
+      cell: (r) => (
+        <span className="text-sm text-muted-foreground tabular-nums">
+          {r.remainingCredits}
+        </span>
+      ),
+    },
+    {
+      header: t("expires_at"),
+      cell: (r) => (
+        <span className="text-sm text-muted-foreground">
+          {r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : "—"}
+        </span>
+      ),
+    },
+    {
+      header: t("date"),
+      cell: (r) => (
+        <span className="text-sm text-muted-foreground">
+          {new Date(r.createdAt).toLocaleDateString()}
+        </span>
+      ),
+    },
+  ];
 
   return (
     <div className="p-6 space-y-6">
@@ -84,7 +160,7 @@ export default function CreditsPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <p className="text-3xl font-bold">{loaded ? balance ?? 0 : "…"}</p>
+          <p className="text-3xl font-bold">{balanceLoaded ? balance ?? 0 : "…"}</p>
         </CardContent>
       </Card>
 
@@ -107,58 +183,18 @@ export default function CreditsPage() {
 
       <Card>
         <CardContent>
-          {!loaded ? (
-            <p className="text-muted-foreground text-sm">…</p>
-          ) : filtered.length === 0 ? (
-            <p className="text-muted-foreground text-sm">{t("no_records")}</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("transaction_no")}</TableHead>
-                    <TableHead>{t("description_col")}</TableHead>
-                    <TableHead>{t("type")}</TableHead>
-                    <TableHead>{t("scene")}</TableHead>
-                    <TableHead className="text-right">{t("credits")}</TableHead>
-                    <TableHead className="text-right">{t("remaining")}</TableHead>
-                    <TableHead>{t("expires_at")}</TableHead>
-                    <TableHead>{t("date")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filtered.map((r) => {
-                    const isConsume = r.transactionType === "consume";
-                    return (
-                      <TableRow key={r.id}>
-                        <TableCell className="font-mono text-xs">{r.transactionNo}</TableCell>
-                        <TableCell>{r.description || "—"}</TableCell>
-                        <TableCell>
-                          <Badge variant={isConsume ? "secondary" : "default"}>
-                            {r.transactionType}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{r.transactionScene || "—"}</TableCell>
-                        <TableCell className={cn("text-right font-medium", isConsume && "text-muted-foreground")}>
-                          {isConsume ? "-" : "+"}
-                          {r.credits}
-                        </TableCell>
-                        <TableCell className="text-right text-sm text-muted-foreground">
-                          {r.remainingCredits}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {r.expiresAt ? new Date(r.expiresAt).toLocaleDateString() : "—"}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {new Date(r.createdAt).toLocaleDateString()}
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </Table>
-            </div>
-          )}
+          <DataTable
+            columns={columns}
+            data={rows}
+            total={total}
+            page={page}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+            rowKey={(r) => r.id}
+            emptyText={t("no_records")}
+            search={search}
+            onSearchChange={setSearch}
+          />
         </CardContent>
       </Card>
     </div>
