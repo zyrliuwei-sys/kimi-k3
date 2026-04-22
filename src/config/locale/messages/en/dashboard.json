@@ -6,6 +6,8 @@
     "overview": "Overview",
     "settings": "Settings",
     "billing": "Billing",
+    "payments": "Payments",
+    "credits": "Credits",
     "apikeys": "API Keys"
   },
   "settings": {
@@ -38,6 +40,41 @@
     "order_no": "Order",
     "amount": "Amount",
     "provider": "Provider",
+    "date": "Date"
+  },
+  "payments": {
+    "title": "Payments",
+    "description": "Your payment history",
+    "tab_all": "All",
+    "tab_one_time": "One-time",
+    "tab_subscription": "Subscription",
+    "tab_renew": "Renewal",
+    "no_payments": "No payments yet",
+    "order_no": "Order",
+    "product": "Product",
+    "amount": "Amount",
+    "status": "Status",
+    "type": "Type",
+    "provider": "Provider",
+    "date": "Date",
+    "invoice": "Invoice"
+  },
+  "credits": {
+    "title": "Credits",
+    "description": "Your credits balance and history",
+    "balance": "Balance",
+    "purchase": "Purchase Credits",
+    "tab_all": "All",
+    "tab_grant": "Grant",
+    "tab_consume": "Consume",
+    "no_records": "No credit records yet",
+    "transaction_no": "Transaction",
+    "type": "Type",
+    "scene": "Scene",
+    "credits": "Credits",
+    "remaining": "Remaining",
+    "description_col": "Description",
+    "expires_at": "Expires",
     "date": "Date"
   },
   "apikeys": {

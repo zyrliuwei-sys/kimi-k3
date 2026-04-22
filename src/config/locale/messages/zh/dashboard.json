@@ -6,6 +6,8 @@
     "overview": "概览",
     "settings": "设置",
     "billing": "账单",
+    "payments": "付款记录",
+    "credits": "额度明细",
     "apikeys": "API 密钥"
   },
   "settings": {
@@ -38,6 +40,41 @@
     "order_no": "订单号",
     "amount": "金额",
     "provider": "支付方式",
+    "date": "日期"
+  },
+  "payments": {
+    "title": "付款记录",
+    "description": "你的付款历史",
+    "tab_all": "全部",
+    "tab_one_time": "单次购买",
+    "tab_subscription": "订阅",
+    "tab_renew": "续订",
+    "no_payments": "暂无付款记录",
+    "order_no": "订单号",
+    "product": "商品",
+    "amount": "金额",
+    "status": "状态",
+    "type": "类型",
+    "provider": "支付方式",
+    "date": "日期",
+    "invoice": "发票"
+  },
+  "credits": {
+    "title": "额度明细",
+    "description": "你的额度余额和变动记录",
+    "balance": "余额",
+    "purchase": "购买额度",
+    "tab_all": "全部",
+    "tab_grant": "获得",
+    "tab_consume": "消耗",
+    "no_records": "暂无额度记录",
+    "transaction_no": "流水号",
+    "type": "类型",
+    "scene": "场景",
+    "credits": "额度",
+    "remaining": "剩余",
+    "description_col": "说明",
+    "expires_at": "过期时间",
     "date": "日期"
   },
   "apikeys": {

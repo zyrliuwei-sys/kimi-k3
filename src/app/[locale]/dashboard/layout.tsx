@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslations } from "next-intl";
-import { LayoutDashboard, Settings, CreditCard, Key } from "lucide-react";
+import { LayoutDashboard, Settings, CreditCard, Key, Receipt, Coins } from "lucide-react";
 import { envConfigs } from "@/config";
 import { AppLayout } from "@/components/app-layout";
 
@@ -15,6 +15,8 @@ export default function DashboardLayout({
   const navItems = [
     { href: "/dashboard", label: t("dashboard.nav.overview"), icon: LayoutDashboard },
     { href: "/dashboard/billing", label: t("dashboard.nav.billing"), icon: CreditCard },
+    { href: "/dashboard/payments", label: t("dashboard.nav.payments"), icon: Receipt },
+    { href: "/dashboard/credits", label: t("dashboard.nav.credits"), icon: Coins },
     { href: "/dashboard/apikeys", label: t("dashboard.nav.apikeys"), icon: Key },
   ];
 
