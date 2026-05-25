@@ -3,6 +3,7 @@ import { Inter, Libre_Baskerville, Noto_Serif_SC } from "next/font/google";
 import { getLocale } from "next-intl/server";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "@/components/ui/sonner";
+import { GoogleOneTap } from "@/components/google-one-tap";
 import { envConfigs } from "@/config";
 import { locales } from "@/config/locale";
 import "./globals.css";
@@ -57,6 +58,7 @@ export default async function RootLayout({
         >
           {children}
           <Toaster position="top-center" richColors />
+          <GoogleOneTap />
         </ThemeProvider>
       </body>
     </html>

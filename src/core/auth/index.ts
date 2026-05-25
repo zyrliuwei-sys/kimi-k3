@@ -1,5 +1,6 @@
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
+import { oneTap } from 'better-auth/plugins';
 import { getUuid } from '@/lib/hash';
 
 import { db } from '@/core/db';
@@ -43,7 +44,7 @@ function getDatabaseProvider(provider: string): 'sqlite' | 'pg' | 'mysql' {
 }
 
 let authInstance: any;
-let socialConfigsLoaded = false;
+let socialConfigsSignature = '';
 let emailEnabledLoaded = true;
 let emailVerificationEnabledLoaded = false;
 
@@ -67,14 +68,35 @@ function getSocialProviders(configs: Record<string, string>) {
   return providers;
 }
 
+function getSocialSignature(configs: Record<string, string>) {
+  return [
+    configs.google_client_id || '',
+    configs.google_client_secret || '',
+    configs.github_client_id || '',
+    configs.github_client_secret || '',
+    // Including the one-tap flag here so toggling it without changing
+    // credentials still rebuilds authInstance (which owns the plugin list).
+    configs.google_one_tap_enabled || '',
+  ].join('|');
+}
+
+function getAuthPlugins(configs: Record<string, string> | undefined) {
+  if (!configs) return [];
+  const plugins: any[] = [];
+  if (configs.google_client_id && configs.google_one_tap_enabled === 'true') {
+    plugins.push(oneTap());
+  }
+  return plugins;
+}
+
 export function getAuth(configs?: Record<string, string>) {
   assertProductionAuthSecret();
-  // Rebuild if social configs just became available
-  if (configs && !socialConfigsLoaded) {
-    const social = getSocialProviders(configs);
-    if (Object.keys(social).length > 0) {
+  // Rebuild if any social provider credential changed
+  if (configs) {
+    const nextSignature = getSocialSignature(configs);
+    if (nextSignature !== socialConfigsSignature) {
       authInstance = null;
-      socialConfigsLoaded = true;
+      socialConfigsSignature = nextSignature;
     }
   }
 
@@ -127,6 +149,7 @@ export function getAuth(configs?: Record<string, string>) {
       schema,
     }),
     socialProviders,
+    plugins: getAuthPlugins(configs),
     user: {
       additionalFields: {
         utmSource: { type: 'string', input: false, required: false, defaultValue: '' },

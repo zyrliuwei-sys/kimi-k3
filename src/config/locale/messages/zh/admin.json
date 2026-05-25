@@ -338,6 +338,7 @@
       "email_auth_enabled": "启用邮箱认证",
       "email_verification_enabled": "注册时需要邮箱验证",
       "google_auth_enabled": "启用 Google 认证",
+      "google_one_tap_enabled": "启用 Google One Tap",
       "google_client_id": "客户端 ID",
       "google_client_secret": "客户端密钥",
       "github_auth_enabled": "启用 GitHub 认证",

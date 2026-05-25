@@ -338,6 +338,7 @@
       "email_auth_enabled": "Enable email auth",
       "email_verification_enabled": "Require email verification on sign up",
       "google_auth_enabled": "Enable Google auth",
+      "google_one_tap_enabled": "Enable Google One Tap",
       "google_client_id": "Client ID",
       "google_client_secret": "Client Secret",
       "github_auth_enabled": "Enable GitHub auth",

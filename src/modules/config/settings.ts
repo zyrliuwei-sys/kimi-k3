@@ -97,6 +97,7 @@ export function getSettings(): Setting[] {
 
     // ─── Auth / Google ───────────────────────────────────────────────
     { name: 'google_auth_enabled', title: 'Enable Google auth', type: 'switch', group: 'google_auth', tab: 'auth' },
+    { name: 'google_one_tap_enabled', title: 'Enable Google One Tap', type: 'switch', group: 'google_auth', tab: 'auth', tip: 'Show the Google One Tap prompt to signed-out visitors. Requires Client ID.' },
     { name: 'google_client_id', title: 'Client ID', type: 'text', placeholder: 'xxx.apps.googleusercontent.com', group: 'google_auth', tab: 'auth' },
     { name: 'google_client_secret', title: 'Client Secret', type: 'password', placeholder: 'GOCSPX-xxx', group: 'google_auth', tab: 'auth' },
 

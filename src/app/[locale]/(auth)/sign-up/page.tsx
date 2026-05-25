@@ -136,7 +136,7 @@ export default function SignUpPage() {
   }
 
   async function handleSocial(provider: "google" | "github") {
-    await signIn.social({ provider, callbackURL: "/settings" });
+    await signIn.social({ provider, callbackURL: afterLoginUrl });
   }
 
   return (

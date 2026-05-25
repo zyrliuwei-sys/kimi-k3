@@ -4,6 +4,8 @@ import { getAllConfigs, filterPublicConfigs } from '@/modules/config/service';
 const publicKeys = [
   'email_auth_enabled',
   'google_auth_enabled',
+  'google_one_tap_enabled',
+  'google_client_id',
   'github_auth_enabled',
   'invite_code_required',
   'select_payment_enabled',
