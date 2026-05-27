@@ -7,7 +7,11 @@ user-invocable: true
 
 # Quick Start — $ARGUMENTS
 
-You are building a complete SaaS project. Parse the user's input to determine which mode to run:
+You are building a complete SaaS project. Parse the user's input to determine which mode to run.
+
+## Read First: design-taste
+
+**Before generating ANY landing page, hero, feature block, or marketing surface, read `.claude/skills/design-taste/SKILL.md` once.** It encodes the anti-slop rules that make output not look templated: typography defaults, color discipline, the em-dash ban, banned AI tells (V0.6 hero pills, fake `<div>` product UI, three equal feature cards, generic names, scroll cues), and the Pre-Flight Check. The rules apply for the whole session — load them up front, then proceed.
 
 ## Input Parsing
 
@@ -256,8 +260,9 @@ Connect landing page elements to modules:
 1. **Test at 3 viewports** — 1440px, 768px, 390px
 2. For Mode A/B: already handled by `/clone-website` visual QA
 3. For Mode C: ensure mobile-first responsive design
-4. **Scroll animations** — add `IntersectionObserver`-based fade-in for sections
-5. Verify: `pnpm build`
+4. **Scroll animations** — add `IntersectionObserver`-based fade-in for sections (Motion `whileInView`, or pure CSS for reduced-motion compliance)
+5. **Run the design-taste Pre-Flight Check** (Section 12 of `.claude/skills/design-taste/SKILL.md`). Walk every box. The em-dash audit is the most-violated — search the whole page output for `—` and `–` and replace before declaring done.
+6. Verify: `pnpm build`
 
 ---
 

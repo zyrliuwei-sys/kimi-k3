@@ -9,6 +9,8 @@ user-invocable: true
 
 You are about to reverse-engineer and rebuild **$ARGUMENTS** as pixel-perfect clones.
 
+> **Taste guard during content replacement (Phase 6):** when the user provides a content brief and you swap the cloned site's text, the original visual frame stays — but the *new copy* must pass the anti-slop bar. Read `.claude/skills/design-taste/SKILL.md` sections 8.1 (em-dash ban) and 8.4 (Jane Doe content — no generic names / fake-perfect numbers / startup-slop brand names like Acme/Nexus/SmartFlow / filler verbs like Elevate/Seamless/Unleash) before writing replacement copy. For pure 1:1 clones (no content brief), preserve the original copy verbatim — taste rules don't override fidelity.
+
 When multiple URLs are provided, process them independently and in parallel where possible, while keeping each site's extraction artifacts isolated in dedicated folders (for example, `docs/research/<hostname>/`).
 
 This is not a two-phase process (inspect then build). You are a **foreman walking the job site** — as you inspect each section of the page, you write a detailed specification to a file, then hand that file to a specialist builder agent with everything they need. Extraction and construction happen in parallel, but extraction is meticulous and produces auditable artifacts.

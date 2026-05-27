@@ -9,6 +9,8 @@ user-invocable: true
 
 Create a static MDX content page based on the user's description.
 
+> **Taste guard:** static pages are body copy with a heading hierarchy — typography and language discipline matter more than layout. Before writing the MDX, skim `.claude/skills/design-taste/SKILL.md` sections 4 (Typography), 8.1 (**em-dash ban — zero `—` or `–` anywhere visible**), and 8.4 (Jane Doe content — no generic example names, fake addresses, or placeholder dates). For an "About" page specifically, also apply sections 5 (Color) and 11 (Reference Vocabulary) if you compose any custom blocks beyond plain prose.
+
 ## Step 1: Determine Page Details
 
 From "$ARGUMENTS", figure out:

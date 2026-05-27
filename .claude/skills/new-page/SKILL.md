@@ -9,6 +9,8 @@ user-invocable: true
 
 Create a new dashboard page based on the user's description.
 
+> **Note:** Dashboard pages prioritise legibility over expression. The taste rules in `.claude/skills/design-taste/SKILL.md` still apply to typography, spacing, color, and the em-dash ban — but the layout vocabulary for dashboards (predictable cards, semantic shadcn tokens, single accent) is intentionally conservative. Skim design-taste sections 4 (Typography), 5 (Color), 8.1 (Em-dash ban), and 8.4 (Jane Doe content) before writing any user-facing strings.
+
 ## Step 1: Determine Page Requirements
 
 From "$ARGUMENTS", figure out:
