@@ -1,13 +1,42 @@
 ---
 name: sync-upstream
-description: Pull the latest ShipAny Next template changes from the upstream repo (git@github.com:shipany-ai/shipany-tanstack) into this project, preferring the project's own changes when they conflict. Use when the user asks to "update from upstream", "sync the template", "拉取上游更新", "更新模板", or wants the newest ShipAny features in an existing project.
+description: Port the latest ShipAny Next template changes from the upstream repo (git@github.com:shipany-ai/shipany-next, dev branch) into this TanStack Start repo, adapting framework-coupled code (next-intl→paraglide, app router→file routes) along the way. Use when the user asks to "update from upstream", "sync the template", "拉取上游更新", "更新模板", or wants the newest ShipAny features in shipany-tanstack.
 ---
 
-# Sync Upstream
+# Sync Upstream (shipany-tanstack ← shipany-next)
 
-Merge the latest template improvements from `shipany-ai/shipany-tanstack` into this
-project. Local changes always win on conflict — the project's blocks, pages, and
-customizations are the product; upstream provides engine updates.
+Port the latest features from `shipany-ai/shipany-next` (the Next.js edition,
+`dev` branch) into this TanStack Start repo. **This is a port-based sync, not a
+git merge** — the framework layer was replaced wholesale (Next.js → TanStack
+Start, next-intl → paraglide), so upstream commits are re-applied selectively
+and adapted. This repo has zero merge commits by design; keep it that way.
+
+Topology note: shipany-next is the hub. shipany-vinext syncs from it too, but
+its Vite/CF layer (the `vinext` CLI) is Next-specific — nothing in vinext is a
+source for this repo. Workers fixes that first land in vinext get re-implemented
+in shipany-next, then arrive here through this skill.
+
+## Layer map (decides what to do with each upstream change)
+
+| Upstream path | Action |
+|---|---|
+| `src/modules/`, `src/lib/`, `src/core/{payment,email,storage,ai,auth(server logic)}` | **Port near-verbatim** — shared business layer, same paths here |
+| `src/config/` (schema templates, locale message JSON) | **Port**; locale JSON keys feed paraglide instead of next-intl — keep key parity |
+| `src/core/db/` | **Port logic, keep local wiring** — `driver-stub.ts`, `cloudflare:workers` imports, and vite.config driver-stub list are this repo's adaptations |
+| `src/blocks/`, `src/components/` | **Port + adapt imports** (see adaptation table) |
+| `src/app/**` (pages, layouts, API routes) | **Re-implement** in `src/routes/` — no 1:1 file mapping |
+| `src/core/i18n/` | **Skip** — this repo's paraglide implementation keeps the same import surface (`@/core/i18n/navigation`); only port new exported helpers by re-implementing |
+| `next.config.ts`, middleware, Next-only deps | **Skip** |
+| `AGENTS.md`, `README.md`, skills | **Skip**; port new sections manually if relevant |
+
+## Adaptation table (Next.js → this repo)
+
+- `next-intl` `getTranslations`/`useTranslations` → paraglide messages (`@/paraglide/messages`)
+- `next/link`, `@/core/i18n/navigation` Link → this repo's `@/core/i18n/navigation` (same path, TanStack Router underneath — usually no edit needed)
+- `next/headers`, server components → route loaders / server functions
+- `src/app/api/<x>/route.ts` → `src/routes/api/<x>.ts` (keep `respData`/`respErr`)
+- `next/image` → `<img>` (no Image component here)
+- Node-only APIs in request paths → Workers-compatible alternative (cf:build must pass)
 
 ## Workflow
 
@@ -15,100 +44,95 @@ customizations are the product; upstream provides engine updates.
 
 ```bash
 git status --porcelain       # must be empty — ask the user to commit/stash first
-git remote get-url origin
-```
-
-- If `origin` already points at `shipany-ai/shipany-tanstack`, this IS the template
-  repo — there is no upstream to sync. Just `git pull origin main` and stop.
-- Working tree dirty → stop and ask the user to commit or stash.
-
-### 2. Ensure the upstream remote
-
-```bash
 git remote get-url upstream 2>/dev/null \
-  || git remote add upstream git@github.com:shipany-ai/shipany-tanstack.git
-git fetch upstream main
+  || git remote add upstream git@github.com:shipany-ai/shipany-next.git
+git fetch upstream dev
 ```
 
-If the SSH fetch fails (no key configured), switch to HTTPS and retry:
+If the SSH fetch fails, switch to HTTPS (`https://github.com/shipany-ai/shipany-next.git`) and retry.
+
+### 2. Find the porting baseline
+
+Port commits record the upstream SHA they covered in an `Upstream-sync:` trailer:
 
 ```bash
-git remote set-url upstream https://github.com/shipany-ai/shipany-tanstack.git
-git fetch upstream main
+git log --grep '^Upstream-sync:' -1 --format=%B | grep '^Upstream-sync:'
 ```
 
-### 3. Preview what's incoming
+- Found → baseline is that SHA.
+- Not found (older port commits predate this convention) → bootstrap baseline:
+  upstream `8dbc80d` (everything up to and including the Workers auth/db
+  per-request fix was ported as of 2026-06-06).
+
+### 3. Review what's incoming
 
 ```bash
-git log --oneline HEAD..upstream/main
+git log --oneline --reverse <baseline>..upstream/dev
 ```
 
 - Empty → already up to date; report and stop.
-- Otherwise show the user the incoming commits before merging.
+- Otherwise show the user the commit list and classify each against the layer
+  map before touching anything.
 
-### 4. Merge, preferring local changes
+### 4. Port commit-by-commit (in upstream order)
 
-Run a plain merge first so conflicts are *visible* (don't use `-X ours` blindly —
-it silently discards upstream hunks with no record of where):
-
-```bash
-git merge upstream/main --no-edit
-```
-
-If the project was started from a copy instead of a clone (no shared history),
-add `--allow-unrelated-histories`.
-
-On conflict, resolve every conflicted path in favor of the local version and
-record the list for the report:
+For each incoming commit:
 
 ```bash
-git diff --name-only --diff-filter=U          # the conflict list — save it
-git checkout --ours -- <each conflicted file> # keep local content
-git rm <file>                                 # for files deleted locally ("deleted by us")
-git add -A && git commit --no-edit
+git show <sha> --stat                  # what it touches
+git show <sha> -- <shared paths>       # the actual diff
 ```
 
-Special cases:
-- **`pnpm-lock.yaml` conflicts** — don't hand-resolve: take either side, then let
-  `pnpm install` regenerate it in step 5.
-- **Translation JSON conflicts** (`messages/{en,zh}.json`) — prefer local, but
-  check the upstream side for NEW keys (added features need them); merge new
-  keys in manually.
+- **Shared-layer files** (modules/lib/core business): try
+  `git cherry-pick -n <sha>` then unstage/discard the skipped paths; or apply
+  the diff manually if the cherry-pick drags in framework files.
+- **Adapt-layer files** (blocks/components): apply, then walk the adaptation
+  table over the new code.
+- **Re-implement-layer** (`src/app/**`): read the upstream change, write the
+  equivalent in `src/routes/`.
+- **Schema templates changed?** `schema.ts` is the gitignored working copy — do
+  NOT run `db:setup` over it. Port new columns/tables into `schema.ts` manually,
+  then `pnpm db:push` (dev) or generate a migration.
+- **New env vars?** Check upstream's `.env.example` diff; mirror into this
+  repo's `.env.example` and tell the user what to add to `.env.development`
+  and (server-side) `wrangler.jsonc`.
 
-### 5. Post-merge integration
+Group the ported changes into one or a few commits, message style:
+`feat: port upstream shipany-next features (<summary>)`, ending with the trailer:
+
+```
+Upstream-sync: <newest upstream sha covered>
+```
+
+### 5. Verify
 
 ```bash
-pnpm install                 # lockfile / new dependencies
+pnpm install                 # if deps changed
+pnpm build                   # Node/Nitro build must pass
+pnpm cf:build                # Workers bundle must build too
 ```
 
-- **Schema templates changed?** (`git diff HEAD@{1} -- src/config/db/schema.*.ts`)
-  `schema.ts` is the user's gitignored working copy — do NOT run `db:setup` over
-  it (that would clobber custom tables). Port the template's new columns/tables
-  into `schema.ts` manually, then `pnpm db:push` (dev) or generate a migration.
-- **New env vars?** Check `.env.example` diff; tell the user what to add to
-  `.env.development`.
-
-```bash
-pnpm build                   # must pass before reporting success
-```
-
-If the build fails because a kept-local file references a changed upstream API,
-fix forward (adapt the local file) — do not re-introduce the upstream version
-wholesale.
+Quick smoke via `pnpm dev`: homepage + one DB-backed API route.
 
 ### 6. Report
 
-- Incoming commits (count + notable features)
-- Files merged cleanly vs. conflicts kept-local (the saved list from step 4)
+- Incoming commits (count + notable features) and how each was classified
+- Adaptations made (per the adaptation table)
+- Anything deliberately skipped and why
 - Schema/env follow-ups the user must do
-- Build status
+- Build status (both builds)
 
-Do NOT push — let the user review the merge first.
+Do NOT push — let the user review first.
 
 ## Rules
 
-1. **Local wins.** Never let upstream overwrite a file the project customized —
-   `blocks/`, route pages, translations, and branding are always the user's.
-2. **Conflicts must be visible.** Plain merge + per-file `--ours`, never `-X ours`.
-3. **Never touch `schema.ts` automatically** — it's the user's working copy.
-4. **`pnpm build` must pass** before declaring the sync done.
+1. **Never `git merge upstream/dev`** — the framework layers diverged; a merge
+   would replay months of Next.js-only history as conflicts.
+2. **The layer map decides** what is ported, adapted, re-implemented, or skipped.
+3. **Record the `Upstream-sync:` trailer** on every port commit — it is the
+   baseline for the next run.
+4. **Never touch `schema.ts` automatically** — it's the user's working copy.
+5. **Never push commits back to upstream** — shared fixes (including Workers
+   fixes discovered here or in shipany-vinext) are re-implemented in
+   shipany-next first.
+6. **Both `pnpm build` and `pnpm cf:build` must pass** before declaring done.
