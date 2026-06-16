@@ -38,6 +38,7 @@ export function getSettingTabs(): SettingTab[] {
     { name: 'storage', title: 'Storage' },
     { name: 'ai', title: 'AI' },
     { name: 'analytics', title: 'Analytics' },
+    { name: 'customer_service', title: 'Customer Service' },
     { name: 'custom', title: 'Custom' },
   ];
 }
@@ -183,6 +184,20 @@ export function getSettingGroups(): SettingGroup[] {
       title: 'Plausible',
       description: 'Inject plausible.js for self-hosted or cloud Plausible',
       tab: 'analytics',
+    },
+
+    // Customer Service
+    {
+      name: 'crisp',
+      title: 'Crisp',
+      description: 'Crisp live chat widget',
+      tab: 'customer_service',
+    },
+    {
+      name: 'tawk',
+      title: 'Tawk.to',
+      description: 'Tawk.to live chat widget',
+      tab: 'customer_service',
     },
   ];
 }
@@ -820,6 +835,48 @@ export function getSettings(): Setting[] {
       tip: 'Use https://plausible.io/js/script.js for cloud, or your self-hosted URL',
       group: 'plausible',
       tab: 'analytics',
+    },
+
+    // ─── Customer Service / Crisp ───────────────────────────────────
+    {
+      name: 'crisp_enabled',
+      title: 'Enable Crisp',
+      type: 'switch',
+      group: 'crisp',
+      tab: 'customer_service',
+    },
+    {
+      name: 'crisp_website_id',
+      title: 'Website ID',
+      type: 'text',
+      placeholder: 'xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx',
+      group: 'crisp',
+      tab: 'customer_service',
+    },
+
+    // ─── Customer Service / Tawk.to ─────────────────────────────────
+    {
+      name: 'tawk_enabled',
+      title: 'Enable Tawk.to',
+      type: 'switch',
+      group: 'tawk',
+      tab: 'customer_service',
+    },
+    {
+      name: 'tawk_property_id',
+      title: 'Property ID',
+      type: 'text',
+      placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxx',
+      group: 'tawk',
+      tab: 'customer_service',
+    },
+    {
+      name: 'tawk_widget_id',
+      title: 'Widget ID',
+      type: 'text',
+      placeholder: '1xxxxx/default',
+      group: 'tawk',
+      tab: 'customer_service',
     },
   ];
 }

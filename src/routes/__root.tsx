@@ -17,6 +17,7 @@ import { getQueryClient } from '@/lib/query-client';
 import { getLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
 import { GoogleAnalytics } from '@/components/analytics/google-analytics';
 import { Plausible } from '@/components/analytics/plausible';
+import { CustomerService } from '@/components/customer-service';
 import { GoogleOneTap } from '@/components/google-one-tap';
 import { Toaster } from '@/components/ui/sonner';
 
@@ -35,6 +36,18 @@ const getAnalyticsConfigs = createServerFn().handler(async () => {
     gaId: configs.google_analytics_id?.trim() || '',
     plausibleDomain: configs.plausible_domain?.trim() || '',
     plausibleSrc: configs.plausible_src?.trim() || '',
+    crispWebsiteId:
+      configs.crisp_enabled === 'true'
+        ? configs.crisp_website_id?.trim() || ''
+        : '',
+    tawkPropertyId:
+      configs.tawk_enabled === 'true'
+        ? configs.tawk_property_id?.trim() || ''
+        : '',
+    tawkWidgetId:
+      configs.tawk_enabled === 'true'
+        ? configs.tawk_widget_id?.trim() || ''
+        : '',
   };
 });
 
@@ -97,6 +110,11 @@ function RootComponent() {
             src={analytics.plausibleSrc || undefined}
           />
         ) : null}
+        <CustomerService
+          crispWebsiteId={analytics?.crispWebsiteId || undefined}
+          tawkPropertyId={analytics?.tawkPropertyId || undefined}
+          tawkWidgetId={analytics?.tawkWidgetId || undefined}
+        />
       </ThemeProvider>
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
