@@ -1,6 +1,5 @@
 import { ArrowRight } from 'lucide-react';
 
-import { Link } from '@/core/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { buttonVariants } from '@/components/ui/button';
@@ -17,8 +16,10 @@ export function CTA() {
             {m['landing.cta.subheadline']()}
           </p>
           <div className="mt-8 flex justify-center">
-            <Link
-              href="/settings"
+            <a
+              href="https://www.kimi.com/"
+              target="_blank"
+              rel="noopener noreferrer"
               className={cn(
                 buttonVariants({ size: 'lg' }),
                 'h-12 gap-2 rounded-full px-8'
@@ -26,7 +27,7 @@ export function CTA() {
             >
               {m['landing.cta.button']()}
               <ArrowRight className="size-4" />
-            </Link>
+            </a>
           </div>
         </div>
       </div>

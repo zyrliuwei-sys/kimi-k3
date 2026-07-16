@@ -33,8 +33,10 @@ export function Hero() {
           </p>
 
           <div className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <Link
-              href="/sign-up"
+            <a
+              href="https://www.kimi.com/"
+              target="_blank"
+              rel="noopener noreferrer"
               className={cn(
                 buttonVariants({ size: 'lg' }),
                 'h-12 gap-2 rounded-full px-7 text-[15px]'
@@ -42,7 +44,7 @@ export function Hero() {
             >
               {m['landing.hero.cta']()}
               <ArrowRight className="size-4" />
-            </Link>
+            </a>
             <Link
               href="/#features"
               className={cn(
