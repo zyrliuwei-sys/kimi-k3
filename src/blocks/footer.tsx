@@ -3,7 +3,6 @@ import { ArrowRight } from 'lucide-react';
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
-import { BuiltWithShipAny } from '@/components/built-with-shipany';
 import { LocaleSelector } from '@/components/locale-selector';
 
 interface FooterLink {
@@ -94,8 +93,7 @@ export function Footer() {
         </div>
 
         <div className="mt-14 flex flex-col gap-4 border-t border-neutral-800 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <BuiltWithShipAny />
-          <span className="order-first text-sm text-neutral-500 sm:order-none">
+          <span className="text-sm text-neutral-500">
             © {new Date().getFullYear()} {envConfigs.app_name}.{' '}
             {m['landing.footer.rights']()}
           </span>

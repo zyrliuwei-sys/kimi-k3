@@ -343,7 +343,7 @@ async function testR2(
   );
   const key = `settings-test/${Date.now()}-${safeName}`;
   const body = Buffer.from(
-    `ShipAny settings test\nTimestamp: ${new Date().toISOString()}\n`,
+    `kimik3 settings test\nTimestamp: ${new Date().toISOString()}\n`,
     'utf-8'
   );
 
