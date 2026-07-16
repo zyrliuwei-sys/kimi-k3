@@ -82,7 +82,7 @@ function ChatMockup() {
           <span className="bg-foreground/15 size-2.5 rounded-full" />
           <span className="bg-foreground/15 size-2.5 rounded-full" />
           <span className="text-foreground/40 ml-2 text-[11px] font-medium">
-            Kimi K3 AI
+            kimik3
           </span>
         </div>
 

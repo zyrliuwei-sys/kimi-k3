@@ -15,10 +15,10 @@ const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
 
 const SYSTEM_PROMPT =
-  'You are Kimi K3 AI, a friendly, knowledgeable assistant powered by the Kimi K3 model. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
+  'You are kimik3, a friendly, knowledgeable assistant powered by the kimik3 model. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
 
 const NOT_CONFIGURED_REPLY =
-  "👋 I'm Kimi K3 AI — your AI workspace for chat, research, and content.\n\nNo AI provider is configured yet, so I can't reach a live model. An admin can connect one from **Admin → Settings** by setting an OpenAI-compatible `openai_api_key` (plus optional `openai_base_url` and `openai_model`). Once that's in place, every message here gets a real response.\n\nIn the meantime, your conversations are still saved here.";
+  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo AI provider is configured yet, so I can't reach a live model. An admin can connect one from **Admin → Settings** by setting an OpenAI-compatible `openai_api_key` (plus optional `openai_base_url` and `openai_model`). Once that's in place, every message here gets a real response.\n\nIn the meantime, your conversations are still saved here.";
 
 /**
  * Resolve the chat model config: DB config (admin) wins, then process.env.
