@@ -1,71 +1,130 @@
-import type { SVGProps } from 'react';
+import { ArrowRight } from 'lucide-react';
 
+import { Link } from '@/core/i18n/navigation';
+import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
-import {
-  SiteFooter,
-  type FooterColumn,
-  type FooterSocial,
-} from '@/components/site-footer';
+import { BuiltWithShipAny } from '@/components/built-with-shipany';
+import { LocaleSelector } from '@/components/locale-selector';
 
-function GithubIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
-      <path d="M12 .5C5.73.5.75 5.48.75 11.75c0 4.97 3.22 9.18 7.69 10.67.56.1.77-.24.77-.54 0-.27-.01-1.15-.02-2.09-3.13.68-3.79-1.33-3.79-1.33-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.68.08-.68 1.13.08 1.72 1.16 1.72 1.16 1 1.72 2.63 1.22 3.27.93.1-.72.39-1.22.71-1.5-2.5-.29-5.13-1.25-5.13-5.56 0-1.23.44-2.24 1.16-3.03-.12-.29-.5-1.44.11-3 0 0 .95-.3 3.1 1.16.9-.25 1.86-.37 2.82-.38.96.01 1.92.13 2.82.38 2.15-1.46 3.1-1.16 3.1-1.16.61 1.56.23 2.71.11 3 .72.79 1.16 1.8 1.16 3.03 0 4.32-2.64 5.27-5.15 5.55.4.35.76 1.03.76 2.08 0 1.5-.01 2.72-.01 3.09 0 .3.2.65.78.54 4.47-1.49 7.68-5.7 7.68-10.67C23.25 5.48 18.27.5 12 .5Z" />
-    </svg>
-  );
-}
-
-function XIcon(props: SVGProps<SVGSVGElement>) {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231 5.45-6.231Zm-1.161 17.52h1.833L7.084 4.126H5.117L17.083 19.77Z" />
-    </svg>
-  );
+interface FooterLink {
+  label: string;
+  href: string;
 }
 
 export function Footer() {
-  const columns: FooterColumn[] = [
-    {
-      title: m['landing.footer.feature'](),
-      links: [
-        {
-          label: m['landing.footer.settings'](),
-          href: '/settings',
-          external: true,
-        },
-        { label: m['landing.footer.admin'](), href: '/admin', external: true },
-      ],
-    },
-    {
-      title: m['landing.footer.resources'](),
-      links: [
-        { label: m['landing.footer.blog'](), href: '/blog' },
-        {
-          label: m['landing.footer.github'](),
-          href: 'https://github.com',
-          external: true,
-        },
-      ],
-    },
-    {
-      title: m['landing.footer.legal'](),
-      links: [
-        { label: m['landing.footer.privacy'](), href: '/privacy-policy' },
-        { label: m['landing.footer.terms'](), href: '/terms-of-service' },
-      ],
-    },
+  const product: FooterLink[] = [
+    { label: m['landing.footer.product_features'](), href: '/#features' },
+    { label: m['landing.footer.product_pricing'](), href: '/pricing' },
+    { label: m['landing.footer.product_teams'](), href: '/settings' },
+    { label: m['landing.footer.product_apikeys'](), href: '/settings/apikeys' },
   ];
-
-  const socials: FooterSocial[] = [
-    { icon: GithubIcon, href: 'https://github.com', label: 'GitHub' },
-    { icon: XIcon, href: 'https://x.com', label: 'X' },
+  const company: FooterLink[] = [
+    { label: m['landing.footer.company_blog'](), href: '/blog' },
+    { label: m['landing.footer.company_contact'](), href: '/tickets' },
+    { label: m['landing.footer.company_privacy'](), href: '/privacy-policy' },
+    { label: m['landing.footer.company_terms'](), href: '/terms-of-service' },
+  ];
+  const resources: FooterLink[] = [
+    { label: m['landing.footer.resources_docs'](), href: '/#features' },
+    { label: m['landing.footer.resources_changelog'](), href: '/blog' },
+    { label: m['landing.footer.resources_status'](), href: '/' },
+    { label: m['landing.footer.resources_signin'](), href: '/sign-in' },
   ];
 
   return (
-    <SiteFooter
-      tagline={m['landing.footer.tagline']()}
-      columns={columns}
-      socials={socials}
-    />
+    <footer className="bg-neutral-950 text-neutral-300">
+      <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
+        <div className="grid gap-12 lg:grid-cols-[1.4fr_1fr_1fr_1fr_1.3fr]">
+          {/* brand + newsletter */}
+          <div className="lg:pr-6">
+            <Link href="/" className="flex items-center gap-2">
+              <img
+                src={envConfigs.app_logo}
+                alt={envConfigs.app_name}
+                className="size-7 rounded-lg"
+              />
+              <span className="text-base font-semibold text-neutral-50">
+                {envConfigs.app_name}
+              </span>
+            </Link>
+            <p className="mt-4 max-w-xs text-sm leading-relaxed text-neutral-400">
+              {m['landing.footer.tagline']()}
+            </p>
+          </div>
+
+          <FooterCol
+            title={m['landing.footer.col_product']()}
+            links={product}
+          />
+          <FooterCol
+            title={m['landing.footer.col_company']()}
+            links={company}
+          />
+          <FooterCol
+            title={m['landing.footer.col_resources']()}
+            links={resources}
+          />
+
+          {/* newsletter */}
+          <div>
+            <p className="text-sm font-semibold text-neutral-100">
+              {m['landing.footer.newsletter_title']()}
+            </p>
+            <p className="mt-3 text-sm text-neutral-400">
+              {m['landing.footer.newsletter_desc']()}
+            </p>
+            <form
+              className="mt-4 flex items-center gap-2"
+              onSubmit={(e) => e.preventDefault()}
+            >
+              <input
+                type="email"
+                placeholder={m['landing.footer.newsletter_placeholder']()}
+                className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-600 focus:outline-none"
+              />
+              <button
+                type="submit"
+                aria-label={m['landing.footer.newsletter_button']()}
+                className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-lg text-white"
+              >
+                <ArrowRight className="size-4" />
+              </button>
+            </form>
+          </div>
+        </div>
+
+        <div className="mt-14 flex flex-col gap-4 border-t border-neutral-800 pt-6 sm:flex-row sm:items-center sm:justify-between">
+          <BuiltWithShipAny />
+          <span className="order-first text-sm text-neutral-500 sm:order-none">
+            © {new Date().getFullYear()} {envConfigs.app_name}.{' '}
+            {m['landing.footer.rights']()}
+          </span>
+          <LocaleSelector
+            variant="pill"
+            className="border-neutral-700 text-neutral-300 hover:bg-white/5 hover:text-neutral-100"
+          />
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+function FooterCol({ title, links }: { title: string; links: FooterLink[] }) {
+  return (
+    <div>
+      <p className="text-sm font-semibold text-neutral-100">{title}</p>
+      <ul className="mt-4 space-y-3">
+        {links.map((link) => (
+          <li key={link.label}>
+            <Link
+              href={link.href}
+              className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
+            >
+              {link.label}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

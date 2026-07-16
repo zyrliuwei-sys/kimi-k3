@@ -3,12 +3,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Font families — loaded via @fontsource imports (Inter, Libre Baskerville)
-   and a Google Fonts <link> (Noto Serif SC) in src/routes/__root.tsx.
-   These variables were previously injected by next/font. */
+/* Font family — DM Sans (castmagic's typeface), loaded via @fontsource in
+   src/routes/__root.tsx. */
 :root {
-  --font-sans: 'Inter Variable', 'Inter', sans-serif;
-  --font-serif-display: 'Libre Baskerville', serif;
+  --font-sans: 'DM Sans Variable', 'DM Sans', system-ui, sans-serif;
+  --font-serif-display: 'DM Sans Variable', 'DM Sans', sans-serif;
 }
 
 @theme inline {
@@ -61,39 +60,39 @@
 
 @layer base {
   :root {
-    --background: oklch(0.977 0.004 75);
-    --foreground: oklch(0.275 0.007 60);
-    --card: oklch(0.988 0.003 75);
-    --card-foreground: oklch(0.275 0.007 60);
-    --popover: oklch(0.988 0.003 75);
-    --popover-foreground: oklch(0.275 0.007 60);
-    --primary: oklch(0.22 0.005 60);
+    --background: oklch(0.925 0.014 20);
+    --foreground: oklch(0.205 0.006 65);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.205 0.006 65);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.205 0.006 65);
+    --primary: oklch(0.205 0.006 65);
     --primary-foreground: oklch(0.985 0 0);
-    --secondary: oklch(0.948 0.006 75);
-    --secondary-foreground: oklch(0.275 0.007 60);
-    --muted: oklch(0.948 0.006 75);
-    --muted-foreground: oklch(0.5 0.005 60);
-    --accent: oklch(0.948 0.006 75);
-    --accent-foreground: oklch(0.275 0.007 60);
+    --secondary: oklch(0.958 0.004 75);
+    --secondary-foreground: oklch(0.205 0.006 65);
+    --muted: oklch(0.955 0.006 30);
+    --muted-foreground: oklch(0.5 0.006 65);
+    --accent: oklch(0.955 0.006 30);
+    --accent-foreground: oklch(0.205 0.006 65);
     --destructive: oklch(0.577 0.245 27.325);
     --destructive-foreground: oklch(0.577 0.245 27.325);
-    --border: oklch(0.908 0.005 75);
-    --input: oklch(0.908 0.005 75);
-    --ring: oklch(0.708 0 0);
-    --chart-1: oklch(0.646 0.222 41.116);
-    --chart-2: oklch(0.6 0.118 184.714);
-    --chart-3: oklch(0.398 0.07 227.392);
-    --chart-4: oklch(0.828 0.189 84.429);
-    --chart-5: oklch(0.769 0.188 70.08);
-    --radius: 0.625rem;
-    --sidebar: oklch(0.988 0.003 75);
-    --sidebar-foreground: oklch(0.275 0.007 60);
-    --sidebar-primary: oklch(0.22 0.005 60);
+    --border: oklch(0.9 0.005 60);
+    --input: oklch(0.9 0.005 60);
+    --ring: oklch(0.205 0.006 65);
+    --chart-1: oklch(0.55 0.22 285);
+    --chart-2: oklch(0.58 0.19 260);
+    --chart-3: oklch(0.62 0.16 230);
+    --chart-4: oklch(0.7 0.14 210);
+    --chart-5: oklch(0.78 0.12 195);
+    --radius: 0.75rem;
+    --sidebar: oklch(0.945 0.008 30);
+    --sidebar-foreground: oklch(0.205 0.006 65);
+    --sidebar-primary: oklch(0.205 0.006 65);
     --sidebar-primary-foreground: oklch(0.985 0 0);
-    --sidebar-accent: oklch(0.948 0.006 75);
-    --sidebar-accent-foreground: oklch(0.275 0.007 60);
-    --sidebar-border: oklch(0.908 0.005 75);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar-accent: oklch(0.955 0.006 30);
+    --sidebar-accent-foreground: oklch(0.205 0.006 65);
+    --sidebar-border: oklch(0.9 0.005 60);
+    --sidebar-ring: oklch(0.205 0.006 65);
   }
 
   .dark {
@@ -173,5 +172,82 @@
     .animate-drift-c {
       animation: none !important;
     }
+  }
+}
+
+/* ---- kimik3 brand + motion utilities ---- */
+@layer utilities {
+  .brand-gradient {
+    background-image: linear-gradient(
+      135deg,
+      #7c3aed 0%,
+      #6366f1 55%,
+      #0ea5e9 100%
+    );
+  }
+  .text-brand-gradient {
+    background-image: linear-gradient(
+      135deg,
+      #7c3aed 0%,
+      #6366f1 55%,
+      #0ea5e9 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .marquee-mask {
+    -webkit-mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 8%,
+      black 92%,
+      transparent
+    );
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      black 8%,
+      black 92%,
+      transparent
+    );
+  }
+}
+
+@keyframes marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+.animate-marquee {
+  animation: marquee 38s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-marquee {
+    animation: none !important;
+  }
+}
+
+/* Scroll reveal */
+.reveal {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: opacity, transform;
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
   }
 }

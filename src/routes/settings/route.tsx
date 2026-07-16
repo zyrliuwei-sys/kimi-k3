@@ -6,6 +6,7 @@ import {
   Key,
   LayoutDashboard,
   LifeBuoy,
+  MessageSquare,
   Receipt,
   User,
 } from 'lucide-react';
@@ -22,6 +23,12 @@ export const Route = createFileRoute('/settings')({
 function SettingsLayout() {
   const group = m['common.systems.settings']();
   const navItems = [
+    {
+      href: '/settings/chat',
+      label: m['settings.nav.chat'](),
+      icon: MessageSquare,
+      group,
+    },
     {
       href: '/settings',
       label: m['settings.nav.overview'](),
