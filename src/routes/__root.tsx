@@ -14,6 +14,7 @@ import { ThemeProvider } from 'next-themes';
 
 import { envConfigs } from '@/config';
 import { getQueryClient } from '@/lib/query-client';
+import { m } from '@/paraglide/messages.js';
 import { getLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
 import { GoogleAnalytics } from '@/components/analytics/google-analytics';
 import { Plausible } from '@/components/analytics/plausible';
@@ -60,12 +61,31 @@ export const Route = createRootRoute({
       (typeof window !== 'undefined' && window.location?.origin) ||
       envConfigs.app_url ||
       '';
+    const locale = getLocale();
+    const title = m['common.metadata.title']({}, { locale });
+    const description = m['common.metadata.description']({}, { locale });
+    const imageUrl = `${appUrl}/seo/og.png`;
     return {
       meta: [
         { charSet: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { title: envConfigs.app_name },
-        { name: 'description', content: envConfigs.app_description },
+        { title },
+        { name: 'description', content: description },
+        // Open Graph (Facebook, LinkedIn, Slack, …)
+        { property: 'og:type', content: 'website' },
+        { property: 'og:site_name', content: envConfigs.app_name },
+        { property: 'og:title', content: title },
+        { property: 'og:description', content: description },
+        { property: 'og:url', content: appUrl },
+        { property: 'og:image', content: imageUrl },
+        { property: 'og:image:width', content: '1200' },
+        { property: 'og:image:height', content: '630' },
+        { property: 'og:locale', content: locale },
+        // Twitter / X
+        { name: 'twitter:card', content: 'summary_large_image' },
+        { name: 'twitter:title', content: title },
+        { name: 'twitter:description', content: description },
+        { name: 'twitter:image', content: imageUrl },
       ],
       links: [
         { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
