@@ -99,16 +99,16 @@ function HeroShot() {
           </span>
         </div>
 
-        {/* screenshot — drop the real capture at /public/hero-kimik3.png */}
-        <div className="bg-muted/40 aspect-[16/11] w-full overflow-hidden rounded-[1.25rem]">
-          <img
-            src="/hero-kimik3.png"
-            alt={m['landing.hero.shot_alt']()}
-            className="h-full w-full object-cover object-top"
-            loading="eager"
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
-            }}
+        {/* demo video — Kimi K3 overview (YouTube, muted autoplay loop) */}
+        <div className="bg-muted/40 relative aspect-video w-full overflow-hidden rounded-[1.25rem]">
+          <iframe
+            className="absolute inset-0 h-full w-full"
+            src="https://www.youtube.com/embed/wvspOfo1qsU?autoplay=1&mute=1&loop=1&playlist=wvspOfo1qsU&controls=0&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3"
+            title="Kimi K3 — demo"
+            loading="lazy"
+            allow="autoplay; encrypted-media; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
+            allowFullScreen
           />
         </div>
       </div>
