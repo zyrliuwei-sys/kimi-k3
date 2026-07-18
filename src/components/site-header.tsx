@@ -36,6 +36,8 @@ export function SiteHeader({ navLinks }: { navLinks?: NavLink[] }) {
           <img
             src={envConfigs.app_logo}
             alt={envConfigs.app_name}
+            width={28}
+            height={28}
             className="size-7 rounded-lg"
           />
           <span className="text-base font-semibold tracking-tight">

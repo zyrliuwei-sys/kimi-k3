@@ -1,11 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { envConfigs } from '@/config';
+import { originFromRequest } from '@/lib/url';
 
 export const Route = createFileRoute('/robots.txt')({
   server: {
     handlers: {
-      GET: () => {
+      GET: ({ request }: { request: Request }) => {
+        const base = originFromRequest(request);
         const body = [
           'User-Agent: *',
           'Allow: /',
@@ -14,7 +15,7 @@ export const Route = createFileRoute('/robots.txt')({
           'Disallow: /api/',
           'Disallow: /*?*',
           '',
-          `Sitemap: ${envConfigs.app_url}/sitemap.xml`,
+          `Sitemap: ${base}/sitemap.xml`,
           '',
         ].join('\n');
         return new Response(body, {

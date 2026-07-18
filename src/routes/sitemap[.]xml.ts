@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { envConfigs } from '@/config';
+import { originFromRequest } from '@/lib/url';
 import { baseLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
 import { getLocalPosts, mergePosts } from '@/content/posts';
 
@@ -19,36 +19,39 @@ type Entry = {
   priority: number;
 };
 
-function urlFor(path: string, locale: string): string {
-  return localizeUrl(`${envConfigs.app_url}${path || '/'}`, {
-    locale: locale as (typeof locales)[number],
-  }).href;
-}
-
-function entryXml(e: Entry): string {
-  const alternates = locales
-    .map(
-      (loc) =>
-        `    <xhtml:link rel="alternate" hreflang="${loc}" href="${urlFor(e.path, loc)}"/>`
-    )
-    .join('\n');
-  return [
-    '  <url>',
-    `    <loc>${urlFor(e.path, baseLocale)}</loc>`,
-    alternates,
-    e.lastModified ? `    <lastmod>${e.lastModified}</lastmod>` : null,
-    `    <changefreq>${e.changeFrequency}</changefreq>`,
-    `    <priority>${e.priority}</priority>`,
-    '  </url>',
-  ]
-    .filter(Boolean)
-    .join('\n');
-}
-
 export const Route = createFileRoute('/sitemap.xml')({
   server: {
     handlers: {
-      GET: async () => {
+      GET: async ({ request }) => {
+        // Origin from the live request so sitemap URLs match the deployed
+        // domain even when VITE_APP_URL is unset.
+        const base = originFromRequest(request);
+
+        const urlFor = (path: string, locale: string): string =>
+          localizeUrl(`${base}${path || '/'}`, {
+            locale: locale as (typeof locales)[number],
+          }).href;
+
+        const entryXml = (e: Entry): string => {
+          const alternates = locales
+            .map(
+              (loc) =>
+                `    <xhtml:link rel="alternate" hreflang="${loc}" href="${urlFor(e.path, loc)}"/>`
+            )
+            .join('\n');
+          return [
+            '  <url>',
+            `    <loc>${urlFor(e.path, baseLocale)}</loc>`,
+            alternates,
+            e.lastModified ? `    <lastmod>${e.lastModified}</lastmod>` : null,
+            `    <changefreq>${e.changeFrequency}</changefreq>`,
+            `    <priority>${e.priority}</priority>`,
+            '  </url>',
+          ]
+            .filter(Boolean)
+            .join('\n');
+        };
+
         const entries: Entry[] = STATIC_PATHS.map((path) => ({
           path,
           changeFrequency: path === '/blog' ? 'daily' : 'weekly',
