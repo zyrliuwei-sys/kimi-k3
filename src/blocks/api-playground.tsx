@@ -140,6 +140,19 @@ export function ApiPlayground() {
 
   const hasThread = messages.length > 0 || isThinking;
 
+  const composerProps = {
+    input,
+    setInput,
+    onKeyDown: handleKeyDown,
+    onSend: handleSend,
+    canSend: !!input.trim(),
+    isThinking,
+    models,
+    selected,
+    onSelectModel: setModelId,
+    taRef,
+  };
+
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       {/* Ambient brand glow */}
@@ -148,80 +161,120 @@ export function ApiPlayground() {
         className="brand-gradient pointer-events-none absolute -top-32 left-1/2 h-72 w-[42rem] -translate-x-1/2 rounded-full opacity-[0.12] blur-3xl"
       />
 
-      {/* Scroll region: welcome or thread */}
-      <div
-        ref={scrollRef}
-        className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
-      >
-        {!hasThread ? (
-          <WelcomeState onPick={(p) => handleShortcut(p)} />
-        ) : (
-          <ThreadHeader onReset={resetThread} modelName={selected.name} />
-        )}
-
-        <div className="mx-auto w-full max-w-3xl flex-1 px-4">
-          {hasThread && (
-            <div className="space-y-6 py-6">
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
-              ))}
-              {isThinking && <ThinkingBubble />}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Composer dock */}
-      <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-          className="bg-card border-foreground/10 focus-within:border-foreground/20 rounded-[1.75rem] border p-2.5 shadow-sm transition-all focus-within:shadow-[0_8px_40px_-12px_rgba(124,58,237,0.25)]"
-        >
-          <textarea
-            ref={taRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            rows={1}
-            placeholder={m['playground.input.placeholder']()}
-            className="placeholder:text-foreground/40 block max-h-[200px] min-h-[2.25rem] w-full resize-none bg-transparent px-3 pt-2 text-[15px] leading-relaxed outline-none"
-          />
-
-          <div className="flex items-center justify-between gap-2 pt-1.5">
-            <button
-              type="button"
-              onClick={() => taRef.current?.focus()}
-              aria-label="Toolkit"
-              className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-9 items-center justify-center rounded-full transition-colors"
-            >
-              <Plus className="size-5" />
-            </button>
-
-            <div className="flex items-center gap-2">
-              <ModelMenu
-                models={models}
-                selected={selected}
-                onSelect={setModelId}
-              />
-              <button
-                type="button"
-                onClick={handleSend}
-                disabled={!input.trim() || isThinking}
-                aria-label={m['playground.input.send']()}
-                className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ArrowUp className="size-[18px]" />
-              </button>
+      {hasThread ? (
+        // Active thread — messages scroll, composer pinned to the bottom.
+        <>
+          <div
+            ref={scrollRef}
+            className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+          >
+            <ThreadHeader onReset={resetThread} modelName={selected.name} />
+            <div className="mx-auto w-full max-w-3xl flex-1 px-4">
+              <div className="space-y-6 py-6">
+                {messages.map((msg) => (
+                  <MessageBubble key={msg.id} message={msg} />
+                ))}
+                {isThinking && <ThinkingBubble />}
+              </div>
             </div>
           </div>
-        </motion.div>
+          <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
+            <Composer {...composerProps} />
+          </div>
+        </>
+      ) : (
+        // Empty state — greeting + composer grouped & vertically centered,
+        // so the input sits right under the greeting instead of pinned low.
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10">
+          <div className="flex w-full max-w-3xl flex-col items-center">
+            <WelcomeState onPick={(p) => handleShortcut(p)} />
+            <div className="mt-6 w-full">
+              <Composer {...composerProps} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
-        <p className="text-foreground/35 mt-2 text-center text-[11px]">
-          {m['playground.disclaimer']()}
-        </p>
-      </div>
+/* ------------------------------------------------------------------ */
+/*  Composer (textarea + toolbar + disclaimer)                         */
+/* ------------------------------------------------------------------ */
+
+function Composer({
+  input,
+  setInput,
+  onKeyDown,
+  onSend,
+  canSend,
+  isThinking,
+  models,
+  selected,
+  onSelectModel,
+  taRef,
+}: {
+  input: string;
+  setInput: (v: string) => void;
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  onSend: () => void;
+  canSend: boolean;
+  isThinking: boolean;
+  models: ModelOption[];
+  selected: ModelOption;
+  onSelectModel: (id: string) => void;
+  taRef: React.RefObject<HTMLTextAreaElement | null>;
+}) {
+  return (
+    <div className="w-full">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="bg-card border-foreground/10 focus-within:border-foreground/20 rounded-[1.75rem] border p-2.5 shadow-sm transition-all focus-within:shadow-[0_8px_40px_-12px_rgba(124,58,237,0.25)]"
+      >
+        <textarea
+          ref={taRef}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          rows={1}
+          placeholder={m['playground.input.placeholder']()}
+          className="placeholder:text-foreground/40 block max-h-[200px] min-h-[2.25rem] w-full resize-none bg-transparent px-3 pt-2 text-[15px] leading-relaxed outline-none"
+        />
+
+        <div className="flex items-center justify-between gap-2 pt-1.5">
+          <button
+            type="button"
+            onClick={() => taRef.current?.focus()}
+            aria-label="Toolkit"
+            className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-9 items-center justify-center rounded-full transition-colors"
+          >
+            <Plus className="size-5" />
+          </button>
+
+          <div className="flex items-center gap-2">
+            <ModelMenu
+              models={models}
+              selected={selected}
+              onSelect={onSelectModel}
+            />
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={!canSend || isThinking}
+              aria-label={m['playground.input.send']()}
+              className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ArrowUp className="size-[18px]" />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+
+      <p className="text-foreground/35 mt-2 text-center text-[11px]">
+        {m['playground.disclaimer']()}
+      </p>
     </div>
   );
 }
@@ -241,18 +294,18 @@ function WelcomeState({ onPick }: { onPick: (prompt: string) => void }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className="mx-auto flex w-full max-w-2xl flex-col items-center px-4 pt-[7vh] pb-10 text-center"
+      className="mx-auto flex w-full max-w-2xl flex-col items-center px-4 text-center"
     >
       <motion.div
         initial={{ scale: 0.8, rotate: -6, opacity: 0 }}
         animate={{ scale: 1, rotate: 0, opacity: 1 }}
         transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-        className="brand-gradient mb-6 flex size-16 items-center justify-center rounded-[1.25rem] shadow-lg shadow-violet-500/20"
+        className="brand-gradient mb-5 flex size-14 items-center justify-center rounded-[1.25rem] shadow-lg shadow-violet-500/20"
       >
-        <Terminal className="size-8 text-white" />
+        <Terminal className="size-7 text-white" />
       </motion.div>
 
-      <span className="text-foreground/55 border-foreground/10 bg-card/60 mb-3 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium backdrop-blur">
+      <span className="text-foreground/55 border-foreground/10 bg-card/60 mb-2.5 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium backdrop-blur">
         <span className="brand-gradient size-1.5 rounded-full" />
         {m['playground.welcome.eyebrow']()}
       </span>
@@ -260,11 +313,11 @@ function WelcomeState({ onPick }: { onPick: (prompt: string) => void }) {
       <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
         {m['playground.welcome.greeting']()}
       </h1>
-      <p className="text-foreground/55 mt-3 max-w-md text-[15px] leading-relaxed">
+      <p className="text-foreground/55 mt-2.5 max-w-md text-[15px] leading-relaxed">
         {m['playground.welcome.subtitle']()}
       </p>
 
-      <div className="mt-8 grid w-full gap-2.5 text-left sm:grid-cols-2">
+      <div className="mt-6 grid w-full gap-2.5 text-left sm:grid-cols-2">
         {examples.map((ex, i) => (
           <motion.button
             key={ex}
@@ -281,10 +334,6 @@ function WelcomeState({ onPick }: { onPick: (prompt: string) => void }) {
           </motion.button>
         ))}
       </div>
-
-      <p className="text-foreground/35 mt-7 text-xs">
-        ↓ {m['playground.welcome.cta']()}
-      </p>
     </motion.div>
   );
 }
@@ -509,19 +558,14 @@ function useModels(): ModelOption[] {
       desc: m['playground.model.k3_desc'](),
       badge: 'NEW',
     },
-    {
-      id: 'k3-standard',
-      name: m['playground.model.k3'](),
-      effort: 'standard',
-      effortLabel: m['playground.model.k3_standard'](),
-      desc: m['playground.model.k3_desc'](),
-    },
-    {
-      id: 'k26',
-      name: m['playground.model.k26'](),
-      effortLabel: '',
-      desc: m['playground.model.k26_desc'](),
-      badge: 'FAST',
-    },
   ];
+}
+
+function buildPreviewReply(prompt: string, model: ModelOption): string {
+  const prefix = m['playground.reply.preview_prefix']({
+    model: model.name,
+    effort: model.effortLabel || model.name,
+  });
+  const quote = m['playground.reply.quote_label']();
+  return `${prefix}\n\n**${quote}**\n\n> ${prompt}`;
 }

@@ -153,12 +153,6 @@ export function getSettingGroups(): SettingGroup[] {
 
     // AI
     {
-      name: 'ai_general',
-      title: 'Chat',
-      description: 'Default provider for AI chat',
-      tab: 'ai',
-    },
-    {
       name: 'openai',
       title: 'OpenAI',
       description: 'OpenAI (or compatible) API',
@@ -167,7 +161,7 @@ export function getSettingGroups(): SettingGroup[] {
     {
       name: 'evolink',
       title: 'EvoLink',
-      description: 'EvoLink — one key, any model (OpenAI-compatible)',
+      description: 'EvoLink — Kimi K3 (and other models), OpenAI-compatible',
       tab: 'ai',
     },
     {
@@ -764,20 +758,6 @@ export function getSettings(): Setting[] {
       tab: 'storage',
     },
 
-    // ─── AI / General ───────────────────────────────────────────────
-    {
-      name: 'default_chat_provider',
-      title: 'Default chat provider',
-      type: 'select',
-      options: [
-        { label: 'OpenAI', value: 'openai' },
-        { label: 'EvoLink', value: 'evolink' },
-      ],
-      group: 'ai_general',
-      tab: 'ai',
-      defaultValue: 'openai',
-    },
-
     // ─── AI / OpenAI ─────────────────────────────────────────────────
     {
       name: 'openai_base_url',
@@ -806,8 +786,8 @@ export function getSettings(): Setting[] {
 
     // ─── AI / EvoLink ────────────────────────────────────────────────
     // EvoLink (https://evolink.ai) is an OpenAI-compatible gateway: one API key
-    // reaches any model in its Text Series (GPT, Claude, Gemini, Kimi-K2,
-    // DeepSeek, EvoLink Auto, …). Base URL defaults to its /v1 endpoint.
+    // reaches any model in its Text Series. This product uses it for Kimi K3
+    // (model id `kimi-k3`); the admin can switch to another id if needed.
     {
       name: 'evolink_base_url',
       title: 'Base URL',
@@ -828,8 +808,8 @@ export function getSettings(): Setting[] {
       name: 'evolink_model',
       title: 'Model',
       type: 'text',
-      placeholder: 'gpt-4o-mini',
-      tip: 'Any model id from the EvoLink Text Series, e.g. gpt-4o-mini, claude-..., gemini-..., kimi-k2, deepseek-...',
+      placeholder: 'kimi-k3',
+      tip: 'Kimi K3 is used by default (kimi-k3). You can set another EvoLink model id, e.g. claude-..., gemini-..., gpt-..., deepseek-...',
       group: 'evolink',
       tab: 'ai',
     },

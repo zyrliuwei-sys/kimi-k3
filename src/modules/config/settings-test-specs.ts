@@ -236,7 +236,7 @@ export const testSpecs: Record<string, TestSpec> = {
         name: 'model',
         label: 'Model',
         type: 'text',
-        defaultValue: 'gpt-4o-mini',
+        defaultValue: 'kimi-k3',
         required: true,
       },
       {

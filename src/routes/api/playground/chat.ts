@@ -39,9 +39,9 @@ interface PlaygroundConfig {
 }
 
 /**
- * Resolve the model config for the playground. Prefers evolink when its key is
- * present (so Kimi K3 works even if `default_chat_provider` isn't flipped),
- * otherwise falls back to the standard chat resolution.
+ * Resolve the model config for the playground. Prefers evolink (Kimi K3) when
+ * its key is present, otherwise falls back to OpenAI. Same logic as
+ * getChatModelConfig() in the chat service.
  */
 async function resolvePlaygroundConfig(): Promise<PlaygroundConfig> {
   const evolinkKey = (await getConfig('evolink_api_key')) || '';

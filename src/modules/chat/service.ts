@@ -15,10 +15,10 @@ const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
 
 const SYSTEM_PROMPT =
-  'You are kimik3, a friendly, knowledgeable assistant powered by the kimik3 model. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
+  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
 
 const NOT_CONFIGURED_REPLY =
-  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo AI provider is configured yet, so I can't reach a live model. An admin can connect one from **Admin → Settings** by setting an OpenAI-compatible API key (`openai_api_key` or `evolink_api_key`), then picking it under **Default chat provider**. Once that's in place, every message here gets a real response.\n\nIn the meantime, your conversations are still saved here.";
+  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo live model is reachable yet. An admin can connect one from **Admin → Settings → AI** by pasting a key under the **EvoLink** group (`evolink_api_key`); set the model to `kimi-k3` — or leave it blank and Kimi K3 is used by default. Once that's in place, every message here gets a real Kimi K3 response.\n\nIn the meantime, your conversations are still saved here.";
 
 export interface ChatModelConfig {
   provider: string;
@@ -29,25 +29,26 @@ export interface ChatModelConfig {
 }
 
 /**
- * Resolve the chat model config for the selected provider.
- *
- * `default_chat_provider` picks which OpenAI-compatible provider powers chat
- * (`openai` | `evolink`). DB config (admin) wins, then process.env (OpenAI
- * only). `hasKey` lets callers fall back to a friendly notice instead of
- * erroring.
+ * Resolve the chat model config. Prefers the `evolink` provider (model defaults
+ * to `kimi-k3` — Kimi K3) when its key is present, so an admin who only pasted
+ * the key still gets a working Kimi K3 response. Falls back to OpenAI (or any
+ * OpenAI-compatible endpoint) otherwise. Mirrors /api/playground/chat.
+ * `hasKey` lets callers fall back to a friendly notice instead of erroring.
  */
 export async function getChatModelConfig(): Promise<ChatModelConfig> {
-  const provider = (await getConfig('default_chat_provider')) || 'openai';
-
-  if (provider === 'evolink') {
-    const apiKey = (await getConfig('evolink_api_key')) || '';
-    const baseUrl =
-      (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1';
-    const model = (await getConfig('evolink_model')) || DEFAULT_MODEL;
-    return { provider, apiKey, baseUrl, model, hasKey: !!apiKey };
+  const evolinkKey = (await getConfig('evolink_api_key')) || '';
+  if (evolinkKey) {
+    return {
+      provider: 'evolink',
+      apiKey: evolinkKey,
+      baseUrl:
+        (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1',
+      model: (await getConfig('evolink_model')) || 'kimi-k3',
+      hasKey: true,
+    };
   }
 
-  // Default: OpenAI (or any OpenAI-compatible endpoint configured under openai_*).
+  // Fall back to OpenAI (or any OpenAI-compatible endpoint under openai_*).
   const apiKey =
     (await getConfig('openai_api_key')) || process.env.OPENAI_API_KEY || '';
   const baseUrl =
