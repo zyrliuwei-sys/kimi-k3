@@ -28,7 +28,9 @@ export async function openaiChatCompletion(
     baseUrl,
     model,
     messages,
-    temperature = 0.7,
+    // Kimi K3 (and several reasoning models) only accept temperature = 1;
+    // 1 is also the OpenAI default, so it's a safe default for any provider.
+    temperature = 1,
     signal,
   } = params;
 
