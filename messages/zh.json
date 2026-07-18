@@ -1,6 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
-  "common.metadata.title": "kimik3 语言生成器 — AI 智能写作、对话与多语言内容生成平台",
+  "common.metadata.title": "Kimi K3 AI —— 智能对话、写作与 API 测试场 | kimik3.net",
   "common.metadata.description": "kimik3 是一站式 AI 语言生成器,集智能写作、对话问答与内容创作为一体。一个提示词即可生成文章、邮件、代码与多语言内容 —— 由 kimik3 模型驱动。",
   "common.coming_soon": "即将上线",
   "common.back_home": "返回首页",
@@ -829,6 +829,8 @@
   "landing.hero.shot_badge_title": "官方界面",
   "landing.hero.shot_badge_text": "我们帮你简化它",
   "landing.hero.shot_alt": "KimiK3 官方聊天界面截图",
+  "landing.meta.home_title": "Kimi K3 AI — 下一代模型与智能助手 | kimik3.net",
+  "landing.meta.home_description": "Kimi K3 AI —— 清晰的教程、API 示例、与 Claude 和 GPT 的价格对比及免费工具。Kimi K3 模型的非官方指南。",
   "landing.api_playground.eyebrow": "API 测试场",
   "landing.api_playground.title": "几秒内测试 KimiK3 API",
   "landing.api_playground.description": "在浏览器里发送真实请求、并排对比输出结果,并复制可直接使用的代码片段。基于 Replicate 构建。",

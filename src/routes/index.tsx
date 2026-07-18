@@ -48,13 +48,18 @@ export const Route = createFileRoute('/')({
     const locale = loaderData?.locale ?? 'en';
     const urlFor = (loc: string) =>
       localizeUrl(`${envConfigs.app_url}/`, { locale: loc as any }).href;
+    const title = m['landing.meta.home_title']({}, { locale: locale as any });
+    const description = m['landing.meta.home_description'](
+      {},
+      { locale: locale as any }
+    );
     return {
       meta: [
-        { title: envConfigs.app_name },
-        {
-          name: 'description',
-          content: m['landing.hero.subheadline']({}, { locale: locale as any }),
-        },
+        { title },
+        { name: 'description', content: description },
+        { property: 'og:title', content: title },
+        { property: 'og:description', content: description },
+        { name: 'twitter:title', content: title },
       ],
       links: [
         { rel: 'canonical', href: urlFor(locale) },

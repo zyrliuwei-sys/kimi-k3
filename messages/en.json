@@ -1,6 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
-  "common.metadata.title": "kimik3 Language Generator — AI Writing, Chat & Content",
+  "common.metadata.title": "Kimi K3 AI — Chat, Writing & API Playground | kimik3.net",
   "common.metadata.description": "kimik3 is an AI language generator for writing, chat, and content creation. Turn one prompt into articles, emails, code, and translations — powered by the kimik3 model.",
   "common.coming_soon": "Coming soon",
   "common.back_home": "Back to home",
@@ -829,6 +829,8 @@
   "landing.hero.shot_badge_title": "Official interface",
   "landing.hero.shot_badge_text": "We simplify it for you",
   "landing.hero.shot_alt": "Screenshot of the KimiK3 official chat interface",
+  "landing.meta.home_title": "Kimi K3 AI — Next-Gen Model & Assistant | kimik3.net",
+  "landing.meta.home_description": "Kimi K3 AI — clear tutorials, API examples, pricing vs Claude and GPT, and free tools. The unofficial guide to the Kimi K3 model.",
   "landing.api_playground.eyebrow": "API Playground",
   "landing.api_playground.title": "Test the KimiK3 API in seconds",
   "landing.api_playground.description": "Send real requests from your browser, compare outputs side by side, and copy ready-to-use code snippets. Powered by Replicate.",
