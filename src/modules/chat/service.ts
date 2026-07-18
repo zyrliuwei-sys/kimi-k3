@@ -18,13 +18,36 @@ const SYSTEM_PROMPT =
   'You are kimik3, a friendly, knowledgeable assistant powered by the kimik3 model. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
 
 const NOT_CONFIGURED_REPLY =
-  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo AI provider is configured yet, so I can't reach a live model. An admin can connect one from **Admin → Settings** by setting an OpenAI-compatible `openai_api_key` (plus optional `openai_base_url` and `openai_model`). Once that's in place, every message here gets a real response.\n\nIn the meantime, your conversations are still saved here.";
+  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo AI provider is configured yet, so I can't reach a live model. An admin can connect one from **Admin → Settings** by setting an OpenAI-compatible API key (`openai_api_key` or `evolink_api_key`), then picking it under **Default chat provider**. Once that's in place, every message here gets a real response.\n\nIn the meantime, your conversations are still saved here.";
+
+export interface ChatModelConfig {
+  provider: string;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+}
 
 /**
- * Resolve the chat model config: DB config (admin) wins, then process.env.
- * `hasKey` lets callers fall back to a friendly notice instead of erroring.
+ * Resolve the chat model config for the selected provider.
+ *
+ * `default_chat_provider` picks which OpenAI-compatible provider powers chat
+ * (`openai` | `evolink`). DB config (admin) wins, then process.env (OpenAI
+ * only). `hasKey` lets callers fall back to a friendly notice instead of
+ * erroring.
  */
-export async function getChatModelConfig() {
+export async function getChatModelConfig(): Promise<ChatModelConfig> {
+  const provider = (await getConfig('default_chat_provider')) || 'openai';
+
+  if (provider === 'evolink') {
+    const apiKey = (await getConfig('evolink_api_key')) || '';
+    const baseUrl =
+      (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1';
+    const model = (await getConfig('evolink_model')) || DEFAULT_MODEL;
+    return { provider, apiKey, baseUrl, model, hasKey: !!apiKey };
+  }
+
+  // Default: OpenAI (or any OpenAI-compatible endpoint configured under openai_*).
   const apiKey =
     (await getConfig('openai_api_key')) || process.env.OPENAI_API_KEY || '';
   const baseUrl =
@@ -35,7 +58,7 @@ export async function getChatModelConfig() {
     (await getConfig('openai_model')) ||
     process.env.OPENAI_MODEL ||
     DEFAULT_MODEL;
-  return { apiKey, baseUrl, model, hasKey: !!apiKey };
+  return { provider: 'openai', apiKey, baseUrl, model, hasKey: !!apiKey };
 }
 
 function textFromParts(parts: unknown): string {
@@ -73,7 +96,7 @@ export async function createChat(params: {
       status: 'active',
       title,
       model: model || cfg.model,
-      provider: provider || (cfg.hasKey ? 'openai' : 'unconfigured'),
+      provider: provider || (cfg.hasKey ? cfg.provider : 'unconfigured'),
       parts: '[]',
     })
     .returning();
@@ -187,7 +210,7 @@ export async function sendMessage(params: {
     role: 'assistant',
     parts: partsFromText(assistantText),
     model: cfg.model || owned.model,
-    provider: cfg.hasKey ? 'openai' : 'unconfigured',
+    provider: cfg.hasKey ? cfg.provider : 'unconfigured',
     metadata: null,
     createdAt: new Date(),
     updatedAt: new Date(),

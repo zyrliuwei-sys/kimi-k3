@@ -52,6 +52,8 @@ export async function runTest(
         return await testR2(inputs, configs);
       case 'openai':
         return await testOpenAI(inputs, configs);
+      case 'evolink':
+        return await testEvoLink(inputs, configs);
       case 'anthropic':
         return await testAnthropic(inputs, configs);
       case 'replicate':
@@ -365,25 +367,28 @@ async function testR2(
 
 // --- AI -------------------------------------------------------------------
 
-async function testOpenAI(
-  inputs: Record<string, string>,
-  configs: Record<string, string>
-): Promise<TestResult> {
-  const missing = need(configs, ['openai_api_key']);
-  if (missing) return { success: false, message: missing };
-
-  const baseUrl = (
-    configs.openai_base_url || 'https://api.openai.com/v1'
-  ).replace(/\/+$/, '');
-  const resp = await fetch(`${baseUrl}/chat/completions`, {
+/**
+ * Shared OpenAI-compatible /chat/completions test. Works for any provider that
+ * speaks the OpenAI chat shape (OpenAI, EvoLink, OpenRouter, …).
+ */
+async function testChatCompletion(params: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  prompt: string;
+  label: string;
+}): Promise<TestResult> {
+  const { baseUrl, apiKey, model, prompt, label } = params;
+  const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const resp = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${configs.openai_api_key}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: inputs.model,
-      messages: [{ role: 'user', content: inputs.prompt }],
+      model,
+      messages: [{ role: 'user', content: prompt }],
       max_tokens: 64,
     }),
   });
@@ -399,12 +404,42 @@ async function testOpenAI(
   const reply = String(data?.choices?.[0]?.message?.content ?? '').trim();
   return {
     success: true,
-    message: 'OpenAI accepted the request',
+    message: `${label} accepted the request`,
     details: {
-      Model: data?.model || inputs.model,
+      Model: data?.model || model,
       Reply: reply.slice(0, 200) || '(empty)',
     },
   };
+}
+
+async function testOpenAI(
+  inputs: Record<string, string>,
+  configs: Record<string, string>
+): Promise<TestResult> {
+  const missing = need(configs, ['openai_api_key']);
+  if (missing) return { success: false, message: missing };
+  return testChatCompletion({
+    baseUrl: configs.openai_base_url || 'https://api.openai.com/v1',
+    apiKey: configs.openai_api_key,
+    model: inputs.model,
+    prompt: inputs.prompt,
+    label: 'OpenAI',
+  });
+}
+
+async function testEvoLink(
+  inputs: Record<string, string>,
+  configs: Record<string, string>
+): Promise<TestResult> {
+  const missing = need(configs, ['evolink_api_key']);
+  if (missing) return { success: false, message: missing };
+  return testChatCompletion({
+    baseUrl: configs.evolink_base_url || 'https://api.evolink.ai/v1',
+    apiKey: configs.evolink_api_key,
+    model: inputs.model,
+    prompt: inputs.prompt,
+    label: 'EvoLink',
+  });
 }
 
 async function testAnthropic(

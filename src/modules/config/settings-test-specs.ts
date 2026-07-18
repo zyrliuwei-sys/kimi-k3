@@ -229,6 +229,25 @@ export const testSpecs: Record<string, TestSpec> = {
       },
     ],
   },
+  evolink: {
+    group: 'evolink',
+    fields: [
+      {
+        name: 'model',
+        label: 'Model',
+        type: 'text',
+        defaultValue: 'gpt-4o-mini',
+        required: true,
+      },
+      {
+        name: 'prompt',
+        label: 'Prompt',
+        type: 'textarea',
+        defaultValue: 'Reply with a short greeting.',
+        required: true,
+      },
+    ],
+  },
 };
 
 export function getTestSpec(group: string): TestSpec | undefined {

@@ -153,9 +153,21 @@ export function getSettingGroups(): SettingGroup[] {
 
     // AI
     {
+      name: 'ai_general',
+      title: 'Chat',
+      description: 'Default provider for AI chat',
+      tab: 'ai',
+    },
+    {
       name: 'openai',
       title: 'OpenAI',
       description: 'OpenAI (or compatible) API',
+      tab: 'ai',
+    },
+    {
+      name: 'evolink',
+      title: 'EvoLink',
+      description: 'EvoLink — one key, any model (OpenAI-compatible)',
       tab: 'ai',
     },
     {
@@ -752,6 +764,20 @@ export function getSettings(): Setting[] {
       tab: 'storage',
     },
 
+    // ─── AI / General ───────────────────────────────────────────────
+    {
+      name: 'default_chat_provider',
+      title: 'Default chat provider',
+      type: 'select',
+      options: [
+        { label: 'OpenAI', value: 'openai' },
+        { label: 'EvoLink', value: 'evolink' },
+      ],
+      group: 'ai_general',
+      tab: 'ai',
+      defaultValue: 'openai',
+    },
+
     // ─── AI / OpenAI ─────────────────────────────────────────────────
     {
       name: 'openai_base_url',
@@ -767,6 +793,44 @@ export function getSettings(): Setting[] {
       type: 'password',
       placeholder: 'sk-xxx',
       group: 'openai',
+      tab: 'ai',
+    },
+    {
+      name: 'openai_model',
+      title: 'Model',
+      type: 'text',
+      placeholder: 'gpt-4o-mini',
+      group: 'openai',
+      tab: 'ai',
+    },
+
+    // ─── AI / EvoLink ────────────────────────────────────────────────
+    // EvoLink (https://evolink.ai) is an OpenAI-compatible gateway: one API key
+    // reaches any model in its Text Series (GPT, Claude, Gemini, Kimi-K2,
+    // DeepSeek, EvoLink Auto, …). Base URL defaults to its /v1 endpoint.
+    {
+      name: 'evolink_base_url',
+      title: 'Base URL',
+      type: 'text',
+      placeholder: 'https://api.evolink.ai/v1',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'evolink_api_key',
+      title: 'API Key',
+      type: 'password',
+      placeholder: 'sk-xxx',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'evolink_model',
+      title: 'Model',
+      type: 'text',
+      placeholder: 'gpt-4o-mini',
+      tip: 'Any model id from the EvoLink Text Series, e.g. gpt-4o-mini, claude-..., gemini-..., kimi-k2, deepseek-...',
+      group: 'evolink',
       tab: 'ai',
     },
 
