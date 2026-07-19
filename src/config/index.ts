@@ -15,7 +15,14 @@ const publicEnv = (key: string) => metaEnv[key] ?? procEnv[key];
 
 export const envConfigs: Record<string, string> = {
   // App (public)
-  app_url: publicEnv('VITE_APP_URL') ?? 'http://localhost:3000',
+  // Strip any trailing slash: call sites build absolute URLs as `${app_url}/...`
+  // and paraglide's localizeUrl() throws ERR_INVALID_URL on a double slash
+  // (e.g. "https://x.net//" → fillPattern reconstructs "//" → new URL throws).
+  // Normalising here fixes every downstream usage at once.
+  app_url: (publicEnv('VITE_APP_URL') ?? 'http://localhost:3000').replace(
+    /\/+$/,
+    ''
+  ),
   app_name: publicEnv('VITE_APP_NAME') ?? 'kimik3',
   app_description:
     publicEnv('VITE_APP_DESCRIPTION') ??
@@ -31,7 +38,10 @@ export const envConfigs: Record<string, string> = {
   db_max_connections: procEnv.DB_MAX_CONNECTIONS ?? '1',
 
   // Auth
-  auth_url: procEnv.AUTH_URL ?? publicEnv('VITE_APP_URL') ?? '',
+  auth_url: (procEnv.AUTH_URL ?? publicEnv('VITE_APP_URL') ?? '').replace(
+    /\/+$/,
+    ''
+  ),
   auth_secret: procEnv.AUTH_SECRET ?? '',
 
   // Payment - Stripe
