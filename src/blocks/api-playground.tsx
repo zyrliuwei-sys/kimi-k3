@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
+  ArrowUpRight,
   Check,
   ChevronDown,
   Plus,
@@ -160,6 +161,11 @@ export function ApiPlayground() {
         aria-hidden
         className="brand-gradient pointer-events-none absolute -top-32 left-1/2 h-72 w-[42rem] -translate-x-1/2 rounded-full opacity-[0.12] blur-3xl"
       />
+      {/* Faint dotted grid — lab atmosphere, fades toward the edges. */}
+      <div
+        aria-hidden
+        className="play-grid pointer-events-none absolute inset-0 opacity-70"
+      />
 
       {hasThread ? (
         // Active thread — messages scroll, composer pinned to the bottom.
@@ -185,10 +191,13 @@ export function ApiPlayground() {
       ) : (
         // Empty state — greeting + composer grouped & vertically centered,
         // so the input sits right under the greeting instead of pinned low.
-        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-10">
-          <div className="flex w-full max-w-3xl flex-col items-center">
-            <WelcomeState onPick={(p) => handleShortcut(p)} />
-            <div className="mt-6 w-full">
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
+          <div className="flex w-full max-w-2xl flex-col items-center">
+            <WelcomeState
+              selected={selected}
+              onPick={(p) => handleShortcut(p)}
+            />
+            <div className="mt-8 w-full">
               <Composer {...composerProps} />
             </div>
           </div>
@@ -231,7 +240,7 @@ function Composer({
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="bg-card border-foreground/10 focus-within:border-foreground/20 rounded-[1.75rem] border p-2.5 shadow-sm transition-all focus-within:shadow-[0_8px_40px_-12px_rgba(124,58,237,0.25)]"
+        className="bg-card border-foreground/10 focus-within:border-foreground/25 rounded-[1.5rem] border p-2 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]"
       >
         <textarea
           ref={taRef}
@@ -240,7 +249,7 @@ function Composer({
           onKeyDown={onKeyDown}
           rows={1}
           placeholder={m['playground.input.placeholder']()}
-          className="placeholder:text-foreground/40 block max-h-[200px] min-h-[2.25rem] w-full resize-none bg-transparent px-3 pt-2 text-[15px] leading-relaxed outline-none"
+          className="placeholder:text-foreground/40 block max-h-[200px] min-h-[2.25rem] w-full resize-none bg-transparent px-3 pt-2.5 font-mono text-[14px] leading-relaxed outline-none"
         />
 
         <div className="flex items-center justify-between gap-2 pt-1.5">
@@ -253,12 +262,15 @@ function Composer({
             <Plus className="size-5" />
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <ModelMenu
               models={models}
               selected={selected}
               onSelect={onSelectModel}
             />
+            <span className="border-foreground/10 bg-foreground/[0.03] text-foreground/45 mx-1 hidden items-center gap-1 rounded-md border px-1.5 py-1 font-mono text-[11px] tracking-tight sm:inline-flex">
+              ⌘<span className="text-foreground/35">↵</span>
+            </span>
             <button
               type="button"
               onClick={onSend}
@@ -272,7 +284,7 @@ function Composer({
         </div>
       </motion.div>
 
-      <p className="text-foreground/35 mt-2 text-center text-[11px]">
+      <p className="text-foreground/35 mt-2.5 text-center font-mono text-[11px] tracking-tight">
         {m['playground.disclaimer']()}
       </p>
     </div>
@@ -283,7 +295,13 @@ function Composer({
 /*  Welcome / empty state                                              */
 /* ------------------------------------------------------------------ */
 
-function WelcomeState({ onPick }: { onPick: (prompt: string) => void }) {
+function WelcomeState({
+  selected,
+  onPick,
+}: {
+  selected: ModelOption;
+  onPick: (prompt: string) => void;
+}) {
   const examples: string[] = m['playground.examples']()
     .split('|')
     .map((s) => s.trim())
@@ -294,30 +312,46 @@ function WelcomeState({ onPick }: { onPick: (prompt: string) => void }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-      className="mx-auto flex w-full max-w-2xl flex-col items-center px-4 text-center"
+      className="flex w-full flex-col items-center text-center"
     >
+      {/* Mono status bar — eyebrow + live model readout. Frames the page as a
+          lab and surfaces the active model without a separate badge. */}
       <motion.div
-        initial={{ scale: 0.8, rotate: -6, opacity: 0 }}
-        animate={{ scale: 1, rotate: 0, opacity: 1 }}
-        transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
-        className="brand-gradient mb-5 flex size-14 items-center justify-center rounded-[1.25rem] shadow-lg shadow-violet-500/20"
+        initial={{ opacity: 0, y: -6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        className="border-foreground/10 bg-card/60 mb-9 flex w-full items-center justify-between gap-3 rounded-full border py-1 pr-1.5 pl-1.5 backdrop-blur"
       >
-        <Terminal className="size-7 text-white" />
+        <span className="inline-flex items-center gap-2.5 py-0.5 pl-1.5">
+          <span className="brand-gradient grid size-7 shrink-0 place-items-center rounded-full shadow-sm shadow-violet-500/25">
+            <Terminal className="size-3.5 text-white" />
+          </span>
+          <span className="text-foreground/60 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
+            {m['playground.welcome.eyebrow']()}
+          </span>
+        </span>
+        <span className="bg-foreground/[0.04] text-foreground/55 inline-flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-[11px] tracking-tight">
+          <span className="pg-caret size-1.5 rounded-full bg-emerald-500" />
+          {selected.name}
+          {selected.effortLabel && (
+            <>
+              <span className="text-foreground/25">·</span>
+              <span className="text-foreground/45">{selected.effortLabel}</span>
+            </>
+          )}
+        </span>
       </motion.div>
 
-      <span className="text-foreground/55 border-foreground/10 bg-card/60 mb-2.5 inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium backdrop-blur">
-        <span className="brand-gradient size-1.5 rounded-full" />
-        {m['playground.welcome.eyebrow']()}
-      </span>
-
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
+      <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
         {m['playground.welcome.greeting']()}
       </h1>
-      <p className="text-foreground/55 mt-2.5 max-w-md text-[15px] leading-relaxed">
+      <p className="text-foreground/55 mt-5 max-w-md text-[15px] leading-relaxed">
         {m['playground.welcome.subtitle']()}
       </p>
 
-      <div className="mt-6 grid w-full gap-2.5 text-left sm:grid-cols-2">
+      {/* Numbered prompt "commands" — index in mono, trailing run-arrow that
+          slides in on hover. Reads like a list of prepared snippets. */}
+      <div className="mt-9 grid w-full grid-cols-1 gap-2.5 text-left sm:grid-cols-2">
         {examples.map((ex, i) => (
           <motion.button
             key={ex}
@@ -325,12 +359,16 @@ function WelcomeState({ onPick }: { onPick: (prompt: string) => void }) {
             onClick={() => onPick(ex)}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 + i * 0.06, duration: 0.4 }}
-            whileHover={{ y: -2 }}
-            className="bg-card hover:border-foreground/20 border-foreground/10 text-foreground/75 group flex items-center gap-3 rounded-xl border px-4 py-3 text-sm transition-colors"
+            transition={{ delay: 0.18 + i * 0.06, duration: 0.4 }}
+            className="group border-foreground/10 bg-card/50 hover:border-foreground/25 hover:bg-card flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-colors"
           >
-            <Sparkles className="text-foreground/30 size-4 shrink-0 transition-colors group-hover:text-violet-500" />
-            <span className="line-clamp-2">{ex}</span>
+            <span className="text-foreground/35 font-mono text-[12px] font-medium tracking-tight transition-all group-hover:bg-gradient-to-r group-hover:from-[#7c3aed] group-hover:to-[#0ea5e9] group-hover:bg-clip-text group-hover:text-transparent">
+              {String(i + 1).padStart(2, '0')}
+            </span>
+            <span className="text-foreground/75 line-clamp-2 flex-1 text-sm leading-snug">
+              {ex}
+            </span>
+            <ArrowUpRight className="text-foreground/25 size-4 shrink-0 -translate-x-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:text-violet-500 group-hover:opacity-100" />
           </motion.button>
         ))}
       </div>
@@ -351,7 +389,7 @@ function ThreadHeader({
 }) {
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 pt-5">
-      <span className="text-foreground/50 text-xs font-medium tracking-wide uppercase">
+      <span className="text-foreground/45 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
         {m['playground.welcome.eyebrow']()} · {modelName}
       </span>
       <button
@@ -463,9 +501,11 @@ function ModelMenu({
         onClick={() => setOpen((o) => !o)}
         className="hover:bg-foreground/5 flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-sm transition-colors"
       >
-        <span className="font-semibold tracking-tight">{selected.name}</span>
+        <span className="font-mono font-semibold tracking-tight">
+          {selected.name}
+        </span>
         {selected.effort && (
-          <span className="text-foreground/55 text-xs">
+          <span className="text-foreground/55 font-mono text-xs">
             {selected.effortLabel}
           </span>
         )}

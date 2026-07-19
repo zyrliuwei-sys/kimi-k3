@@ -789,14 +789,6 @@ export function getSettings(): Setting[] {
     // reaches any model in its Text Series. This product uses it for Kimi K3
     // (model id `kimi-k3`); the admin can switch to another id if needed.
     {
-      name: 'evolink_base_url',
-      title: 'Base URL',
-      type: 'text',
-      placeholder: 'https://api.evolink.ai/v1',
-      group: 'evolink',
-      tab: 'ai',
-    },
-    {
       name: 'evolink_api_key',
       title: 'API Key',
       type: 'password',

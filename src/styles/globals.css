@@ -3,11 +3,15 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Font family — DM Sans (castmagic's typeface), loaded via @fontsource in
+/* Font family — DM Sans (castmagic's typeface) for body/UI, Libre Baskerville
+   as the editorial serif display for headings. Loaded via @fontsource in
    src/routes/__root.tsx. */
 :root {
   --font-sans: 'DM Sans Variable', 'DM Sans', system-ui, sans-serif;
-  --font-serif-display: 'DM Sans Variable', 'DM Sans', sans-serif;
+  --font-serif-display: 'Libre Baskerville', 'Baskerville', Georgia, serif;
+  --font-mono:
+    ui-monospace, 'SF Mono', 'Cascadia Code', 'Roboto Mono', Menlo, Monaco,
+    Consolas, monospace;
 }
 
 @theme inline {
@@ -50,6 +54,9 @@
   --font-sans:
     var(--font-sans), -apple-system, 'system-ui', 'Segoe UI', Helvetica, Arial,
     sans-serif;
+  --font-mono:
+    var(--font-mono), ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas,
+    monospace;
   /* CJK serif glyphs use locally-installed fonts — a Chinese serif webfont
      ships 300+ @font-face subsets (~100KB render-blocking CSS on every page)
      and is not worth it for headings. */
@@ -249,5 +256,47 @@
     opacity: 1;
     transform: none;
     transition: none;
+  }
+}
+
+/* ---- playground atmosphere ---- */
+/* Faint dotted grid — sits behind the playground, masked to fade at edges. */
+.play-grid {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--foreground) 16%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+  background-position: center;
+  -webkit-mask-image: radial-gradient(
+    ellipse 75% 70% at 50% 45%,
+    black 35%,
+    transparent 78%
+  );
+  mask-image: radial-gradient(
+    ellipse 75% 70% at 50% 45%,
+    black 35%,
+    transparent 78%
+  );
+}
+
+/* Blinking caret used in the composer + status bar. */
+@keyframes pg-caret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.pg-caret {
+  animation: pg-caret 1.1s steps(1) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pg-caret {
+    animation: none;
   }
 }
