@@ -7,11 +7,17 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 
-const FAQ_KEYS = [
-  'stack',
-  'payment',
-  'database',
-  'customize',
+/**
+ * Shared FAQ item slugs. Consumed by both the FAQ UI below and the homepage
+ * FAQPage JSON-LD (src/routes/index.tsx) so the visible questions and the
+ * structured data fed to search engines can never drift apart. Each slug maps
+ * to `landing.faq.<slug>.{question,answer}` in messages/{en,zh}.json.
+ */
+export const FAQ_ITEMS = [
+  'vs_kimik3',
+  'how',
+  'time_cost',
+  'formats',
   'license',
 ] as const;
 
@@ -28,7 +34,7 @@ export function FAQ() {
           </p>
         </div>
         <Accordion className="w-full">
-          {FAQ_KEYS.map((key) => (
+          {FAQ_ITEMS.map((key) => (
             <AccordionItem key={key} value={key}>
               <AccordionTrigger className="cursor-pointer py-6 text-left text-base font-medium hover:no-underline">
                 {tDynamic(`landing.faq.${key}.question`)}

@@ -13,7 +13,7 @@ export function AboutKimik3() {
     });
 
   return (
-    <section className="relative px-4 py-20 sm:py-28">
+    <section id="features" className="relative px-4 py-20 sm:py-28">
       <div className="mx-auto max-w-5xl">
         <div className="mx-auto max-w-2xl text-center">
           <span className="border-foreground/10 bg-card/70 text-foreground/70 inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-xs font-medium backdrop-blur">

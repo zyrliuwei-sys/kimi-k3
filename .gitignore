@@ -65,3 +65,5 @@ package-lock.json
 
 # Runtime image uploads (no-storage local fallback)
 /public/uploads/
+backup-pre-pivot-2026-07-20/
+backup-motion-cta-2026-07-21/

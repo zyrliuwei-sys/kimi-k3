@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
+import { tDynamic } from '@/core/i18n/dynamic';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
 import { getLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
@@ -7,17 +8,16 @@ import { AboutKimik3 } from '@/blocks/about-kimik3';
 import { Assets } from '@/blocks/assets';
 import { BuiltFor } from '@/blocks/built-for';
 import { CTA } from '@/blocks/cta';
-import { FAQ } from '@/blocks/faq';
+import { FAQ, FAQ_ITEMS } from '@/blocks/faq';
 import { Footer } from '@/blocks/footer';
 import { Header } from '@/blocks/header';
 import { Hero } from '@/blocks/hero';
 import { Logos } from '@/blocks/logos';
 import { Pricing } from '@/blocks/pricing';
+import { Showcase } from '@/blocks/showcase';
 import { Start } from '@/blocks/start';
 import { Stats } from '@/blocks/stats';
 import { SupportWidget } from '@/blocks/support-widget';
-import { TryKimik3 } from '@/blocks/try-kimik3';
-import { VFeatures } from '@/blocks/vfeatures';
 
 function HomePage() {
   const jsonLd = buildHomeJsonLd();
@@ -30,13 +30,12 @@ function HomePage() {
       <Header />
       <main>
         <Hero />
-        <TryKimik3 />
         <Logos />
         <Assets />
+        <Showcase />
         <Start />
         <BuiltFor />
         <Stats />
-        <VFeatures />
         <AboutKimik3 />
         <Pricing />
         <FAQ />
@@ -50,28 +49,12 @@ function HomePage() {
 
 function buildHomeJsonLd() {
   const url = envConfigs.app_url.replace(/\/$/, '');
-  const faqs = [
-    {
-      q: m['landing.faq.stack.question'](),
-      a: m['landing.faq.stack.answer'](),
-    },
-    {
-      q: m['landing.faq.payment.question'](),
-      a: m['landing.faq.payment.answer'](),
-    },
-    {
-      q: m['landing.faq.database.question'](),
-      a: m['landing.faq.database.answer'](),
-    },
-    {
-      q: m['landing.faq.customize.question'](),
-      a: m['landing.faq.customize.answer'](),
-    },
-    {
-      q: m['landing.faq.license.question'](),
-      a: m['landing.faq.license.answer'](),
-    },
-  ];
+  // FAQ items are shared with the FAQ UI (src/blocks/faq.tsx) so the
+  // structured data and the rendered questions always match.
+  const faqs = FAQ_ITEMS.map((key) => ({
+    q: tDynamic(`landing.faq.${key}.question`),
+    a: tDynamic(`landing.faq.${key}.answer`),
+  }));
   return {
     '@context': 'https://schema.org',
     '@graph': [
