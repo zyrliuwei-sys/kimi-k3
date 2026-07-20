@@ -29,6 +29,14 @@ export function Footer() {
     { label: m['landing.footer.resources_status'](), href: '/' },
     { label: m['landing.footer.resources_signin'](), href: '/sign-in' },
   ];
+  // SEO landing pages for common kimik3 misspellings — kept as raw keyword
+  // labels (identical across locales) so each variant links to its page.
+  const searches: FooterLink[] = [
+    { label: 'kimink3', href: '/kimink3' },
+    { label: 'kimik 3', href: '/kimik-3' },
+    { label: 'kimika 3', href: '/kimika-3' },
+    { label: 'kimmik3', href: '/kimmik3' },
+  ];
 
   return (
     <footer className="bg-neutral-950 text-neutral-300">
@@ -91,6 +99,25 @@ export function Footer() {
                 <ArrowRight className="size-4" />
               </button>
             </form>
+          </div>
+        </div>
+
+        {/* Common searches — slim keyword strip; helps crawlers reach the
+            kimik3 spelling-variant landing pages from every route. */}
+        <div className="mt-10 border-t border-neutral-800 pt-6">
+          <p className="text-xs font-semibold tracking-wider text-neutral-500 uppercase">
+            {m['landing.footer.col_searches']()}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2">
+            {searches.map((link) => (
+              <Link
+                key={link.href}
+                href={link.href}
+                className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
+              >
+                {link.label}
+              </Link>
+            ))}
           </div>
         </div>
 

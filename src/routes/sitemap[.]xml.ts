@@ -10,6 +10,11 @@ const STATIC_PATHS = [
   '/blog',
   '/privacy-policy',
   '/terms-of-service',
+  // SEO landing pages for kimik3 spelling variants.
+  '/kimink3',
+  '/kimik-3',
+  '/kimika-3',
+  '/kimmik3',
 ];
 
 type Entry = {
