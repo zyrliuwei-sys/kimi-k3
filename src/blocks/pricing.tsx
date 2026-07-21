@@ -2,17 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import {
-  Check,
-  Folders,
-  Headphones,
-  Infinity as InfinityIcon,
-  Mail,
-  Puzzle,
-  Sparkles,
-  Terminal,
-  Zap,
-} from 'lucide-react';
+import { Check, Rocket, Sparkles, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useSession } from '@/core/auth/client';
@@ -31,8 +21,8 @@ import {
 } from '@/components/pricing-table';
 
 const ALL_PROVIDERS: PaymentProvider[] = [
-  'stripe',
   'creem',
+  'stripe',
   'paypal',
   'alipay',
   'wechat',
@@ -54,108 +44,78 @@ export function Pricing({ title }: { title?: string } = {}) {
     [configs]
   );
 
-  const freeFeatures = [
-    { icon: Sparkles, label: m['landing.pricing.feature_free_1']() },
-    { icon: Check, label: m['landing.pricing.feature_free_2']() },
-    { icon: Mail, label: m['landing.pricing.feature_free_3']() },
+  const starterFeatures = [
+    { icon: Zap, label: m['landing.pricing.pack.requests']({ count: 180 }) },
+    { icon: Sparkles, label: m['landing.pricing.pack.kimi_access']() },
+    { icon: Check, label: m['landing.pricing.pack.context']() },
+    { icon: Check, label: m['landing.pricing.pack.email_support']() },
   ];
   const proFeatures = [
-    { icon: Folders, label: m['landing.pricing.feature_pro_1']() },
-    { icon: Check, label: m['landing.pricing.feature_pro_2']() },
-    { icon: Zap, label: m['landing.pricing.feature_pro_3']() },
-    { icon: Terminal, label: m['landing.pricing.feature_pro_4']() },
+    { icon: Zap, label: m['landing.pricing.pack.requests']({ count: 950 }) },
+    {
+      icon: Check,
+      label: m['landing.pricing.pack.everything_in']({
+        name: m['landing.pricing.pack.starter'](),
+      }),
+    },
+    { icon: Rocket, label: m['landing.pricing.pack.priority_queue']() },
+    { icon: Check, label: m['landing.pricing.pack.priority_support']() },
   ];
-  const enterpriseFeatures = [
-    { icon: Check, label: m['landing.pricing.feature_ent_1']() },
-    { icon: InfinityIcon, label: m['landing.pricing.feature_ent_2']() },
-    { icon: Headphones, label: m['landing.pricing.feature_ent_3']() },
-    { icon: Puzzle, label: m['landing.pricing.feature_ent_4']() },
+  const scaleFeatures = [
+    { icon: Zap, label: m['landing.pricing.pack.requests']({ count: 1900 }) },
+    { icon: Check, label: m['landing.pricing.pack.best_price']() },
+    {
+      icon: Check,
+      label: m['landing.pricing.pack.everything_in']({
+        name: m['landing.pricing.pack.pro'](),
+      }),
+    },
+    { icon: Check, label: m['landing.pricing.pack.dedicated_support']() },
   ];
-
-  const freePlan = (over: Partial<PricingPlan> = {}): PricingPlan => ({
-    id: 'free',
-    name: m['landing.pricing.starter'](),
-    description: m['landing.pricing.starter_desc'](),
-    price: '$0',
-    features: freeFeatures,
-    productId: 'free',
-    priceInCents: 0,
-    currency: 'usd',
-    credits: 0,
-    buttonText: m['landing.pricing.free_cta'](),
-    ...over,
-  });
 
   const groups: PricingGroup[] = [
     {
-      key: 'monthly',
-      label: m['landing.pricing.monthly'](),
+      key: 'packs',
+      label: m['landing.pricing.title'](),
       plans: [
-        freePlan({ id: 'free-monthly' }),
         {
-          id: 'pro-monthly',
-          name: m['landing.pricing.pro'](),
-          description: m['landing.pricing.pro_desc'](),
-          price: '$9.9',
-          interval: 'mo',
+          id: 'credits_180',
+          name: m['landing.pricing.pack.starter'](),
+          description: m['landing.pricing.pack.starter_desc'](),
+          price: '$10',
+          features: starterFeatures,
+          productId: 'credits_180',
+          priceInCents: 1000,
+          currency: 'usd',
+          credits: 180,
+          buttonText: m['landing.pricing.pack.buy'](),
+        },
+        {
+          id: 'credits_950',
+          name: m['landing.pricing.pack.pro'](),
+          description: m['landing.pricing.pack.pro_desc'](),
+          price: '$50',
           featured: true,
           badge: m['landing.pricing.popular'](),
           features: proFeatures,
-          productId: 'pro_monthly',
-          priceInCents: 990,
+          productId: 'credits_950',
+          priceInCents: 5000,
           currency: 'usd',
-          credits: 3000,
-          plan: { name: 'Pro', interval: 'month', intervalCount: 1 },
+          credits: 950,
+          buttonText: m['landing.pricing.pack.buy'](),
         },
         {
-          id: 'enterprise-monthly',
-          name: m['landing.pricing.enterprise'](),
-          description: m['landing.pricing.enterprise_desc'](),
-          price: '$49',
-          interval: 'mo',
-          features: enterpriseFeatures,
-          productId: 'enterprise_monthly',
-          priceInCents: 4900,
-          currency: 'usd',
-          credits: 30000,
-          plan: { name: 'Enterprise', interval: 'month', intervalCount: 1 },
-        },
-      ],
-    },
-    {
-      key: 'yearly',
-      label: m['landing.pricing.yearly'](),
-      plans: [
-        freePlan({ id: 'free-yearly' }),
-        {
-          id: 'pro-yearly',
-          name: m['landing.pricing.pro'](),
-          description: m['landing.pricing.pro_desc'](),
-          price: '$99',
-          originalPrice: '$118',
-          interval: 'yr',
-          featured: true,
+          id: 'credits_1900',
+          name: m['landing.pricing.pack.scale'](),
+          description: m['landing.pricing.pack.scale_desc'](),
+          price: '$100',
           badge: m['landing.pricing.best_value'](),
-          features: proFeatures,
-          productId: 'pro_yearly',
-          priceInCents: 9900,
+          features: scaleFeatures,
+          productId: 'credits_1900',
+          priceInCents: 10000,
           currency: 'usd',
-          credits: 36000,
-          plan: { name: 'Pro', interval: 'year', intervalCount: 1 },
-        },
-        {
-          id: 'enterprise-yearly',
-          name: m['landing.pricing.enterprise'](),
-          description: m['landing.pricing.enterprise_desc'](),
-          price: '$490',
-          originalPrice: '$588',
-          interval: 'yr',
-          features: enterpriseFeatures,
-          productId: 'enterprise_yearly',
-          priceInCents: 49000,
-          currency: 'usd',
-          credits: 360000,
-          plan: { name: 'Enterprise', interval: 'year', intervalCount: 1 },
+          credits: 1900,
+          buttonText: m['landing.pricing.pack.buy'](),
         },
       ],
     },
@@ -202,11 +162,8 @@ export function Pricing({ title }: { title?: string } = {}) {
   }
 
   async function handleCheckout(plan: PricingPlan) {
-    // Free plan — no payment, just create an account.
-    if (!plan.priceInCents) {
-      router.push('/sign-up');
-      return;
-    }
+    // Packs always have a price — no free tier here.
+    if (!plan.priceInCents) return;
 
     if (!session?.user) {
       const redirect = encodeURIComponent(
@@ -219,7 +176,7 @@ export function Pricing({ title }: { title?: string } = {}) {
     const selectEnabled = configs.select_payment_enabled === 'true';
     const defaultProvider = (configs.default_payment_provider ||
       enabledProviders[0] ||
-      'stripe') as PaymentProvider;
+      'creem') as PaymentProvider;
 
     if (selectEnabled && enabledProviders.length > 1) {
       setPendingPlan(plan);
@@ -261,7 +218,7 @@ export function Pricing({ title }: { title?: string } = {}) {
             setLoadingProvider(null);
           }
         }}
-        providers={enabledProviders.length ? enabledProviders : ['stripe']}
+        providers={enabledProviders.length ? enabledProviders : ['creem']}
         loadingProvider={loadingProvider}
         onSelect={handleProviderSelect}
         planName={pendingPlan?.name}
