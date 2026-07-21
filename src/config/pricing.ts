@@ -6,6 +6,11 @@
  * product_id is honored, and everything else is looked up here.
  *
  * To change pricing, edit this file and redeploy. Admin UI cannot alter prices.
+ *
+ * Creem note: `productId` is forwarded to Creem as `product_id`. For live
+ * purchases, create matching one-time products in the Creem dashboard and set
+ * each `productId` below to the real Creem product id (keep it in sync with the
+ * prices: $10 / $50 / $100).
  */
 
 import { PaymentInterval, PaymentType } from '@/core/payment/types';
@@ -30,117 +35,39 @@ export type PricingProduct = {
 };
 
 /**
- * Default demo catalog. Replace with your real products when launching.
+ * Request packs — one-time API credit top-ups.
  * Keys MUST match what the pricing UI sends as product_id.
  */
 export const pricingCatalog: Record<string, PricingProduct> = {
-  starter_monthly: {
-    productId: 'starter_monthly',
-    productName: 'Starter',
-    planName: 'Starter',
-    description: 'Starter Monthly',
-    type: PaymentType.SUBSCRIPTION,
-    priceInCents: 900,
-    currency: 'usd',
-    credits: 5000,
-    plan: {
-      name: 'Starter',
-      interval: PaymentInterval.MONTH,
-      intervalCount: 1,
-    },
-  },
-  pro_monthly: {
-    productId: 'pro_monthly',
-    productName: 'Pro',
-    planName: 'Pro',
-    description: 'Pro Monthly',
-    type: PaymentType.SUBSCRIPTION,
-    priceInCents: 2900,
-    currency: 'usd',
-    credits: 50000,
-    plan: { name: 'Pro', interval: PaymentInterval.MONTH, intervalCount: 1 },
-  },
-  enterprise_monthly: {
-    productId: 'enterprise_monthly',
-    productName: 'Enterprise',
-    planName: 'Enterprise',
-    description: 'Enterprise Monthly',
-    type: PaymentType.SUBSCRIPTION,
-    priceInCents: 9900,
-    currency: 'usd',
-    credits: 500000,
-    plan: {
-      name: 'Enterprise',
-      interval: PaymentInterval.MONTH,
-      intervalCount: 1,
-    },
-  },
-  starter_yearly: {
-    productId: 'starter_yearly',
-    productName: 'Starter',
-    planName: 'Starter',
-    description: 'Starter Yearly',
-    type: PaymentType.SUBSCRIPTION,
-    priceInCents: 8600,
-    currency: 'usd',
-    credits: 60000,
-    plan: { name: 'Starter', interval: PaymentInterval.YEAR, intervalCount: 1 },
-  },
-  pro_yearly: {
-    productId: 'pro_yearly',
-    productName: 'Pro',
-    planName: 'Pro',
-    description: 'Pro Yearly',
-    type: PaymentType.SUBSCRIPTION,
-    priceInCents: 27800,
-    currency: 'usd',
-    credits: 600000,
-    plan: { name: 'Pro', interval: PaymentInterval.YEAR, intervalCount: 1 },
-  },
-  enterprise_yearly: {
-    productId: 'enterprise_yearly',
-    productName: 'Enterprise',
-    planName: 'Enterprise',
-    description: 'Enterprise Yearly',
-    type: PaymentType.SUBSCRIPTION,
-    priceInCents: 95000,
-    currency: 'usd',
-    credits: 6000000,
-    plan: {
-      name: 'Enterprise',
-      interval: PaymentInterval.YEAR,
-      intervalCount: 1,
-    },
-  },
-  starter_lifetime: {
-    productId: 'starter_lifetime',
-    productName: 'Starter',
-    planName: 'Starter Lifetime',
-    description: 'Starter Lifetime',
+  credits_180: {
+    productId: 'credits_180',
+    productName: 'Starter Pack',
+    planName: 'Starter Pack',
+    description: '180 requests',
     type: PaymentType.ONE_TIME,
-    priceInCents: 14900,
+    priceInCents: 1000, // $10
     currency: 'usd',
-    credits: 100000,
+    credits: 180,
   },
-  pro_lifetime: {
-    productId: 'pro_lifetime',
-    productName: 'Pro',
-    planName: 'Pro Lifetime',
-    description: 'Pro Lifetime',
+  credits_950: {
+    productId: 'credits_950',
+    productName: 'Pro Pack',
+    planName: 'Pro Pack',
+    description: '950 requests',
     type: PaymentType.ONE_TIME,
-    priceInCents: 49900,
+    priceInCents: 5000, // $50
     currency: 'usd',
-    credits: 1000000,
+    credits: 950,
   },
-  enterprise_lifetime: {
-    productId: 'enterprise_lifetime',
-    productName: 'Enterprise',
-    planName: 'Enterprise Lifetime',
-    description: 'Enterprise Lifetime',
+  credits_1900: {
+    productId: 'credits_1900',
+    productName: 'Scale Pack',
+    planName: 'Scale Pack',
+    description: '1900 requests',
     type: PaymentType.ONE_TIME,
-    priceInCents: 199900,
+    priceInCents: 10000, // $100
     currency: 'usd',
-    credits: 10000000,
+    credits: 1900,
   },
 };
 

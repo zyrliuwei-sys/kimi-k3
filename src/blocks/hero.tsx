@@ -1,7 +1,7 @@
 import { Sparkles } from 'lucide-react';
 
 import { m } from '@/paraglide/messages.js';
-import { UploadStudio } from '@/blocks/upload-studio';
+import { HeroChat } from '@/blocks/hero-chat';
 
 export function Hero() {
   return (
@@ -35,7 +35,7 @@ export function Hero() {
         id="upload"
         className="relative mx-auto mt-12 max-w-2xl scroll-mt-24"
       >
-        <UploadStudio />
+        <HeroChat />
       </div>
 
       <p className="text-foreground/50 mx-auto mt-8 max-w-2xl text-center text-sm">
