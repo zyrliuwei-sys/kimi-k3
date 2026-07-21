@@ -12,7 +12,7 @@ interface FooterLink {
 
 export function Footer() {
   const product: FooterLink[] = [
-    { label: m['landing.footer.product_features'](), href: '/#features' },
+    { label: m['landing.footer.product_features'](), href: '/#showcase' },
     { label: m['landing.footer.product_pricing'](), href: '/pricing' },
     { label: m['landing.footer.product_teams'](), href: '/settings' },
     { label: m['landing.footer.product_apikeys'](), href: '/settings/apikeys' },
@@ -24,7 +24,7 @@ export function Footer() {
     { label: m['landing.footer.company_terms'](), href: '/terms-of-service' },
   ];
   const resources: FooterLink[] = [
-    { label: m['landing.footer.resources_docs'](), href: '/#features' },
+    { label: m['landing.footer.resources_docs'](), href: '/#showcase' },
     { label: m['landing.footer.resources_changelog'](), href: '/blog' },
     { label: m['landing.footer.resources_status'](), href: '/' },
     { label: m['landing.footer.resources_signin'](), href: '/sign-in' },

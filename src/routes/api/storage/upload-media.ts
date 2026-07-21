@@ -6,16 +6,17 @@ import { getAuth } from '@/core/auth';
 import { envConfigs } from '@/config';
 import { getStorage } from '@/modules/storage/service';
 import { md5 } from '@/lib/hash';
-import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
+import { checkIpQuota, enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 import { respData, respErr } from '@/lib/resp';
 
 /**
  * Chat attachment upload — accepts images AND short videos. Used by the API
  * Playground "+" button. Mirrors `upload-image.ts` (which support tickets also
  * rely on) but widens the accepted MIME set so the chat composer can attach
- * video too. Auth-required (aligns with the freemium model — anonymous chat
- * stays text-only). Images are sent on to a vision model; videos are
- * display-only.
+ * video too. Anonymous uploads are allowed (so the screenshot-clone flow works
+ * without sign-in) but capped per IP; the chat endpoint's "1 free message per
+ * IP" gate remains the real AI-cost ceiling. Images are sent on to a vision
+ * model; videos are display-only.
  */
 
 const extFromMime = (mimeType: string) => {
@@ -45,6 +46,14 @@ const isVideo = (t: string) => t.startsWith('video/');
 const INLINE_MAX_BYTES =
   (Number(envConfigs.inline_image_max_kb) || 10240) * 1024;
 
+// Abuse guardrails for the now-anonymous playground upload path. The chat
+// endpoint's "1 free message per IP" gate remains the real AI-cost ceiling;
+// these just bound storage/Disk exposure. Per-IP quota relies on the
+// unspoofable CF-Connecting-IP resolved by getClientIpFromRequest.
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB per file
+const MAX_FILES = 4; // per request
+const ANON_UPLOAD_LIMIT = 3; // free anonymous uploads per IP
+
 async function POST({ request }: { request: Request }) {
   const limited = enforceMinIntervalRateLimit(request, {
     intervalMs: 1000,
@@ -55,11 +64,28 @@ async function POST({ request }: { request: Request }) {
   try {
     const auth = getAuth();
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) return respErr('Unauthorized');
+
+    // Anonymous uploads are allowed (so the playground's screenshot-clone flow
+    // works without sign-in) but capped per IP; signed-in users skip the quota.
+    if (!session?.user) {
+      const quota = checkIpQuota(request, {
+        keyPrefix: 'playground-anon-upload',
+        limit: ANON_UPLOAD_LIMIT,
+      });
+      if (quota.exceeded) {
+        return respErr(
+          'Anonymous upload limit reached — please sign in to upload more.',
+          { status: 429 }
+        );
+      }
+    }
 
     const formData = await request.formData();
     const files = formData.getAll('files') as File[];
     if (!files.length) return respErr('No files provided');
+    if (files.length > MAX_FILES) {
+      return respErr('Too many files (max 4).', { status: 413 });
+    }
 
     const storage = await getStorage();
     const uploadResults: Array<{
@@ -79,6 +105,15 @@ async function POST({ request }: { request: Request }) {
 
       const arrayBuffer = await file.arrayBuffer();
       const body = new Uint8Array(arrayBuffer);
+
+      if (body.length > MAX_UPLOAD_BYTES) {
+        return respErr(
+          `File ${file.name} is too large (max ${Math.round(
+            MAX_UPLOAD_BYTES / 1024 / 1024
+          )}MB).`,
+          { status: 413 }
+        );
+      }
 
       const digest = md5(body);
       const ext =

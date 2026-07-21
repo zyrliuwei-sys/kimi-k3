@@ -4,7 +4,6 @@ import { tDynamic } from '@/core/i18n/dynamic';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
 import { getLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
-import { AboutKimik3 } from '@/blocks/about-kimik3';
 import { Assets } from '@/blocks/assets';
 import { BuiltFor } from '@/blocks/built-for';
 import { CTA } from '@/blocks/cta';
@@ -36,7 +35,6 @@ function HomePage() {
         <Start />
         <BuiltFor />
         <Stats />
-        <AboutKimik3 />
         <Pricing />
         <FAQ />
         <CTA />

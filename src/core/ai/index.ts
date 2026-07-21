@@ -1,3 +1,4 @@
+import { FalProvider } from './fal';
 import { AIFile, AIMediaType, AIProvider, SaveFilesFunction } from './types';
 
 export * from './types';
@@ -52,6 +53,35 @@ export class AIManager {
 }
 
 export const aiManager = new AIManager();
+
+/**
+ * Build a request-scoped AIManager with the Fal provider registered. Mirrors
+ * getStorage()/getAuth(): the caller (an API route) passes the DB configs and
+ * an optional `saveFiles` fn that rehosts generated outputs to the storage
+ * provider. Returns null when Fal isn't configured (no fal_api_key) so routes
+ * can surface a clear "not configured" error instead of crashing.
+ *
+ * Lives in core/ (not modules/) and takes configs/saveFiles as args so it stays
+ * free of module imports; the route supplies both.
+ */
+export function getAIManager(
+  configs: Record<string, any>,
+  opts?: { saveFiles?: SaveFilesFunction }
+): AIManager | null {
+  const apiKey = configs?.fal_api_key;
+  if (!apiKey) return null;
+
+  const manager = new AIManager();
+  manager.addProvider(
+    new FalProvider({
+      apiKey,
+      customStorage: !!opts?.saveFiles,
+      saveFiles: opts?.saveFiles,
+    }),
+    true
+  );
+  return manager;
+}
 
 export * from './kie';
 export * from './replicate';

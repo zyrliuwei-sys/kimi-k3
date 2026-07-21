@@ -28,7 +28,7 @@ export function BuiltFor() {
           </p>
         </Reveal>
 
-        <div className="mt-12 grid gap-4 sm:grid-cols-2">
+        <div className="mx-auto mt-12 grid max-w-5xl gap-5 sm:grid-cols-3">
           {cards.map(([title, desc], i) => {
             const Icon = ICONS[i % ICONS.length] ?? Briefcase;
             return (

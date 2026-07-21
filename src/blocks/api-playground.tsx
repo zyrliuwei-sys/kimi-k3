@@ -19,10 +19,10 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { toast } from 'sonner';
 
-import { useSession } from '@/core/auth/client';
 import { streamChat } from '@/lib/chat-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
+import { ClonePreview } from '@/components/clone-preview';
 import { MarkdownContent } from '@/components/markdown-content';
 
 /* ------------------------------------------------------------------ */
@@ -51,6 +51,9 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   attachments?: Attachment[];
+  // Assistant-only flags for the screenshot-clone flow:
+  clone?: boolean; // this reply recreates a webpage → offer a live preview
+  streaming?: boolean; // still receiving deltas → show code, not the preview
 }
 
 type TaskAction = 'upload' | 'seed';
@@ -92,7 +95,6 @@ async function uploadMediaFile(file: File): Promise<Attachment> {
 /* ------------------------------------------------------------------ */
 
 export function ApiPlayground() {
-  const { data: session } = useSession();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -141,19 +143,15 @@ export function ApiPlayground() {
   }, []);
 
   function openFilePicker() {
-    if (!session?.user) {
-      toast.error(m['playground.attachment.signin_required']());
-      return;
-    }
     fileInputRef.current?.click();
   }
 
   async function handleFilesSelected(files: FileList | null) {
     if (!files || !files.length) return;
-    if (!session?.user) {
-      toast.error(m['playground.attachment.signin_required']());
-      return;
-    }
+    // Remember whether the screenshot-clone task was active when the picker
+    // opened: if so, auto-send the clone request the moment the upload lands,
+    // so "pick a webpage screenshot" flows straight into a cloned webpage.
+    const wasScreenshotClone = activeTask === 'screenshot';
     setUploading(true);
     try {
       const added: Attachment[] = [];
@@ -164,7 +162,13 @@ export function ApiPlayground() {
           toast.error(e?.message || 'Upload failed');
         }
       }
-      if (added.length) setAttachments((prev) => [...prev, ...added]);
+      if (!added.length) return;
+      const newAttachments = [...attachments, ...added];
+      setAttachments(newAttachments);
+      if (wasScreenshotClone) {
+        const prompt = tasks.find((t) => t.id === 'screenshot')?.prompt || '';
+        handleSend({ text: prompt, attachments: newAttachments, clone: true });
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -175,16 +179,26 @@ export function ApiPlayground() {
     setAttachments((prev) => prev.filter((a) => a.url !== url));
   }
 
-  async function handleSend() {
-    const text = input.trim();
+  async function handleSend(opts?: {
+    text?: string;
+    attachments?: Attachment[];
+    clone?: boolean;
+  }) {
+    const text = (opts?.text ?? input).trim();
+    const pendingAttachments = opts?.attachments ?? attachments;
     // Image-only messages get a default prompt so the backend has a valid user
     // turn and the model knows what to do with the attachment.
     const effective =
       text ||
-      (attachments.length ? m['playground.attachment.default_prompt']() : '');
+      (pendingAttachments.length
+        ? m['playground.attachment.default_prompt']()
+        : '');
     if (!effective || isThinking) return;
 
-    const pendingAttachments = attachments;
+    // A screenshot-clone turn (auto-sent after upload, or manually sent while
+    // the task chip is active) flags its assistant reply for live preview.
+    const isClone = !!opts?.clone || activeTask === 'screenshot';
+
     const userMsg: Message = {
       id: ++idRef.current,
       role: 'user',
@@ -195,6 +209,7 @@ export function ApiPlayground() {
     setMessages(turns);
     setInput('');
     setAttachments([]);
+    setActiveTask(null);
     setIsThinking(true);
     requestAnimationFrame(() => {
       const el = taRef.current;
@@ -206,6 +221,13 @@ export function ApiPlayground() {
     abortRef.current = controller;
 
     const assistantId = ++idRef.current;
+    // Mark the assistant bubble as done streaming on any terminal event so the
+    // clone preview can take over from the live-code view.
+    const finishAssistant = (mutate: (msg: Message) => Message) => {
+      setMessages((prev) =>
+        prev.map((mm) => (mm.id === assistantId ? mutate(mm) : mm))
+      );
+    };
     const pushOrAppend = (delta: string) => {
       setIsThinking(false);
       setMessages((prev) => {
@@ -217,7 +239,13 @@ export function ApiPlayground() {
         }
         return [
           ...prev,
-          { id: assistantId, role: 'assistant', content: delta },
+          {
+            id: assistantId,
+            role: 'assistant',
+            content: delta,
+            clone: isClone,
+            streaming: true,
+          },
         ];
       });
     };
@@ -242,7 +270,13 @@ export function ApiPlayground() {
                 : m['playground.gate.pay']();
             setMessages((prev) => [
               ...prev,
-              { id: assistantId, role: 'assistant', content: body },
+              {
+                id: assistantId,
+                role: 'assistant',
+                content: body,
+                clone: false,
+                streaming: false,
+              },
             ]);
           },
           onError: (msg) => {
@@ -253,14 +287,20 @@ export function ApiPlayground() {
                 id: assistantId,
                 role: 'assistant',
                 content: `⚠️ ${msg || 'Request failed'} — please try again.`,
+                clone: false,
+                streaming: false,
               },
             ]);
           },
-          onDone: () => setIsThinking(false),
+          onDone: () => {
+            setIsThinking(false);
+            finishAssistant((msg) => ({ ...msg, streaming: false }));
+          },
         }
       );
     } catch {
       setIsThinking(false);
+      finishAssistant((msg) => ({ ...msg, streaming: false }));
     } finally {
       if (abortRef.current === controller) abortRef.current = null;
     }
@@ -726,6 +766,8 @@ function MessageBubble({ message }: { message: Message }) {
         {message.content.trim() &&
           (isUser ? (
             <span className="whitespace-pre-wrap">{message.content}</span>
+          ) : message.clone && !message.streaming ? (
+            <ClonePreview content={message.content} />
           ) : (
             <MarkdownContent content={message.content} />
           ))}

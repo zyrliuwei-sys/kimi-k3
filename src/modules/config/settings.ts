@@ -847,6 +847,24 @@ export function getSettings(): Setting[] {
       tab: 'ai',
     },
 
+    // ─── AI / Web & Motion (video → video replicate via Fal) ─────────
+    {
+      name: 'video_replicate_model',
+      title: 'Video Replicate Model',
+      type: 'text',
+      placeholder: 'fal-ai/kling-video/o1/video-to-video/edit',
+      group: 'fal',
+      tab: 'ai',
+    },
+    {
+      name: 'video_replicate_credit_cost',
+      title: 'Video Replicate Credit Cost',
+      type: 'text',
+      placeholder: '10',
+      group: 'fal',
+      tab: 'ai',
+    },
+
     // ─── Analytics / Google Analytics ────────────────────────────────
     {
       name: 'google_analytics_id',
