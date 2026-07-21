@@ -48,20 +48,6 @@ export function BuiltFor() {
             );
           })}
         </div>
-
-        {/* testimonial */}
-        <Reveal delay={120}>
-          <figure className="border-foreground/10 bg-card mt-6 rounded-3xl border p-8 text-center sm:p-12">
-            <blockquote className="text-foreground/85 mx-auto max-w-3xl text-xl leading-relaxed tracking-tight text-balance sm:text-2xl">
-              “{m['landing.builtfor.quote']()}”
-            </blockquote>
-            <figcaption className="text-foreground/50 mt-6 text-sm">
-              <span className="text-foreground/70 font-medium">
-                {m['landing.builtfor.quote_author']()}
-              </span>
-            </figcaption>
-          </figure>
-        </Reveal>
       </div>
     </section>
   );
