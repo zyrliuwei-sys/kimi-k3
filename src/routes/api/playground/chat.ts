@@ -1,23 +1,33 @@
 import { createFileRoute } from '@tanstack/react-router';
 
 import { openaiChatCompletion, type ChatTurn } from '@/core/ai/chat';
+import { getAuth } from '@/core/auth';
 import { getConfig } from '@/modules/config/service';
-import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
+import { consume as consumeCredits } from '@/modules/credits/service';
+import { checkIpQuota, enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 import { respData, respErr } from '@/lib/resp';
 
 /**
  * Stateless "API Playground" chat endpoint.
  *
- * Public (no auth) but rate-limited per IP so the playground page can test the
- * live model ("Test the KimiK3 API in seconds") without signing in. Conversations
- * are NOT persisted here — that's what /api/chat is for. Prefer the configured
- * `evolink` provider (model defaults to `kimi-k3`) when its key is present, so an
- * admin who only pasted the key still gets a working Kimi K3 response.
+ * Rate-limited per IP and gated freemium-style: anonymous visitors get a small
+ * number of free messages (`ANON_FREE_LIMIT`) then a sign-up wall; signed-in
+ * users spend 1 credit per message (`CHAT_CREDIT_COST`) then a paywall.
+ * Conversations are NOT persisted here — that's what /api/chat is for. Prefer
+ * the configured `evolink` provider (model defaults to `kimi-k3`) when its key
+ * is present, so an admin who only pasted the key still gets a working Kimi K3
+ * response. Responses carry a `status`: 'ok' | 'login_required' |
+ * 'payment_required' | 'unconfigured'.
  */
 
 const MAX_TURNS = 20;
 const MAX_CONTENT_LEN = 4000;
 const RATE_LIMIT_INTERVAL_MS = 6000;
+// Freemium gate: anonymous visitors get this many free messages (per
+// browser/IP), then hit a sign-up wall. Signed-in users pay 1 credit per
+// message via the credits module (free taste = their signup credit grant).
+const ANON_FREE_LIMIT = 1;
+const CHAT_CREDIT_COST = 1;
 
 const SYSTEM_PROMPT =
   'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
@@ -94,11 +104,46 @@ async function POST({ request }: { request: Request }) {
     const cfg = await resolvePlaygroundConfig();
     if (!cfg.hasKey) {
       return respData({
+        status: 'unconfigured',
         reply: NOT_CONFIGURED_REPLY,
         model: 'kimi-k3',
         provider: 'unconfigured',
         configured: false,
       });
+    }
+
+    // --- Freemium gate (only enforced when a live model is configured) ---
+    const auth = getAuth();
+    const session = await auth.api.getSession({ headers: request.headers });
+
+    if (!session?.user) {
+      // Anonymous: limited free messages per browser/IP, then a sign-up wall.
+      const quota = checkIpQuota(request, {
+        keyPrefix: 'hero-chat-anon',
+        limit: ANON_FREE_LIMIT,
+      });
+      if (quota.exceeded) {
+        return respData({
+          status: 'login_required',
+          reply: null,
+          configured: true,
+        });
+      }
+    } else {
+      // Signed-in: each message costs 1 credit; no balance → paywall.
+      const consumed = await consumeCredits({
+        userId: session.user.id,
+        credits: CHAT_CREDIT_COST,
+        scene: 'hero_chat',
+        description: 'Hero chat · Kimi K3',
+      });
+      if (!consumed.success) {
+        return respData({
+          status: 'payment_required',
+          reply: null,
+          configured: true,
+        });
+      }
     }
 
     const reply = await openaiChatCompletion({
@@ -109,6 +154,7 @@ async function POST({ request }: { request: Request }) {
     });
 
     return respData({
+      status: 'ok',
       reply,
       model: cfg.model,
       provider: cfg.provider,

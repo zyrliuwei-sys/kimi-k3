@@ -1,18 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { ArrowUp, RotateCcw, Sparkles } from 'lucide-react';
+import {
+  ArrowUp,
+  ArrowUpRight,
+  Lock,
+  RotateCcw,
+  Sparkles,
+  UserPlus,
+} from 'lucide-react';
 import { toast } from 'sonner';
 
+import { Link } from '@/core/i18n/navigation';
 import { apiPost } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { MarkdownContent } from '@/components/markdown-content';
+import { buttonVariants } from '@/components/ui/button';
 
 /**
- * Hero chat dialog. A stateless (non-persisted) conversation that calls the
- * public, rate-limited Kimi K3 endpoint `POST /api/playground/chat`. No auth,
- * no credits — mirrors the existing API playground so anonymous visitors can
- * try Kimi K3 right from the hero. Reload resets the thread.
+ * Hero chat dialog. Calls the public, rate-limited Kimi K3 endpoint
+ * `POST /api/playground/chat` and renders the freemium gate the backend returns:
+ *  - anonymous visitor: 1 free message, then a sign-up wall;
+ *  - signed-in user: each message costs 1 credit, then a paywall.
+ * The conversation is stateless (not persisted) — reload resets the thread.
  */
 
 interface Message {
@@ -20,11 +30,14 @@ interface Message {
   content: string;
 }
 
+type ChatStatus = 'ok' | 'login_required' | 'payment_required' | 'unconfigured';
+
 interface ChatReply {
-  reply: string;
-  model: string;
-  provider: string;
-  configured: boolean;
+  status: ChatStatus;
+  reply: string | null;
+  model?: string;
+  provider?: string;
+  configured?: boolean;
 }
 
 const MAX_INPUT = 1000;
@@ -32,6 +45,7 @@ const MAX_INPUT = 1000;
 export function HeroChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
+  const [gate, setGate] = useState<'login' | 'pay' | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
 
@@ -52,13 +66,13 @@ export function HeroChat() {
 
   const empty = messages.length === 0;
 
-  // Keep the latest message in view as the thread grows / a reply streams in.
+  // Keep the latest message / gate card in view as the thread grows.
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages.length, send.isPending]);
+  }, [messages.length, send.isPending, gate]);
 
   function growTextarea() {
     const el = taRef.current;
@@ -67,9 +81,17 @@ export function HeroChat() {
     el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   }
 
+  function rollback(text: string) {
+    setMessages((prev) =>
+      prev.length && prev[prev.length - 1].content === text
+        ? prev.slice(0, -1)
+        : prev
+    );
+  }
+
   async function submit(content: string) {
     const text = content.trim();
-    if (!text || send.isPending) return;
+    if (!text || send.isPending || gate) return;
 
     const history: Message[] = [...messages, { role: 'user', content: text }];
     setMessages(history);
@@ -81,17 +103,24 @@ export function HeroChat() {
 
     try {
       const data = await send.mutateAsync(history);
+      if (data.status === 'login_required') {
+        rollback(text);
+        setGate('login');
+        return;
+      }
+      if (data.status === 'payment_required') {
+        rollback(text);
+        setGate('pay');
+        return;
+      }
+      // 'ok' or 'unconfigured' — append the reply (unconfigured carries setup guidance).
+      setGate(null);
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: data.reply },
+        { role: 'assistant', content: data.reply ?? '' },
       ]);
     } catch (error) {
-      // Roll back the optimistic user turn so they can edit & retry.
-      setMessages((prev) =>
-        prev.length && prev[prev.length - 1].content === text
-          ? prev.slice(0, -1)
-          : prev
-      );
+      rollback(text);
       toast.error(
         error instanceof Error ? error.message : 'Failed to get a reply'
       );
@@ -108,6 +137,7 @@ export function HeroChat() {
   function reset() {
     setMessages([]);
     setInput('');
+    setGate(null);
   }
 
   return (
@@ -120,7 +150,7 @@ export function HeroChat() {
           </span>
           {m['landing.hero_chat.badge']()}
         </span>
-        {!empty && (
+        {(!empty || gate) && (
           <button
             type="button"
             onClick={reset}
@@ -137,7 +167,7 @@ export function HeroChat() {
         ref={scrollRef}
         className="max-h-[min(60vh,440px)] min-h-[220px] overflow-y-auto px-4 py-5"
       >
-        {empty ? (
+        {empty && !gate ? (
           <EmptyState
             examples={examples}
             disabled={send.isPending}
@@ -149,6 +179,7 @@ export function HeroChat() {
               <Bubble key={i} message={msg} />
             ))}
             {send.isPending && <Thinking />}
+            {gate && <GateCard kind={gate} />}
           </div>
         )}
       </div>
@@ -172,7 +203,7 @@ export function HeroChat() {
           <button
             type="button"
             onClick={() => submit(input)}
-            disabled={!input.trim() || send.isPending}
+            disabled={!input.trim() || send.isPending || !!gate}
             aria-label="Send"
             className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl text-white transition-opacity disabled:opacity-40"
           >
@@ -236,6 +267,44 @@ function Thinking() {
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+function GateCard({ kind }: { kind: 'login' | 'pay' }) {
+  const isLogin = kind === 'login';
+  const href = isLogin ? '/sign-up' : '/pricing';
+  return (
+    <div className="bg-muted/40 border-foreground/10 rounded-2xl border p-5 text-center">
+      <div className="brand-gradient mx-auto mb-3 flex size-11 items-center justify-center rounded-xl">
+        {isLogin ? (
+          <UserPlus className="size-5 text-white" />
+        ) : (
+          <Lock className="size-5 text-white" />
+        )}
+      </div>
+      <p className="text-sm font-semibold tracking-tight">
+        {isLogin
+          ? m['landing.hero_chat.gate_login_title']()
+          : m['landing.hero_chat.gate_pay_title']()}
+      </p>
+      <p className="text-foreground/55 mx-auto mt-1 max-w-sm text-[13px] leading-relaxed">
+        {isLogin
+          ? m['landing.hero_chat.gate_login_desc']()
+          : m['landing.hero_chat.gate_pay_desc']()}
+      </p>
+      <Link
+        href={href}
+        className={cn(
+          buttonVariants(),
+          'mt-4 h-9 gap-1.5 rounded-lg px-4 text-sm'
+        )}
+      >
+        {isLogin
+          ? m['landing.hero_chat.gate_login_btn']()
+          : m['landing.hero_chat.gate_pay_btn']()}
+        <ArrowUpRight className="size-4" />
+      </Link>
     </div>
   );
 }

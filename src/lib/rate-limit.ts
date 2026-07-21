@@ -74,3 +74,34 @@ export function enforceMinIntervalRateLimit(
   store.set(key, now);
   return null;
 }
+
+type IpQuotaOptions = {
+  limit: number;
+  keyPrefix?: string;
+};
+
+/**
+ * Counting quota per browser/IP. Returns `{ exceeded: true }` once the caller
+ * has hit `limit` allowed calls in this process; otherwise increments and
+ * allows. Like the min-interval limiter this is in-memory (per-instance) and
+ * keyed on IP + cookie hash, so it's a soft gate — enough to nudge casual
+ * anonymous users toward sign-up, not a hard anti-abuse wall.
+ */
+export function checkIpQuota(
+  request: Request,
+  opts: IpQuotaOptions
+): { exceeded: boolean; count: number; limit: number } {
+  const limit = Math.max(0, Math.floor(opts.limit));
+  const ip = getClientIpFromRequest(request);
+  const cookie = request.headers.get('cookie') || '';
+  const cookieHash = cookie ? md5(cookie) : 'no-cookie';
+  const key = `${opts.keyPrefix || 'ip-quota'}|${ip}|${cookieHash}`;
+
+  const store = getStore();
+  const current = store.get(key) || 0;
+  if (current >= limit) {
+    return { exceeded: true, count: current, limit };
+  }
+  store.set(key, current + 1);
+  return { exceeded: false, count: current + 1, limit };
+}
