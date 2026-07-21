@@ -57,6 +57,9 @@ export function Showcase() {
                 <img
                   src={c.img}
                   alt={tDynamic(c.titleKey)}
+                  width={640}
+                  height={400}
+                  loading="lazy"
                   className="aspect-[16/10] w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
                 />
                 <span className="bg-background/80 text-foreground/70 absolute top-3 left-3 rounded-full px-2.5 py-1 text-[10px] font-medium backdrop-blur">
@@ -93,6 +96,8 @@ export function Showcase() {
             <img
               src={active.img}
               alt={tDynamic(active.titleKey)}
+              width={640}
+              height={400}
               className="max-h-[70vh] w-full rounded-xl object-contain"
             />
             <div className="bg-card border-foreground/10 mt-3 rounded-xl border p-4">

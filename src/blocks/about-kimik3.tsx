@@ -26,6 +26,7 @@ export function AboutKimik3() {
           <div className="text-foreground/65 mt-5 space-y-4 text-left text-[15px] leading-relaxed sm:text-base">
             <p>{m['landing.about.intro_1']()}</p>
             <p>{m['landing.about.intro_2']()}</p>
+            <p>{m['landing.about.intro_3']()}</p>
           </div>
         </div>
 
