@@ -263,9 +263,13 @@ export async function grantForNewUser(params: {
 }) {
   const { userId, userEmail, configs } = params;
 
-  if (configs.initial_credits_enabled !== 'true') return;
+  // Default ON with 2 credits (= 2 free chats) so a fresh install grants new
+  // users a free taste automatically. Admins can tune the amount or disable
+  // via the initial_credits_* settings (Admin → Settings → General → Credits).
+  if (configs.initial_credits_enabled === 'false') return;
 
-  const credits = parseInt(configs.initial_credits_amount) || 0;
+  const parsed = parseInt(configs.initial_credits_amount);
+  const credits = Number.isNaN(parsed) ? 2 : parsed;
   if (credits <= 0) return;
 
   const validDays = parseInt(configs.initial_credits_valid_days) || 0;

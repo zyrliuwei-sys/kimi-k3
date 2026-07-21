@@ -10,6 +10,7 @@ import { VerifyEmail } from '@/core/email/templates/verify-email';
 import { AUTH_SECRET_PLACEHOLDER, envConfigs } from '@/config';
 import * as schema from '@/config/db/schema';
 import { getAllConfigs } from '@/modules/config/service';
+import { grantForNewUser } from '@/modules/credits/service';
 import { getUuid } from '@/lib/hash';
 
 function assertProductionAuthSecret() {
@@ -318,6 +319,29 @@ export function getAuth(configs?: Record<string, string>) {
           },
         }
       : {}),
+    // Freemium gate: grant every new signup a small free credit balance (2 by
+    // default = 2 free chats) via grantForNewUser, so a freshly-registered user
+    // can try the product before hitting the paywall. Runs for every signup
+    // path (email/password, Google, GitHub, One-Tap). A grant failure must
+    // never block account creation, hence the try/catch.
+    databaseHooks: {
+      user: {
+        create: {
+          after: async (user) => {
+            try {
+              const all = await getAllConfigs();
+              await grantForNewUser({
+                userId: user.id,
+                userEmail: user.email,
+                configs: all,
+              });
+            } catch (e) {
+              console.error('[auth] signup credit grant failed:', e);
+            }
+          },
+        },
+      },
+    },
     logger: { disabled: true },
   } satisfies BetterAuthOptions);
 

@@ -40,7 +40,7 @@ const RATE_LIMIT_INTERVAL_MS = 6000;
 // Freemium gate: anonymous visitors get this many free messages (per
 // browser/IP), then hit a sign-up wall. Signed-in users pay 1 credit per
 // message via the credits module (free taste = their signup credit grant).
-const ANON_FREE_LIMIT = 1;
+const ANON_FREE_LIMIT = 2;
 const CHAT_CREDIT_COST = 1;
 
 const SYSTEM_PROMPT =

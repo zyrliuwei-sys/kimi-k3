@@ -4,12 +4,17 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
+  Files,
   Film,
+  FolderGit2,
   Loader2,
+  MonitorPlay,
   Plus,
   RefreshCw,
+  ScanLine,
   Sparkles,
   Terminal,
+  Workflow,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -49,6 +54,16 @@ interface Message {
   attachments?: Attachment[];
 }
 
+type TaskAction = 'upload' | 'seed';
+
+interface TaskDef {
+  id: string;
+  label: string;
+  prompt: string;
+  icon: React.ComponentType<{ className?: string }>;
+  action: TaskAction;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Upload helper                                                      */
 /* ------------------------------------------------------------------ */
@@ -86,6 +101,7 @@ export function ApiPlayground() {
   const [uploading, setUploading] = useState(false);
 
   const [modelId, setModelId] = useState('k3-extreme');
+  const [activeTask, setActiveTask] = useState<string | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -94,6 +110,7 @@ export function ApiPlayground() {
   const abortRef = useRef<AbortController | null>(null);
 
   const models = useModels();
+  const tasks = useTasks();
 
   const selected = models.find((mo) => mo.id === modelId) ?? models[0];
 
@@ -262,6 +279,31 @@ export function ApiPlayground() {
     taRef.current?.focus();
   }
 
+  // Selecting an agent-task mode seeds the input with a mode-specific prompt
+  // and highlights the chip. Screenshot restore also opens the file picker so
+  // the user can attach the image to restore. Clicking the active chip clears
+  // the seeded prompt (but never the user's own typing) and deselects.
+  function handleTask(task: TaskDef) {
+    const prevTask = activeTask ? tasks.find((t) => t.id === activeTask) : null;
+    const isSeeded =
+      prevTask != null && input.trim() === prevTask.prompt.trim();
+    const isSelecting = activeTask !== task.id;
+
+    if (isSelecting) {
+      setActiveTask(task.id);
+      setInput((prev) =>
+        !prev.trim() || isSeeded
+          ? task.prompt
+          : `${prev.trim()}\n${task.prompt}`
+      );
+      if (task.action === 'upload') openFilePicker();
+    } else {
+      setActiveTask(null);
+      if (isSeeded) setInput('');
+    }
+    taRef.current?.focus();
+  }
+
   function resetThread() {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -291,6 +333,9 @@ export function ApiPlayground() {
     onFilesSelected: handleFilesSelected,
     onRemoveAttachment: removeAttachment,
     fileInputRef,
+    tasks,
+    activeTask,
+    onTask: handleTask,
   };
 
   return (
@@ -367,6 +412,9 @@ function Composer({
   onFilesSelected,
   onRemoveAttachment,
   fileInputRef,
+  tasks,
+  activeTask,
+  onTask,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -384,6 +432,9 @@ function Composer({
   onFilesSelected: (files: FileList | null) => void;
   onRemoveAttachment: (url: string) => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
+  tasks: TaskDef[];
+  activeTask: string | null;
+  onTask: (task: TaskDef) => void;
 }) {
   return (
     <div className="w-full">
@@ -486,6 +537,35 @@ function Composer({
           </div>
         </div>
       </motion.div>
+
+      {/* Agent-task quick starters — sit directly below the input box so each
+          mode seeds the prompt (and screenshot restore opens the file picker). */}
+      <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
+        <span className="text-foreground/35 mr-0.5 hidden font-mono text-[11px] tracking-[0.16em] uppercase sm:inline">
+          {m['playground.tasks.title']()}
+        </span>
+        {tasks.map((t) => {
+          const Icon = t.icon;
+          const active = activeTask === t.id;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => onTask(t)}
+              title={t.prompt}
+              className={cn(
+                'group inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[12px] tracking-tight transition-all',
+                active
+                  ? 'brand-gradient border-transparent text-white shadow-sm shadow-violet-500/20'
+                  : 'border-foreground/10 bg-card/50 text-foreground/65 hover:border-foreground/25 hover:text-foreground'
+              )}
+            >
+              <Icon className="size-3.5" />
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
 
       <p className="text-foreground/35 mt-2.5 text-center font-mono text-[11px] tracking-tight">
         {m['playground.disclaimer']()}
@@ -837,6 +917,46 @@ function useModels(): ModelOption[] {
       effortLabel: m['playground.model.k3_extreme'](),
       desc: m['playground.model.k3_desc'](),
       badge: 'NEW',
+    },
+  ];
+}
+
+function useTasks(): TaskDef[] {
+  return [
+    {
+      id: 'screenshot',
+      label: m['playground.tasks.screenshot.label'](),
+      prompt: m['playground.tasks.screenshot.prompt'](),
+      icon: ScanLine,
+      action: 'upload',
+    },
+    {
+      id: 'webproto',
+      label: m['playground.tasks.webproto.label'](),
+      prompt: m['playground.tasks.webproto.prompt'](),
+      icon: MonitorPlay,
+      action: 'seed',
+    },
+    {
+      id: 'codebase',
+      label: m['playground.tasks.codebase.label'](),
+      prompt: m['playground.tasks.codebase.prompt'](),
+      icon: FolderGit2,
+      action: 'seed',
+    },
+    {
+      id: 'docs',
+      label: m['playground.tasks.docs.label'](),
+      prompt: m['playground.tasks.docs.prompt'](),
+      icon: Files,
+      action: 'seed',
+    },
+    {
+      id: 'agent',
+      label: m['playground.tasks.agent.label'](),
+      prompt: m['playground.tasks.agent.prompt'](),
+      icon: Workflow,
+      action: 'seed',
     },
   ];
 }
