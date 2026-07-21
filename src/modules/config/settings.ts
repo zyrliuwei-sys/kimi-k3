@@ -268,7 +268,7 @@ export function getSettings(): Setting[] {
       title: 'Credits amount',
       type: 'number',
       placeholder: '100',
-      defaultValue: '2',
+      defaultValue: '1',
       group: 'credit',
       tab: 'general',
     },
