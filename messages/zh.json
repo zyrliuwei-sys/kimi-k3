@@ -825,7 +825,6 @@
   "playground.welcome.greeting": "你想测试点什么?",
   "playground.welcome.subtitle": "选好模型,输入提示词,看着请求飞出去。这是可交互的界面预览,接入真实 KimiK3 API 是下一步。",
   "playground.welcome.cta": "在下方开始输入",
-  "playground.examples": "用三个要点总结这篇文章|写一段查询活跃用户的 SQL|像对 5 岁小孩一样解释梯度下降|为 KimiK3 写一条发布推文",
   "playground.info.k3_notice": "K3 是 Kimi 能力最强的模型,使用时比 K2.6 更快消耗额度。",
   "playground.input.placeholder": "尽管问,或做个 Agent 任务……",
   "playground.input.send": "发送",

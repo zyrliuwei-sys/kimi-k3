@@ -825,7 +825,6 @@
   "playground.welcome.greeting": "What would you like to test?",
   "playground.welcome.subtitle": "Pick a model, type a prompt, and see the request fly. This is a live UI preview — wiring it to the real KimiK3 API is next.",
   "playground.welcome.cta": "Start typing below",
-  "playground.examples": "Summarize this article in 3 bullets|Write a SQL query to find top users|Explain gradient descent like I'm 5|Draft a launch tweet for KimiK3",
   "playground.info.k3_notice": "K3 is Kimi's most capable model — it consumes credits faster than K2.6.",
   "playground.input.placeholder": "Ask anything, or start an Agent task…",
   "playground.input.send": "Send",

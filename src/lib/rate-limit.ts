@@ -13,13 +13,18 @@ declare global {
 }
 
 function getClientIpFromRequest(request: Request): string {
+  // Behind Cloudflare, CF-Connecting-IP is the authoritative client IP and
+  // cannot be spoofed — Cloudflare overwrites any caller-supplied value. It
+  // MUST be checked before X-Forwarded-For: XFF is a client-appendable chain,
+  // so trusting it first let an attacker rotate the header to dodge per-IP
+  // rate limits and anonymous quotas on every endpoint using this helper.
+  const cf = request.headers.get('cf-connecting-ip');
+  if (cf) return cf.trim();
+  const real = request.headers.get('x-real-ip');
+  if (real) return real.trim();
   const xff = request.headers.get('x-forwarded-for');
   if (xff) return xff.split(',')[0]?.trim() || '';
-  return (
-    request.headers.get('cf-connecting-ip') ||
-    request.headers.get('x-real-ip') ||
-    ''
-  );
+  return '';
 }
 
 function getStore(): Store {
@@ -92,10 +97,14 @@ export function checkIpQuota(
   opts: IpQuotaOptions
 ): { exceeded: boolean; count: number; limit: number } {
   const limit = Math.max(0, Math.floor(opts.limit));
+  // Key on IP only — no cookie. The cookie hash used to be mixed in so several
+  // people behind one NAT IP each got their own quota, but the cookie is
+  // client-supplied and rotatable: an attacker cycling cookies could reset the
+  // budget and burn unlimited free messages from a single IP. For a free-taste
+  // gate the per-IP budget is the abuse-resistant choice (relies on the
+  // now-unspoofable CF-Connecting-IP resolved above).
   const ip = getClientIpFromRequest(request);
-  const cookie = request.headers.get('cookie') || '';
-  const cookieHash = cookie ? md5(cookie) : 'no-cookie';
-  const key = `${opts.keyPrefix || 'ip-quota'}|${ip}|${cookieHash}`;
+  const key = `${opts.keyPrefix || 'ip-quota'}|${ip}`;
 
   const store = getStore();
   const current = store.get(key) || 0;

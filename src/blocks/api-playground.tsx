@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
-  ArrowUpRight,
   Check,
   ChevronDown,
   Files,
@@ -274,11 +273,6 @@ export function ApiPlayground() {
     }
   }
 
-  function handleShortcut(prompt: string) {
-    setInput((prev) => (prev.trim() ? `${prev.trim()}\n${prompt}` : prompt));
-    taRef.current?.focus();
-  }
-
   // Selecting an agent-task mode seeds the input with a mode-specific prompt
   // and highlights the chip. Screenshot restore also opens the file picker so
   // the user can attach the image to restore. Clicking the active chip clears
@@ -377,10 +371,7 @@ export function ApiPlayground() {
         // so the input sits right under the greeting instead of pinned low.
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
           <div className="flex w-full max-w-2xl flex-col items-center">
-            <WelcomeState
-              selected={selected}
-              onPick={(p) => handleShortcut(p)}
-            />
+            <WelcomeState selected={selected} />
             <div className="mt-8 w-full">
               <Composer {...composerProps} />
             </div>
@@ -538,33 +529,46 @@ function Composer({
         </div>
       </motion.div>
 
-      {/* Agent-task quick starters — sit directly below the input box so each
-          mode seeds the prompt (and screenshot restore opens the file picker). */}
-      <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
-        <span className="text-foreground/35 mr-0.5 hidden font-mono text-[11px] tracking-[0.16em] uppercase sm:inline">
+      {/* Agent-task quick starters — a single non-wrapping rail. Each mode
+          seeds the prompt (and screenshot restore opens the file picker).
+          Row centers when it fits and scrolls horizontally when it doesn't,
+          so longer locale labels never clip the active pill. */}
+      <div className="mt-3">
+        <p className="text-foreground/40 mb-2 text-center font-mono text-[10px] tracking-[0.2em] uppercase">
           {m['playground.tasks.title']()}
-        </span>
-        {tasks.map((t) => {
-          const Icon = t.icon;
-          const active = activeTask === t.id;
-          return (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => onTask(t)}
-              title={t.prompt}
-              className={cn(
-                'group inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[12px] tracking-tight transition-all',
-                active
-                  ? 'brand-gradient border-transparent text-white shadow-sm shadow-violet-500/20'
-                  : 'border-foreground/10 bg-card/50 text-foreground/65 hover:border-foreground/25 hover:text-foreground'
-              )}
-            >
-              <Icon className="size-3.5" />
-              {t.label}
-            </button>
-          );
-        })}
+        </p>
+        <div className="overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <div className="mx-auto flex w-max min-w-full justify-center gap-1.5">
+            {tasks.map((t) => {
+              const Icon = t.icon;
+              const active = activeTask === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => onTask(t)}
+                  title={t.prompt}
+                  className={cn(
+                    'group inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[12px] tracking-tight whitespace-nowrap transition-all duration-200 active:scale-[0.97]',
+                    active
+                      ? 'brand-gradient border-transparent text-white shadow-sm shadow-violet-500/25'
+                      : 'border-foreground/10 bg-card/60 text-foreground/60 hover:border-foreground/25 hover:bg-foreground/[0.04] hover:text-foreground'
+                  )}
+                >
+                  <Icon
+                    className={cn(
+                      'size-3.5 shrink-0 transition-transform duration-200 group-hover:scale-110',
+                      active
+                        ? 'text-white'
+                        : 'text-foreground/55 group-hover:text-foreground'
+                    )}
+                  />
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <p className="text-foreground/35 mt-2.5 text-center font-mono text-[11px] tracking-tight">
@@ -578,18 +582,7 @@ function Composer({
 /*  Welcome / empty state                                              */
 /* ------------------------------------------------------------------ */
 
-function WelcomeState({
-  selected,
-  onPick,
-}: {
-  selected: ModelOption;
-  onPick: (prompt: string) => void;
-}) {
-  const examples: string[] = m['playground.examples']()
-    .split('|')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
+function WelcomeState({ selected }: { selected: ModelOption }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -631,30 +624,6 @@ function WelcomeState({
       <p className="text-foreground/55 mt-5 max-w-md text-[15px] leading-relaxed">
         {m['playground.welcome.subtitle']()}
       </p>
-
-      {/* Numbered prompt "commands" — index in mono, trailing run-arrow that
-          slides in on hover. Reads like a list of prepared snippets. */}
-      <div className="mt-9 grid w-full grid-cols-1 gap-2.5 text-left sm:grid-cols-2">
-        {examples.map((ex, i) => (
-          <motion.button
-            key={ex}
-            type="button"
-            onClick={() => onPick(ex)}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.18 + i * 0.06, duration: 0.4 }}
-            className="group border-foreground/10 bg-card/50 hover:border-foreground/25 hover:bg-card flex items-center gap-4 rounded-xl border px-4 py-3.5 transition-colors"
-          >
-            <span className="text-foreground/35 font-mono text-[12px] font-medium tracking-tight transition-all group-hover:bg-gradient-to-r group-hover:from-[#7c3aed] group-hover:to-[#0ea5e9] group-hover:bg-clip-text group-hover:text-transparent">
-              {String(i + 1).padStart(2, '0')}
-            </span>
-            <span className="text-foreground/75 line-clamp-2 flex-1 text-sm leading-snug">
-              {ex}
-            </span>
-            <ArrowUpRight className="text-foreground/25 size-4 shrink-0 -translate-x-1 opacity-0 transition-all duration-200 group-hover:translate-x-0 group-hover:text-violet-500 group-hover:opacity-100" />
-          </motion.button>
-        ))}
-      </div>
     </motion.div>
   );
 }
