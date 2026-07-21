@@ -14,7 +14,7 @@ export function Hero() {
         className="brand-gradient pointer-events-none absolute -top-40 left-1/2 h-[480px] w-[820px] -translate-x-1/2 rounded-full opacity-[0.18] blur-3xl"
       />
 
-      <div className="relative mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-2 lg:gap-16">
+      <div className="relative mx-auto grid max-w-6xl items-center gap-12 lg:grid-cols-2 lg:gap-16">
         {/* Left — pitch */}
         <div className="text-center lg:text-left">
           {/* unofficial disclaimer badge (prominent) */}
@@ -23,12 +23,12 @@ export function Hero() {
             {m['landing.hero.eyebrow']()}
           </span>
 
-          <h1 className="mt-6 text-[clamp(2.1rem,5.2vw,3.75rem)] leading-[1.05] font-medium tracking-[-0.02em]">
+          <h1 className="mt-6 font-serif text-[clamp(2.4rem,5.6vw,4rem)] leading-[1.02] font-medium tracking-[-0.02em]">
             {m['landing.hero.headline_prefix']()}{' '}
             <span className="text-brand-gradient">
               {m['landing.hero.headline_gradient']()}
             </span>{' '}
-            <span className="text-foreground/65 font-normal">
+            <span className="text-foreground/55 font-normal">
               — {m['landing.hero.headline_suffix']()}
             </span>
           </h1>
@@ -79,8 +79,8 @@ export function Hero() {
           <div className="border-foreground/10 bg-card relative aspect-video overflow-hidden rounded-2xl border shadow-[0_30px_80px_-40px_rgba(13,11,8,0.5)]">
             <iframe
               className="absolute inset-0 size-full"
-              src="https://www.youtube-nocookie.com/embed/6-ccuwX4gCQ?rel=0&modestbranding=1"
-              title="Moonshot AI unveils Kimi K3"
+              src="https://www.youtube-nocookie.com/embed/bn0atstgavo?rel=0&modestbranding=1"
+              title="Meet Kimi K3 — Moonshot AI (official)"
               loading="lazy"
               referrerPolicy="strict-origin-when-cross-origin"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"

@@ -1,6 +1,7 @@
 // Server-side markdown renderer for database-backed posts.
 // Local MDX posts render through mdx-components.tsx instead — the
 // wrapper classes below mirror those styles so both sources look alike.
+import { memo } from 'react';
 import MarkdownIt from 'markdown-it';
 
 import { cn } from '@/lib/utils';
@@ -62,13 +63,16 @@ export const markdownStyles = cn(
   '[&_table]:my-4 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:border-border [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold [&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2'
 );
 
-export function MarkdownContent({
+export const MarkdownContent = memo(function MarkdownContent({
   content,
   className,
 }: {
   content: string;
   className?: string;
 }) {
+  // `md.render` is the expensive part — memoizing means it only re-runs when
+  // `content`/`className` actually change, so a streaming sibling updating 25×/s
+  // no longer re-parses every finished message in the list.
   const html = content ? md.render(content) : '';
 
   return (
@@ -77,4 +81,4 @@ export function MarkdownContent({
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );
-}
+});

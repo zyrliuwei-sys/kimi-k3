@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 
-import { openaiChatCompletion, type ChatTurn } from '@/core/ai/chat';
+import { openaiChatCompletionStream, type ChatTurn } from '@/core/ai/chat';
 import { db } from '@/core/db';
 import {
   chat,
@@ -145,22 +145,133 @@ export async function listMessages(params: {
     .limit(200);
 }
 
-export interface SendMessageResult {
-  chatId: string;
-  userMessage: ChatMessage;
-  assistantMessage: ChatMessage;
+/** Public, wire-safe message shape (Date → ISO string) for API/SSE clients. */
+export interface PublicMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  createdAt: string;
 }
 
-export async function sendMessage(params: {
+/**
+ * Events emitted while streaming a reply. The route layer turns each one into
+ * an SSE `data:` frame. `done` carries both persisted messages so the client
+ * can commit the canonical pair into its cache without an extra refetch flash.
+ */
+export type ChatStreamEvent =
+  | { type: 'delta'; text: string }
+  | {
+      type: 'done';
+      userMessage: PublicMessage;
+      assistantMessage: PublicMessage;
+    }
+  | { type: 'error'; message: string };
+
+function toPublic(msg: ChatMessage): PublicMessage {
+  return {
+    id: msg.id,
+    role: msg.role === 'assistant' ? 'assistant' : 'user',
+    content: textFromParts(msg.parts),
+    createdAt: new Date(msg.createdAt).toISOString(),
+  };
+}
+
+/** Persist the assistant turn + bump the chat's updatedAt (and title once). */
+async function saveAssistantAndBump(params: {
+  owned: Chat;
+  content: string;
+  text: string;
+  model: string;
+  provider: string;
+}): Promise<ChatMessage> {
+  const { owned, content, text, model, provider } = params;
+  const assistantMessage: ChatMessage = {
+    id: getUuid(),
+    userId: owned.userId,
+    chatId: owned.id,
+    status: 'active',
+    role: 'assistant',
+    parts: partsFromText(text),
+    model,
+    provider,
+    metadata: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+  await db().insert(chatMessage).values(assistantMessage);
+
+  const title = owned.title?.trim() ? {} : { title: content.slice(0, 60) };
+  await db()
+    .update(chat)
+    .set({ ...title, updatedAt: new Date() })
+    .where(eq(chat.id, owned.id));
+
+  return assistantMessage;
+}
+
+/**
+ * Stream a reply token-by-token. The user message is persisted together with
+ * the assistant reply at the END — so if the client aborts mid-stream (Stop),
+ * nothing is orphaned: the turn simply isn't saved. History is read before the
+ * new user turn is appended in-memory, so the model sees the full conversation.
+ *
+ * `signal` aborts the upstream model fetch (Stop button / navigation). On abort
+ * the generator returns without yielding `done`; on a real model error it yields
+ * a friendly error note as the assistant text and still persists it.
+ */
+export async function* streamMessage(params: {
   userId: string;
   chatId: string;
   content: string;
-}): Promise<SendMessageResult> {
-  const { userId, chatId, content } = params;
+  signal?: AbortSignal;
+}): AsyncGenerator<ChatStreamEvent, void, unknown> {
+  const { userId, chatId, content, signal } = params;
   const owned = await getChat({ userId, chatId });
-  if (!owned) throw new Error('Chat not found');
+  if (!owned) {
+    yield { type: 'error', message: 'Chat not found' };
+    return;
+  }
 
-  // 1. persist the user's message
+  // 1. build conversation history (prior turns only — new turn appended below)
+  const history = await listMessages({ userId, chatId });
+  const turns: ChatTurn[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+  for (const msg of history ?? []) {
+    const role = msg.role === 'assistant' ? 'assistant' : 'user';
+    turns.push({ role, content: textFromParts(msg.parts) });
+  }
+  turns.push({ role: 'user', content });
+
+  // 2. resolve model config
+  const cfg = await getChatModelConfig();
+  const model = cfg.model || owned.model;
+  const provider = cfg.hasKey ? cfg.provider : 'unconfigured';
+
+  // 3. generate the assistant text — streaming when a live model is configured
+  let assistantText = '';
+  if (cfg.hasKey) {
+    try {
+      for await (const delta of openaiChatCompletionStream({
+        apiKey: cfg.apiKey,
+        baseUrl: cfg.baseUrl,
+        model,
+        messages: turns,
+        signal,
+      })) {
+        if (!delta) continue;
+        assistantText += delta;
+        yield { type: 'delta', text: delta };
+      }
+    } catch (err: any) {
+      if (signal?.aborted) return; // client stopped — discard, persist nothing
+      assistantText = `⚠️ I couldn't reach the model just now.\n\n\`${err?.message || 'Unknown error'}\`\n\nPlease try again in a moment.`;
+      yield { type: 'delta', text: assistantText };
+    }
+  } else {
+    assistantText = NOT_CONFIGURED_REPLY;
+    yield { type: 'delta', text: assistantText };
+  }
+
+  // 4. persist the user + assistant turns together, then emit the canonical pair
   const userMessage: ChatMessage = {
     id: getUuid(),
     userId,
@@ -168,64 +279,26 @@ export async function sendMessage(params: {
     status: 'active',
     role: 'user',
     parts: partsFromText(content),
-    model: owned.model,
-    provider: owned.provider,
+    model,
+    provider,
     metadata: null,
     createdAt: new Date(),
     updatedAt: new Date(),
   };
   await db().insert(chatMessage).values(userMessage);
+  const assistantMessage = await saveAssistantAndBump({
+    owned,
+    content,
+    text: assistantText,
+    model,
+    provider,
+  });
 
-  // 2. build conversation history (system + prior turns)
-  const history = await listMessages({ userId, chatId });
-  const turns: ChatTurn[] = [{ role: 'system', content: SYSTEM_PROMPT }];
-  for (const msg of history ?? []) {
-    const role = msg.role === 'assistant' ? 'assistant' : 'user';
-    turns.push({ role, content: textFromParts(msg.parts) });
-  }
-
-  // 3. generate the assistant reply (real model if configured, else a notice)
-  const cfg = await getChatModelConfig();
-  let assistantText: string;
-  if (cfg.hasKey) {
-    try {
-      assistantText = await openaiChatCompletion({
-        apiKey: cfg.apiKey,
-        baseUrl: cfg.baseUrl,
-        model: cfg.model || owned.model,
-        messages: turns,
-      });
-    } catch (err: any) {
-      assistantText = `⚠️ I couldn't reach the model just now.\n\n\`${err?.message || 'Unknown error'}\`\n\nPlease try again in a moment.`;
-    }
-  } else {
-    assistantText = NOT_CONFIGURED_REPLY;
-  }
-
-  // 4. persist the assistant message
-  const assistantMessage: ChatMessage = {
-    id: getUuid(),
-    userId,
-    chatId,
-    status: 'active',
-    role: 'assistant',
-    parts: partsFromText(assistantText),
-    model: cfg.model || owned.model,
-    provider: cfg.hasKey ? cfg.provider : 'unconfigured',
-    metadata: null,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+  yield {
+    type: 'done',
+    userMessage: toPublic(userMessage),
+    assistantMessage: toPublic(assistantMessage),
   };
-  await db().insert(chatMessage).values(assistantMessage);
-
-  // 5. bump the chat + derive a title from the first user message
-  const title = owned.title?.trim() ? {} : { title: content.slice(0, 60) };
-  await db()
-    .update(chat)
-    .set({ ...title, updatedAt: new Date() })
-    .where(eq(chat.id, chatId));
-
-  return { chatId, userMessage, assistantMessage };
 }
 
 export async function deleteChat(params: {

@@ -52,38 +52,59 @@ async function POST({
   request: Request;
   params: { id: string };
 }) {
-  try {
-    const { id } = params;
-    const { chat } = await requireOwnedChat(request, id);
+  const { id } = params;
 
-    const body = await request.json().catch(() => ({}));
-    const content = typeof body.content === 'string' ? body.content.trim() : '';
-    if (!content) return respErr('Content is required');
-    if (content.length > 8000) return respErr('Message is too long');
+  // Validate auth + ownership + content BEFORE opening the stream, so any
+  // rejection comes back as a normal JSON error envelope (respErr) that the
+  // client can surface as a toast. Once we start streaming we can only signal
+  // failure via an SSE `error` frame.
+  const auth = getAuth();
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session?.user) return respErr('Unauthorized');
+  const chat = await chatService.getChat({
+    userId: session.user.id,
+    chatId: id,
+  });
+  if (!chat) return respErr('Chat not found');
 
-    const result = await chatService.sendMessage({
-      userId: chat.userId,
-      chatId: id,
-      content,
-    });
+  const body = await request.json().catch(() => ({}));
+  const content = typeof body.content === 'string' ? body.content.trim() : '';
+  if (!content) return respErr('Content is required');
+  if (content.length > 8000) return respErr('Message is too long');
 
-    return respData({
-      userMessage: {
-        id: result.userMessage.id,
-        role: result.userMessage.role,
-        content: messageText(result.userMessage),
-        createdAt: result.userMessage.createdAt,
-      },
-      assistantMessage: {
-        id: result.assistantMessage.id,
-        role: result.assistantMessage.role,
-        content: messageText(result.assistantMessage),
-        createdAt: result.assistantMessage.createdAt,
-      },
-    });
-  } catch (error: any) {
-    return respErr(error.message || 'Internal error');
-  }
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const push = (event: chatService.ChatStreamEvent) =>
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify(event)}\n\n`)
+        );
+      try {
+        for await (const event of chatService.streamMessage({
+          userId: chat.userId,
+          chatId: id,
+          content,
+          signal: request.signal,
+        })) {
+          push(event);
+        }
+      } catch (error: any) {
+        push({ type: 'error', message: error?.message || 'Stream failed' });
+      } finally {
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      // Disable any proxy buffering so tokens flush immediately.
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
 }
 
 async function DELETE({

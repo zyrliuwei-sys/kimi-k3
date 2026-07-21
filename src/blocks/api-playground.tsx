@@ -4,14 +4,19 @@ import {
   ArrowUpRight,
   Check,
   ChevronDown,
+  Film,
+  Loader2,
   Plus,
   RefreshCw,
   Sparkles,
   Terminal,
+  X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { toast } from 'sonner';
 
-import { apiPost } from '@/lib/api-client';
+import { useSession } from '@/core/auth/client';
+import { streamChat } from '@/lib/chat-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { MarkdownContent } from '@/components/markdown-content';
@@ -31,10 +36,41 @@ interface ModelOption {
   badge?: string;
 }
 
+interface Attachment {
+  type: 'image' | 'video';
+  url: string;
+  filename?: string;
+}
+
 interface Message {
   id: number;
   role: 'user' | 'assistant';
   content: string;
+  attachments?: Attachment[];
+}
+
+/* ------------------------------------------------------------------ */
+/*  Upload helper                                                      */
+/* ------------------------------------------------------------------ */
+
+async function uploadMediaFile(file: File): Promise<Attachment> {
+  const formData = new FormData();
+  formData.append('files', file);
+
+  const res = await fetch('/api/storage/upload-media', {
+    method: 'POST',
+    body: formData,
+  });
+  const result = await res.json().catch(() => ({}));
+  if (result?.code !== 0 || !result?.data?.results?.length) {
+    throw new Error(result?.message || 'Upload failed');
+  }
+  const r = result.data.results[0];
+  return {
+    type: r.type as 'image' | 'video',
+    url: r.url,
+    filename: r.filename,
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -42,15 +78,20 @@ interface Message {
 /* ------------------------------------------------------------------ */
 
 export function ApiPlayground() {
+  const { data: session } = useSession();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const [modelId, setModelId] = useState('k3-extreme');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const idRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   const models = useModels();
 
@@ -68,56 +109,144 @@ export function ApiPlayground() {
     syncTextareaHeight();
   }, [input]);
 
-  // Keep the latest message in view.
+  // Keep the latest message in view; re-run as the streaming bubble grows.
+  const lastLen = messages.length
+    ? messages[messages.length - 1].content.length
+    : 0;
   useEffect(() => {
     scrollRef.current?.scrollTo({
       top: scrollRef.current.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages.length, isThinking]);
+  }, [messages.length, isThinking, lastLen]);
+
+  useEffect(() => {
+    return () => abortRef.current?.abort();
+  }, []);
+
+  function openFilePicker() {
+    if (!session?.user) {
+      toast.error(m['playground.attachment.signin_required']());
+      return;
+    }
+    fileInputRef.current?.click();
+  }
+
+  async function handleFilesSelected(files: FileList | null) {
+    if (!files || !files.length) return;
+    if (!session?.user) {
+      toast.error(m['playground.attachment.signin_required']());
+      return;
+    }
+    setUploading(true);
+    try {
+      const added: Attachment[] = [];
+      for (const file of Array.from(files)) {
+        try {
+          added.push(await uploadMediaFile(file));
+        } catch (e: any) {
+          toast.error(e?.message || 'Upload failed');
+        }
+      }
+      if (added.length) setAttachments((prev) => [...prev, ...added]);
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }
+
+  function removeAttachment(url: string) {
+    setAttachments((prev) => prev.filter((a) => a.url !== url));
+  }
 
   async function handleSend() {
-    const content = input.trim();
-    if (!content || isThinking) return;
+    const text = input.trim();
+    // Image-only messages get a default prompt so the backend has a valid user
+    // turn and the model knows what to do with the attachment.
+    const effective =
+      text ||
+      (attachments.length ? m['playground.attachment.default_prompt']() : '');
+    if (!effective || isThinking) return;
 
+    const pendingAttachments = attachments;
     const userMsg: Message = {
       id: ++idRef.current,
       role: 'user',
-      content,
+      content: effective,
+      attachments: pendingAttachments.length ? pendingAttachments : undefined,
     };
-    // Build the full turn list from the current thread + the new message, so
-    // the model gets real multi-turn context.
     const turns = [...messages, userMsg];
     setMessages(turns);
     setInput('');
+    setAttachments([]);
     setIsThinking(true);
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (el) el.style.height = 'auto';
+    });
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const assistantId = ++idRef.current;
+    const pushOrAppend = (delta: string) => {
+      setIsThinking(false);
+      setMessages((prev) => {
+        const existing = prev.find((mm) => mm.id === assistantId);
+        if (existing) {
+          return prev.map((mm) =>
+            mm.id === assistantId ? { ...mm, content: mm.content + delta } : mm
+          );
+        }
+        return [
+          ...prev,
+          { id: assistantId, role: 'assistant', content: delta },
+        ];
+      });
+    };
 
     try {
-      const data = await apiPost<{
-        reply: string;
-        model: string;
-        configured: boolean;
-      }>('/api/playground/chat', {
-        messages: turns.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        })),
-      });
-      setMessages((prev) => [
-        ...prev,
-        { id: ++idRef.current, role: 'assistant', content: data.reply },
-      ]);
-    } catch (e: any) {
-      setMessages((prev) => [
-        ...prev,
+      await streamChat(
         {
-          id: ++idRef.current,
-          role: 'assistant',
-          content: `⚠️ ${e?.message || 'Request failed'} — please try again.`,
+          messages: turns.map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+          })),
+          attachments: pendingAttachments,
         },
-      ]);
-    } finally {
+        {
+          signal: controller.signal,
+          onDelta: (delta) => pushOrAppend(delta),
+          onGate: (status) => {
+            setIsThinking(false);
+            const body =
+              status === 'login_required'
+                ? m['playground.gate.login']()
+                : m['playground.gate.pay']();
+            setMessages((prev) => [
+              ...prev,
+              { id: assistantId, role: 'assistant', content: body },
+            ]);
+          },
+          onError: (msg) => {
+            setIsThinking(false);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: assistantId,
+                role: 'assistant',
+                content: `⚠️ ${msg || 'Request failed'} — please try again.`,
+              },
+            ]);
+          },
+          onDone: () => setIsThinking(false),
+        }
+      );
+    } catch {
       setIsThinking(false);
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
     }
   }
 
@@ -134,24 +263,34 @@ export function ApiPlayground() {
   }
 
   function resetThread() {
+    abortRef.current?.abort();
+    abortRef.current = null;
     setMessages([]);
     setInput('');
+    setAttachments([]);
     setIsThinking(false);
   }
 
   const hasThread = messages.length > 0 || isThinking;
+  const canSend = !!input.trim() || attachments.length > 0;
 
   const composerProps = {
     input,
     setInput,
     onKeyDown: handleKeyDown,
     onSend: handleSend,
-    canSend: !!input.trim(),
-    isThinking,
+    canSend,
+    isThinking: isThinking || uploading,
     models,
     selected,
     onSelectModel: setModelId,
     taRef,
+    attachments,
+    uploading,
+    onPlusClick: openFilePicker,
+    onFilesSelected: handleFilesSelected,
+    onRemoveAttachment: removeAttachment,
+    fileInputRef,
   };
 
   return (
@@ -222,6 +361,12 @@ function Composer({
   selected,
   onSelectModel,
   taRef,
+  attachments,
+  uploading,
+  onPlusClick,
+  onFilesSelected,
+  onRemoveAttachment,
+  fileInputRef,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -233,6 +378,12 @@ function Composer({
   selected: ModelOption;
   onSelectModel: (id: string) => void;
   taRef: React.RefObject<HTMLTextAreaElement | null>;
+  attachments: Attachment[];
+  uploading: boolean;
+  onPlusClick: () => void;
+  onFilesSelected: (files: FileList | null) => void;
+  onRemoveAttachment: (url: string) => void;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
     <div className="w-full">
@@ -242,6 +393,57 @@ function Composer({
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
         className="bg-card border-foreground/10 focus-within:border-foreground/25 rounded-[1.5rem] border p-2 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]"
       >
+        {/* Hidden media input — images + videos, multi-select. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          onChange={(e) => onFilesSelected(e.target.files)}
+          className="hidden"
+        />
+
+        {/* Attachment chips row */}
+        {(attachments.length > 0 || uploading) && (
+          <div className="flex flex-wrap gap-2 px-2 pt-1 pb-2">
+            {attachments.map((a) => (
+              <div
+                key={a.url}
+                className="group bg-muted/60 border-foreground/10 relative flex items-center gap-2 overflow-hidden rounded-xl border py-1 pr-1.5 pl-1"
+              >
+                {a.type === 'image' ? (
+                  <img
+                    src={a.url}
+                    alt={a.filename || ''}
+                    className="size-10 shrink-0 rounded-lg object-cover"
+                  />
+                ) : (
+                  <span className="bg-foreground/5 text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-lg">
+                    <Film className="size-4" />
+                  </span>
+                )}
+                <span className="text-foreground/60 max-w-[10rem] truncate text-xs">
+                  {a.filename || (a.type === 'image' ? 'image' : 'video')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveAttachment(a.url)}
+                  aria-label={m['playground.attachment.remove']()}
+                  className="text-foreground/45 hover:text-foreground hover:bg-foreground/10 -mr-0.5 rounded-full p-0.5 transition-colors"
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            ))}
+            {uploading && (
+              <div className="text-foreground/55 flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs">
+                <Loader2 className="size-3.5 animate-spin" />
+                {m['playground.attachment.uploading']()}
+              </div>
+            )}
+          </div>
+        )}
+
         <textarea
           ref={taRef}
           value={input}
@@ -255,8 +457,9 @@ function Composer({
         <div className="flex items-center justify-between gap-2 pt-1.5">
           <button
             type="button"
-            onClick={() => taRef.current?.focus()}
-            aria-label="Toolkit"
+            onClick={onPlusClick}
+            aria-label={m['playground.attachment.add']()}
+            title={m['playground.attachment.add']()}
             className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-9 items-center justify-center rounded-full transition-colors"
           >
             <Plus className="size-5" />
@@ -406,6 +609,8 @@ function ThreadHeader({
 
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
+  const images = message.attachments?.filter((a) => a.type === 'image') ?? [];
+  const videos = message.attachments?.filter((a) => a.type === 'video') ?? [];
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -435,11 +640,46 @@ function MessageBubble({ message }: { message: Message }) {
             : 'bg-card text-foreground border-foreground/10 rounded-tl-md border shadow-sm'
         )}
       >
-        {isUser ? (
-          <span className="whitespace-pre-wrap">{message.content}</span>
-        ) : (
-          <MarkdownContent content={message.content} />
+        {images.length > 0 && (
+          <div
+            className={cn(
+              'mb-2 flex flex-wrap gap-2',
+              message.content.trim() && 'mb-2.5'
+            )}
+          >
+            {images.map((img) => (
+              <a key={img.url} href={img.url} target="_blank" rel="noreferrer">
+                <img
+                  src={img.url}
+                  alt={img.filename || ''}
+                  className="h-32 w-32 rounded-lg object-cover"
+                />
+              </a>
+            ))}
+          </div>
         )}
+        {videos.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {videos.map((v) => (
+              <a
+                key={v.url}
+                href={v.url}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-background/15 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+              >
+                <Film className="size-3.5" />
+                {v.filename || 'video'}
+              </a>
+            ))}
+          </div>
+        )}
+        {message.content.trim() &&
+          (isUser ? (
+            <span className="whitespace-pre-wrap">{message.content}</span>
+          ) : (
+            <MarkdownContent content={message.content} />
+          ))}
       </div>
     </motion.div>
   );
