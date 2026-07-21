@@ -23,6 +23,9 @@ import { buttonVariants } from '@/components/ui/button';
  *  - anonymous visitor: 1 free message, then a sign-up wall;
  *  - signed-in user: each message costs 1 credit, then a paywall.
  * The conversation is stateless (not persisted) — reload resets the thread.
+ *
+ * Layout: a wide horizontal composer bar is the centerpiece. The conversation
+ * thread (or, when empty, a greeting + example chips) sits above the bar.
  */
 
 interface Message {
@@ -65,6 +68,7 @@ export function HeroChat() {
     .filter(Boolean);
 
   const empty = messages.length === 0;
+  const busy = send.isPending;
 
   // Keep the latest message / gate card in view as the thread grows.
   useEffect(() => {
@@ -72,7 +76,7 @@ export function HeroChat() {
       top: scrollRef.current.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages.length, send.isPending, gate]);
+  }, [messages.length, busy, gate]);
 
   function growTextarea() {
     const el = taRef.current;
@@ -91,7 +95,7 @@ export function HeroChat() {
 
   async function submit(content: string) {
     const text = content.trim();
-    if (!text || send.isPending || gate) return;
+    if (!text || busy || gate) return;
 
     const history: Message[] = [...messages, { role: 'user', content: text }];
     setMessages(history);
@@ -141,79 +145,82 @@ export function HeroChat() {
   }
 
   return (
-    <div className="bg-card border-foreground/10 relative overflow-hidden rounded-3xl border shadow-[0_24px_80px_-40px_rgba(13,11,8,0.45)]">
-      {/* Header */}
-      <div className="border-foreground/10 flex items-center justify-between gap-3 border-b px-4 py-3">
-        <span className="inline-flex items-center gap-2 text-sm font-medium">
-          <span className="brand-gradient grid size-6 place-items-center rounded-lg">
-            <Sparkles className="size-3.5 text-white" />
-          </span>
-          {m['landing.hero_chat.badge']()}
-        </span>
-        {(!empty || gate) && (
-          <button
-            type="button"
-            onClick={reset}
-            className="text-foreground/50 hover:text-foreground inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs transition-colors"
-          >
-            <RotateCcw className="size-3.5" />
-            {m['landing.hero_chat.reset']()}
-          </button>
-        )}
-      </div>
-
-      {/* Thread */}
-      <div
-        ref={scrollRef}
-        className="max-h-[min(60vh,440px)] min-h-[220px] overflow-y-auto px-4 py-5"
-      >
-        {empty && !gate ? (
-          <EmptyState
-            examples={examples}
-            disabled={send.isPending}
-            onPick={(prompt) => submit(prompt)}
-          />
-        ) : (
-          <div className="space-y-5">
+    <div className="relative">
+      {/* Thread — only rendered once the conversation starts. Empty state lives
+          above the bar instead, so the bar is the centerpiece on first load. */}
+      {!empty || gate ? (
+        <div
+          ref={scrollRef}
+          className="mb-4 max-h-[min(48vh,360px)] overflow-y-auto pr-1"
+        >
+          <div className="space-y-4">
             {messages.map((msg, i) => (
               <Bubble key={i} message={msg} />
             ))}
-            {send.isPending && <Thinking />}
+            {busy && <Thinking />}
             {gate && <GateCard kind={gate} />}
           </div>
-        )}
-      </div>
+        </div>
+      ) : (
+        <EmptyState
+          examples={examples}
+          disabled={busy}
+          onPick={(prompt) => submit(prompt)}
+        />
+      )}
 
-      {/* Composer */}
-      <div className="border-foreground/10 border-t p-3">
-        <div className="border-foreground/10 focus-within:border-foreground/25 bg-muted/30 flex items-end gap-2 rounded-2xl border p-2 pl-4">
-          <textarea
-            ref={taRef}
-            value={input}
-            rows={1}
-            maxLength={MAX_INPUT}
-            placeholder={m['landing.hero.chat_placeholder']()}
-            onChange={(e) => {
-              setInput(e.target.value);
-              growTextarea();
-            }}
-            onKeyDown={handleKeyDown}
-            className="placeholder:text-foreground/40 max-h-40 min-h-[2.25rem] flex-1 resize-none bg-transparent py-2 text-[15px] leading-relaxed outline-none"
-          />
+      {/* The wide horizontal composer bar */}
+      <div className="bg-card border-foreground/10 focus-within:border-foreground/20 relative flex flex-col gap-2.5 rounded-[1.5rem] border p-2.5 pl-5 shadow-[0_24px_70px_-34px_rgba(13,11,8,0.5)] backdrop-blur-xl transition-colors focus-within:ring-4 focus-within:ring-[#7c3aed]/[0.08]">
+        <textarea
+          ref={taRef}
+          value={input}
+          rows={1}
+          maxLength={MAX_INPUT}
+          placeholder={m['landing.hero.chat_placeholder']()}
+          onChange={(e) => {
+            setInput(e.target.value);
+            growTextarea();
+          }}
+          onKeyDown={handleKeyDown}
+          className="placeholder:text-foreground/40 max-h-40 min-h-[2.75rem] w-full resize-none bg-transparent py-1.5 text-[15px] leading-relaxed outline-none"
+        />
+
+        {/* Bar footer: identity + reset on the left, send on the right */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="bg-muted/60 border-foreground/10 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium">
+              <Sparkles className="size-3 text-[#7c3aed]" />
+              {m['landing.hero_chat.badge']()}
+            </span>
+            {(!empty || gate) && (
+              <button
+                type="button"
+                onClick={reset}
+                className="text-foreground/45 hover:text-foreground inline-flex items-center gap-1.5 rounded-full px-2 py-1 text-xs transition-colors"
+              >
+                <RotateCcw className="size-3.5" />
+                <span className="hidden sm:inline">
+                  {m['landing.hero_chat.reset']()}
+                </span>
+              </button>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => submit(input)}
-            disabled={!input.trim() || send.isPending || !!gate}
+            disabled={!input.trim() || busy || !!gate}
             aria-label="Send"
-            className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl text-white transition-opacity disabled:opacity-40"
+            className="brand-gradient flex size-10 shrink-0 items-center justify-center rounded-full text-white shadow-[0_8px_24px_-8px_rgba(124,58,237,0.6)] transition-transform hover:scale-105 active:scale-95 disabled:pointer-events-none disabled:opacity-40"
           >
             <ArrowUp className="size-4" />
           </button>
         </div>
-        <p className="text-foreground/35 mt-2 text-center text-[11px]">
-          {m['landing.hero_chat.disclaimer']()}
-        </p>
       </div>
+
+      <p className="text-foreground/40 mt-3 text-center text-[11px]">
+        {m['landing.hero_chat.disclaimer']()}
+      </p>
     </div>
   );
 }
@@ -319,25 +326,25 @@ function EmptyState({
   onPick: (prompt: string) => void;
 }) {
   return (
-    <div className="mx-auto flex max-w-md flex-col items-center px-2 py-6 text-center">
-      <div className="brand-gradient mb-4 flex size-12 items-center justify-center rounded-2xl">
-        <Sparkles className="size-6 text-white" />
+    <div className="mb-6 flex flex-col items-center px-2 text-center">
+      <div className="brand-gradient mb-3 flex size-11 items-center justify-center rounded-2xl shadow-[0_12px_30px_-10px_rgba(124,58,237,0.55)]">
+        <Sparkles className="size-5 text-white" />
       </div>
-      <h3 className="text-lg font-semibold tracking-tight">
+      <h3 className="text-base font-semibold tracking-tight">
         {m['landing.hero_chat.greeting']()}
       </h3>
-      <p className="text-foreground/55 mt-1.5 text-sm">
+      <p className="text-foreground/55 mt-1 max-w-sm text-[13px] leading-relaxed">
         {m['landing.hero_chat.greeting_sub']()}
       </p>
       {examples.length > 0 && (
-        <div className="mt-5 grid w-full gap-2">
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           {examples.map((ex) => (
             <button
               key={ex}
               type="button"
               disabled={disabled}
               onClick={() => onPick(ex)}
-              className="border-foreground/10 bg-background hover:border-foreground/25 text-foreground/75 rounded-xl border px-3.5 py-2.5 text-left text-sm transition-colors disabled:opacity-50"
+              className="border-foreground/10 bg-background hover:border-foreground/25 hover:bg-muted/40 text-foreground/75 rounded-full border px-3.5 py-1.5 text-[13px] transition-colors disabled:opacity-50"
             >
               {ex}
             </button>

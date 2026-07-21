@@ -33,7 +33,7 @@ export function Hero() {
       {/* the hero centerpiece — upload + lead capture */}
       <div
         id="upload"
-        className="relative mx-auto mt-12 max-w-2xl scroll-mt-24"
+        className="relative mx-auto mt-12 max-w-3xl scroll-mt-24"
       >
         <HeroChat />
       </div>
