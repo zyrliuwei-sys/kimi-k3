@@ -85,10 +85,14 @@ export const envConfigs: Record<string, string> = {
   inline_image_max_kb: procEnv.INLINE_IMAGE_MAX_KB ?? '2048',
 
   // AI
-  // OpenAI / Anthropic are admin-panel-only (like Gemini/Fal). No env fallback:
-  // OPENAI_API_KEY / ANTHROPIC_API_KEY are common ambient vars, and falling back
-  // to them would let the admin "Test" silently pass on the machine's own key.
+  // OpenAI / Anthropic / Gemini are admin-panel-only — no env fallback:
+  // OPENAI_API_KEY / ANTHROPIC_API_KEY / GEMINI_API_KEY are common ambient vars,
+  // and falling back to them would let the admin "Test" silently pass on the
+  // machine's own key. Fal and Replicate, by contrast, are rarely ambient and
+  // power optional features (Web & Motion video replicate, etc.), so they read
+  // an env var as a fallback under the admin-panel value (DB still wins).
   replicate_api_token: procEnv.REPLICATE_API_TOKEN ?? '',
+  fal_api_key: procEnv.FAL_API_KEY ?? '',
 
   // Locale (public)
   locale: publicEnv('VITE_DEFAULT_LOCALE') ?? 'en',

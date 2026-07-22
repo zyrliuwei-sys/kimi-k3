@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import { createFileRoute } from '@tanstack/react-router';
 
 import {
@@ -6,7 +8,6 @@ import {
   type ChatTurn,
 } from '@/core/ai/chat';
 import { getAuth } from '@/core/auth';
-import { envConfigs } from '@/config';
 import { getConfig } from '@/modules/config/service';
 import { consume as consumeCredits } from '@/modules/credits/service';
 import { checkIpQuota, enforceMinIntervalRateLimit } from '@/lib/rate-limit';
@@ -125,11 +126,43 @@ function sseResponse(work: (emit: SseEmit) => Promise<void>): Response {
   });
 }
 
-/** Resolve a possibly-relative upload URL to an absolute one the model can fetch. */
-function absoluteUrl(url: string): string {
-  if (/^https?:\/\//i.test(url)) return url;
-  const base = (envConfigs.app_url || '').replace(/\/+$/, '');
-  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+const MIME_FROM_EXT: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  avif: 'image/avif',
+  heic: 'image/heic',
+  heif: 'image/heif',
+};
+
+/**
+ * Convert an attachment URL into an inline base64 data URL the model can read
+ * without a public fetch. Vision providers download a remote `image_url` to
+ * count tokens, so a `/uploads/...` path on localhost (or a private bucket in
+ * prod) makes them fail with `count_token_failed`. Inlining the bytes removes
+ * that dependency entirely — works in dev and prod.
+ */
+async function toDataUrl(url: string): Promise<string> {
+  if (url.startsWith('data:')) return url;
+
+  // Local upload (no storage configured) — read straight from public/.
+  if (url.startsWith('/')) {
+    const file = path.join(process.cwd(), 'public', url);
+    const buf = await readFile(file);
+    const ext = (file.split('.').pop() || '').toLowerCase();
+    const mime = MIME_FROM_EXT[ext] || 'image/png';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  }
+
+  // Remote URL (storage configured) — fetch and inline.
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Failed to fetch image (${res.status})`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  const mime = res.headers.get('content-type')?.split(';')[0] || 'image/png';
+  return `data:${mime};base64,${buf.toString('base64')}`;
 }
 
 /**
@@ -181,7 +214,10 @@ async function buildMessages(
   }
   parts.push({ type: 'text', text: textBits.join('\n\n') || ' ' });
   for (const img of images) {
-    parts.push({ type: 'image_url', image_url: { url: absoluteUrl(img.url) } });
+    parts.push({
+      type: 'image_url',
+      image_url: { url: await toDataUrl(img.url) },
+    });
   }
 
   const messages = turns.slice();
@@ -257,10 +293,13 @@ async function POST({ request }: { request: Request }) {
     });
   }
 
-  const { messages, model } = await buildMessages(turns, rawAttachments, cfg);
-
   return sseResponse(async (emit) => {
     try {
+      const { messages, model } = await buildMessages(
+        turns,
+        rawAttachments,
+        cfg
+      );
       for await (const delta of openaiChatCompletionStream({
         apiKey: cfg.apiKey,
         baseUrl: cfg.baseUrl,
