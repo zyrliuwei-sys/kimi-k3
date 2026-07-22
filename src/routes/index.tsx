@@ -11,7 +11,6 @@ import { FAQ, FAQ_ITEMS } from '@/blocks/faq';
 import { Footer } from '@/blocks/footer';
 import { Header } from '@/blocks/header';
 import { Hero } from '@/blocks/hero';
-import { Logos } from '@/blocks/logos';
 import { Pricing } from '@/blocks/pricing';
 import { Showcase } from '@/blocks/showcase';
 import { Start } from '@/blocks/start';
@@ -29,7 +28,6 @@ function HomePage() {
       <Header />
       <main>
         <Hero />
-        <Logos />
         <Assets />
         <Showcase />
         <Start />

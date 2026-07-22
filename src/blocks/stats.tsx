@@ -22,7 +22,7 @@ export function Stats() {
               {m['landing.stats.subtitle']()}
             </p>
 
-            <dl className="mx-auto mt-12 grid max-w-4xl grid-cols-2 gap-8 sm:grid-cols-4">
+            <dl className="mx-auto mt-12 grid max-w-3xl grid-cols-3 gap-8">
               {stats.map(([num, label]) => (
                 <div key={label}>
                   <dt className="text-brand-gradient text-4xl font-semibold tracking-tight sm:text-5xl">

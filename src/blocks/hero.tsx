@@ -37,7 +37,7 @@ export function Hero() {
             {m['landing.hero.subheadline']()}
           </p>
 
-          {/* core action area — 3 CTAs side by side */}
+          {/* core action area — 2 CTAs side by side */}
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3 lg:justify-start">
             <Link
               href="/api-playground"
@@ -57,15 +57,6 @@ export function Hero() {
               )}
             >
               {m['landing.hero.cta_compare']()}
-            </Link>
-            <Link
-              href="/cheat-sheet"
-              className={cn(
-                buttonVariants({ variant: 'outline', size: 'lg' }),
-                'h-11 px-6 text-[0.95rem]'
-              )}
-            >
-              {m['landing.hero.cta_cheat']()}
             </Link>
           </div>
         </div>
