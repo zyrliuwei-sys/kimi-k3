@@ -819,7 +819,7 @@
   "web_motion.download": "Download",
   "web_motion.again": "Replicate another",
   "web_motion.signin": "Sign in to replicate videos",
-  "web_motion.cost_note": "Your first video is free — after that, credits are deducted per video and refunded if it fails.",
+  "web_motion.cost_note": "Credits are deducted per video and refunded if it fails.",
   "web_motion.err_upload": "Upload failed. Please try a smaller video.",
   "web_motion.err_start": "Failed to start replication. Please try again.",
   "web_motion.err_insufficient": "Insufficient credits. Top up to continue.",

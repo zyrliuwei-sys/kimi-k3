@@ -140,6 +140,18 @@ export function Footer() {
                 height={54}
               />
             </a>
+            <a
+              href="https://theresanaiforthat.com/ai/kimik3-unofficial-guide/?ref=featured&v=7720459"
+              target="_blank"
+              rel="nofollow"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://media.theresanaiforthat.com/featured-on-taaft.png?width=600"
+                alt="Featured on There's An AI For That"
+                width={300}
+              />
+            </a>
           </div>
           <LocaleSelector
             variant="pill"

@@ -5,6 +5,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { getAuth } from '@/core/auth';
 import { getScreenshot } from '@/core/screenshot';
 import { envConfigs } from '@/config';
+import { getBalance } from '@/modules/credits/service';
 import { getStorage } from '@/modules/storage/service';
 import { md5 } from '@/lib/hash';
 import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
@@ -38,6 +39,11 @@ async function POST({ request }: { request: Request }) {
     const auth = getAuth();
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user) return respErr('Unauthorized', { status: 401 });
+
+    // Paid feature: only users with a credit balance (i.e. who bought a pack)
+    // may spend an external screenshot API request.
+    const balance = await getBalance(session.user.id);
+    if (balance <= 0) return respErr('Insufficient credits', { status: 402 });
 
     const body = await request.json().catch(() => ({}));
     const raw = typeof body?.url === 'string' ? body.url.trim() : '';

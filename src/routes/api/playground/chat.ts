@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createFileRoute } from '@tanstack/react-router';
-import { eq } from 'drizzle-orm';
 
 import {
   openaiChatCompletionStream,
@@ -9,11 +8,9 @@ import {
   type ChatTurn,
 } from '@/core/ai/chat';
 import { getAuth } from '@/core/auth';
-import { db } from '@/core/db';
-import { user } from '@/config/db/schema';
 import { getConfig } from '@/modules/config/service';
 import { consume as consumeCredits } from '@/modules/credits/service';
-import { checkIpQuota, enforceMinIntervalRateLimit } from '@/lib/rate-limit';
+import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 import { respErr } from '@/lib/resp';
 
 /**
@@ -42,10 +39,8 @@ import { respErr } from '@/lib/resp';
 const MAX_TURNS = 20;
 const MAX_CONTENT_LEN = 4000;
 const RATE_LIMIT_INTERVAL_MS = 6000;
-// Freemium gate: anonymous visitors get this many free messages (per
-// browser/IP), then hit a sign-up wall. Signed-in users get 1 free chat per
-// day (user.free_chats / user.free_chats_date), then 1 credit per message.
-const ANON_FREE_LIMIT = 1;
+// Signed-in users pay 1 credit per message. No free anonymous tier — visitors
+// must register/login, then buy a credit pack to use the playground.
 const CHAT_CREDIT_COST = 1;
 
 const SYSTEM_PROMPT =
@@ -230,42 +225,10 @@ async function buildMessages(
 }
 
 /**
- * Signed-in chat allowance. Each user gets 1 free chat per day, tracked in
- * `user.free_chats` / `user.free_chats_date` (independent of paid credits).
- * On the first chat of a new day the allowance refreshes to 1; a free chat is
- * spent first, and only when it's exhausted does the message cost a paid
- * credit (→ paywall if the user has none). Returns whether the message is
- * paid for (true) or should be gated (false).
+ * Signed-in chat allowance. No free tier — every message costs 1 paid credit
+ * (→ paywall if the user has none). Returns whether the message is paid for.
  */
 async function consumeSignedInChat(userId: string): Promise<boolean> {
-  const today = new Date().toISOString().slice(0, 10);
-
-  try {
-    const [u] = await db()
-      .select({
-        freeChats: user.freeChats,
-        freeChatsDate: user.freeChatsDate,
-      })
-      .from(user)
-      .where(eq(user.id, userId))
-      .limit(1);
-    if (u) {
-      // First chat of a new day refreshes the daily free allowance to 1.
-      const free = u.freeChatsDate !== today ? 1 : u.freeChats;
-      if (free > 0) {
-        await db()
-          .update(user)
-          .set({ freeChats: free - 1, freeChatsDate: today })
-          .where(eq(user.id, userId));
-        return true;
-      }
-    }
-  } catch {
-    // Columns missing (schema not yet pushed) or transient DB error → fall
-    // through to paid credits so chat keeps working instead of 500ing.
-  }
-
-  // No free chat left today → fall back to a paid credit.
   const consumed = await consumeCredits({
     userId,
     credits: CHAT_CREDIT_COST,
@@ -321,11 +284,8 @@ async function POST({ request }: { request: Request }) {
 
   let gate: 'login_required' | 'payment_required' | null = null;
   if (!session?.user) {
-    const quota = checkIpQuota(request, {
-      keyPrefix: 'hero-chat-anon',
-      limit: ANON_FREE_LIMIT,
-    });
-    if (quota.exceeded) gate = 'login_required';
+    // No free anonymous tier — must register/login, then buy a credit pack.
+    gate = 'login_required';
   } else {
     const ok = await consumeSignedInChat(session.user.id);
     if (!ok) gate = 'payment_required';

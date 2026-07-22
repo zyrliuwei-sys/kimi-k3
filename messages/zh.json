@@ -819,7 +819,7 @@
   "web_motion.download": "下载",
   "web_motion.again": "再复刻一个",
   "web_motion.signin": "登录后即可复刻视频",
-  "web_motion.cost_note": "新用户首个视频免费;之后每个视频消耗积分,失败自动退还。",
+  "web_motion.cost_note": "每个视频消耗积分,失败自动退还。",
   "web_motion.err_upload": "上传失败,请尝试更小的视频。",
   "web_motion.err_start": "启动复刻失败,请重试。",
   "web_motion.err_insufficient": "积分不足,充值后继续。",

@@ -4,7 +4,6 @@ import { AIMediaType, getAIManager } from '@/core/ai';
 import { getAuth } from '@/core/auth';
 import {
   AITaskStatus,
-  countUserActiveVideoTasks,
   createTask,
   updateTask,
 } from '@/modules/ai-tasks/service';
@@ -40,15 +39,8 @@ async function POST({ request }: { request: Request }) {
     const configs = await getAllConfigs();
 
     const model = configs.video_replicate_model || DEFAULT_MODEL;
-    let costCredits =
+    const costCredits =
       Number(configs.video_replicate_credit_cost) || DEFAULT_CREDIT_COST;
-
-    // New users get their first video replicate free — no credits required.
-    // Anyone with zero prior (non-failed) video tasks skips the credit charge.
-    const priorVideoTasks = await countUserActiveVideoTasks(session.user.id);
-    if (priorVideoTasks === 0) {
-      costCredits = 0;
-    }
 
     // Fal needs an API key AND a source URL from an allowed host (it fetches
     // the video server-side, so the origin is SSRF-guarded). Without either we
@@ -60,14 +52,22 @@ async function POST({ request }: { request: Request }) {
       isAllowedVideoUrl(videoUrl, allowedVideoHosts(configs));
 
     if (!falReady) {
-      const replica = await createTask({
-        userId: session.user.id,
-        mediaType: AIMediaType.VIDEO,
-        provider: 'replica',
-        model: 'passthrough',
-        prompt: DEFAULT_PROMPT,
-        costCredits: 0,
-      });
+      let replica;
+      try {
+        replica = await createTask({
+          userId: session.user.id,
+          mediaType: AIMediaType.VIDEO,
+          provider: 'replica',
+          model: 'passthrough',
+          prompt: DEFAULT_PROMPT,
+          costCredits,
+        });
+      } catch (e: any) {
+        if (String(e?.message || '').includes('Insufficient credits')) {
+          return respErr('Insufficient credits', { status: 402 });
+        }
+        throw e;
+      }
       await updateTask({
         taskId: replica.id,
         status: AITaskStatus.SUCCESS,
