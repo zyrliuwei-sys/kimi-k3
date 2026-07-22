@@ -122,10 +122,25 @@ export function Footer() {
         </div>
 
         <div className="mt-14 flex flex-col gap-4 border-t border-neutral-800 pt-6 sm:flex-row sm:items-center sm:justify-between">
-          <span className="text-sm text-neutral-500">
-            © {new Date().getFullYear()} {envConfigs.app_name}.{' '}
-            {m['landing.footer.rights']()}
-          </span>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
+            <span className="text-sm text-neutral-500">
+              © {new Date().getFullYear()} {envConfigs.app_name}.{' '}
+              {m['landing.footer.rights']()}
+            </span>
+            <a
+              href="https://tooldirs.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://tooldirs.com/badge/badge_light.svg"
+                alt="Featured on ToolDirs"
+                width={200}
+                height={54}
+              />
+            </a>
+          </div>
           <LocaleSelector
             variant="pill"
             className="border-neutral-700 text-neutral-300 hover:bg-white/5 hover:text-neutral-100"

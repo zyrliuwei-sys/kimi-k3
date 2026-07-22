@@ -6,6 +6,7 @@ import {
   Files,
   Film,
   FolderGit2,
+  Globe,
   Loader2,
   MonitorPlay,
   Plus,
@@ -19,11 +20,13 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { toast } from 'sonner';
 
-import { useSession } from '@/core/auth/client';
+import { signIn, useSession } from '@/core/auth/client';
 import { Link } from '@/core/i18n/navigation';
+import { ApiError, apiPost } from '@/lib/api-client';
 import { streamChat } from '@/lib/chat-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
+import { usePublicConfig } from '@/hooks/use-public-config';
 import { WebMotion } from '@/blocks/web-motion';
 import { ClonePreview } from '@/components/clone-preview';
 import { MarkdownContent } from '@/components/markdown-content';
@@ -59,7 +62,7 @@ interface Message {
   streaming?: boolean; // still receiving deltas → show code, not the preview
 }
 
-type TaskAction = 'upload' | 'seed' | 'dialog';
+type TaskAction = 'upload' | 'dialog' | 'url';
 
 interface TaskDef {
   id: string;
@@ -106,7 +109,9 @@ export function ApiPlayground() {
 
   const [modelId, setModelId] = useState('k3-extreme');
   const [activeTask, setActiveTask] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
   const [webMotionOpen, setWebMotionOpen] = useState(false);
+  const [cloneUrl, setCloneUrl] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -118,6 +123,19 @@ export function ApiPlayground() {
   const tasks = useTasks();
 
   const selected = models.find((mo) => mo.id === modelId) ?? models[0];
+
+  const { data: session, isPending } = useSession();
+  // Anonymous visitors are prompted to sign in/up before using the playground.
+  // Don't block during the initial session load (would false-prompt logged-in
+  // users); the backend per-IP/credit gate is the real ceiling regardless.
+  const needsAuth = !isPending && !session?.user;
+  function requireAuth(): boolean {
+    if (needsAuth) {
+      setAuthOpen(true);
+      return false;
+    }
+    return true;
+  }
 
   // Auto-grow the textarea to fit its content (capped).
   function syncTextareaHeight() {
@@ -147,6 +165,7 @@ export function ApiPlayground() {
   }, []);
 
   function openFilePicker() {
+    if (!requireAuth()) return;
     fileInputRef.current?.click();
   }
 
@@ -183,12 +202,55 @@ export function ApiPlayground() {
     setAttachments((prev) => prev.filter((a) => a.url !== url));
   }
 
+  async function handleUrlClone(copy: string) {
+    const url = cloneUrl.trim();
+    if (!url) {
+      toast.error(m['playground.urlclone.url_required']());
+      return;
+    }
+    if (!copy) {
+      toast.error(m['playground.urlclone.copy_required']());
+      return;
+    }
+    setUploading(true);
+    let imageUrl: string;
+    try {
+      const r = await apiPost<{ url: string }>('/api/playground/screenshot', {
+        url,
+      });
+      imageUrl = r.url;
+    } catch (e: unknown) {
+      setUploading(false);
+      toast.error(
+        e instanceof ApiError
+          ? e.message
+          : m['playground.urlclone.shot_failed']()
+      );
+      return;
+    }
+    setUploading(false);
+    setCloneUrl('');
+    handleSend({
+      text: `${m['playground.tasks.urlclone.instruction']()}\n\n${copy}`,
+      attachments: [{ type: 'image', url: imageUrl }],
+      clone: true,
+    });
+  }
+
   async function handleSend(opts?: {
     text?: string;
     attachments?: Attachment[];
     clone?: boolean;
   }) {
+    if (!requireAuth()) return;
     const text = (opts?.text ?? input).trim();
+
+    // URL → clone: intercept a direct user send (opts undefined) — screenshot
+    // the URL first, then continue as a clone turn with the image attached.
+    if (!opts && activeTask === 'urlclone') {
+      return handleUrlClone(text);
+    }
+
     const pendingAttachments = opts?.attachments ?? attachments;
     // Image-only messages get a default prompt so the backend has a valid user
     // turn and the model knows what to do with the attachment.
@@ -322,10 +384,17 @@ export function ApiPlayground() {
   // the user can attach the image to restore. Clicking the active chip clears
   // the seeded prompt (but never the user's own typing) and deselects.
   function handleTask(task: TaskDef) {
+    if (!requireAuth()) return;
     // Web & motion opens its own video → video replicate dialog instead of
     // seeding a chat prompt.
     if (task.action === 'dialog') {
       setWebMotionOpen(true);
+      return;
+    }
+    // URL → clone: no prompt seeding — just reveal the URL field (toggle off
+    // if the same chip is clicked again).
+    if (task.action === 'url') {
+      setActiveTask((cur) => (cur === task.id ? null : task.id));
       return;
     }
     const prevTask = activeTask ? tasks.find((t) => t.id === activeTask) : null;
@@ -380,6 +449,8 @@ export function ApiPlayground() {
     tasks,
     activeTask,
     onTask: handleTask,
+    cloneUrl,
+    setCloneUrl,
   };
 
   return (
@@ -433,6 +504,7 @@ export function ApiPlayground() {
         open={webMotionOpen}
         onClose={() => setWebMotionOpen(false)}
       />
+      <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
   );
 }
@@ -525,6 +597,119 @@ function WebMotionSignIn({ onClose }: { onClose: () => void }) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Auth prompt — shown when an anonymous visitor clicks a playground  */
+/*  action button (send / attach / task chip).                         */
+/* ------------------------------------------------------------------ */
+
+function AuthPromptDialog({
+  open,
+  onClose,
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const { data: configs } = usePublicConfig();
+  const googleEnabled = configs?.google_auth_enabled === 'true';
+
+  // One-click Google OAuth. The provider is registered server-side whenever
+  // google_client_id/secret are set, so this works as long as it's enabled.
+  async function handleGoogle() {
+    await signIn.social({
+      provider: 'google',
+      callbackURL: '/api-playground',
+    });
+  }
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          role="dialog"
+          aria-modal="true"
+          aria-label={m['playground.auth.title']()}
+        >
+          <motion.div
+            className="bg-background relative w-full max-w-md rounded-2xl shadow-2xl"
+            initial={{ opacity: 0, scale: 0.96, y: 12 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 12 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="hover:bg-foreground/5 absolute top-3 right-3 z-10 grid size-9 place-items-center rounded-full transition-colors"
+            >
+              <X className="size-4" />
+            </button>
+            <div className="flex flex-col items-center gap-4 px-6 py-12 text-center">
+              <span className="brand-gradient grid size-12 place-items-center rounded-2xl shadow-sm shadow-violet-500/25">
+                <Terminal className="size-5 text-white" />
+              </span>
+              <h2 className="text-foreground text-lg font-semibold">
+                {m['playground.auth.title']()}
+              </h2>
+              <p className="text-foreground/70 max-w-sm text-sm leading-relaxed">
+                {m['playground.auth.description']()}
+              </p>
+              <div className="mt-2 flex w-full flex-col gap-2.5">
+                {googleEnabled && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleGoogle}
+                      className="border-foreground/15 bg-background text-foreground/90 hover:bg-foreground/5 inline-flex h-11 w-full items-center justify-center gap-2.5 rounded-xl border px-6 text-sm font-medium transition-colors"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        className="size-4"
+                      >
+                        <path
+                          d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z"
+                          fill="currentColor"
+                        />
+                      </svg>
+                      {m['common.sign.google_sign_in']()}
+                    </button>
+                    <div className="text-foreground/35 flex items-center gap-3 py-0.5 text-xs">
+                      <span className="bg-foreground/10 h-px flex-1" />
+                      {m['playground.auth.or']()}
+                      <span className="bg-foreground/10 h-px flex-1" />
+                    </div>
+                  </>
+                )}
+                <Link
+                  href="/sign-up?callbackUrl=/api-playground"
+                  onClick={onClose}
+                  className="brand-gradient inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl px-6 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] transition-all hover:opacity-95"
+                >
+                  {m['playground.auth.sign_up']()}
+                </Link>
+                <Link
+                  href="/sign-in?callbackUrl=/api-playground"
+                  onClick={onClose}
+                  className="border-foreground/15 text-foreground/80 hover:bg-foreground/5 inline-flex h-11 w-full items-center justify-center rounded-xl border px-6 text-sm font-medium transition-colors"
+                >
+                  {m['playground.auth.sign_in']()}
+                </Link>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Composer (textarea + toolbar + disclaimer)                         */
 /* ------------------------------------------------------------------ */
 
@@ -548,6 +733,8 @@ function Composer({
   tasks,
   activeTask,
   onTask,
+  cloneUrl,
+  setCloneUrl,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -568,7 +755,10 @@ function Composer({
   tasks: TaskDef[];
   activeTask: string | null;
   onTask: (task: TaskDef) => void;
+  cloneUrl: string;
+  setCloneUrl: (v: string) => void;
 }) {
+  const capabilities = useCapabilities();
   return (
     <div className="w-full">
       <motion.div
@@ -628,6 +818,20 @@ function Composer({
           </div>
         )}
 
+        {activeTask === 'urlclone' && (
+          <div className="flex items-center gap-2 px-3 pt-2 pb-1">
+            <Globe className="text-foreground/45 size-4 shrink-0" />
+            <input
+              type="url"
+              inputMode="url"
+              value={cloneUrl}
+              onChange={(e) => setCloneUrl(e.target.value)}
+              placeholder={m['playground.urlclone.url_placeholder']()}
+              className="placeholder:text-foreground/40 h-9 flex-1 bg-transparent text-sm outline-none"
+            />
+          </div>
+        )}
+
         <textarea
           ref={taRef}
           value={input}
@@ -671,45 +875,27 @@ function Composer({
         </div>
       </motion.div>
 
-      {/* Agent-task quick starters — a single non-wrapping rail. Each mode
-          seeds the prompt (and screenshot restore opens the file picker).
-          Row centers when it fits and scrolls horizontally when it doesn't,
-          so longer locale labels never clip the active pill. */}
+      {/* Capability showcase — display-only, informs visitors what Kimi K3
+          can do. Not task launchers: no click action. */}
       <div className="mt-3">
         <p className="text-foreground/40 mb-2 text-center font-mono text-[10px] tracking-[0.2em] uppercase">
-          {m['playground.tasks.title']()}
+          {m['playground.capabilities.title']()}
         </p>
-        <div className="overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <div className="mx-auto flex w-max min-w-full justify-center gap-1.5">
-            {tasks.map((t) => {
-              const Icon = t.icon;
-              const active = activeTask === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => onTask(t)}
-                  title={t.prompt}
-                  className={cn(
-                    'group inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 font-mono text-[12px] tracking-tight whitespace-nowrap transition-all duration-200 active:scale-[0.97]',
-                    active
-                      ? 'brand-gradient border-transparent text-white shadow-sm shadow-violet-500/25'
-                      : 'border-foreground/10 bg-card/60 text-foreground/60 hover:border-foreground/25 hover:bg-foreground/[0.04] hover:text-foreground'
-                  )}
-                >
-                  <Icon
-                    className={cn(
-                      'size-3.5 shrink-0 transition-transform duration-200 group-hover:scale-110',
-                      active
-                        ? 'text-white'
-                        : 'text-foreground/55 group-hover:text-foreground'
-                    )}
-                  />
-                  {t.label}
-                </button>
-              );
-            })}
-          </div>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {capabilities.map((c) => {
+            const Icon = c.icon;
+            return (
+              <div
+                key={c.id}
+                className="border-foreground/10 bg-card/60 flex items-center gap-2 rounded-xl border px-3 py-2"
+              >
+                <Icon className="text-foreground/55 size-4 shrink-0" />
+                <span className="text-foreground/65 text-xs leading-tight font-medium">
+                  {c.label}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -1051,25 +1237,44 @@ function useTasks(): TaskDef[] {
       action: 'dialog',
     },
     {
-      id: 'codebase',
-      label: m['playground.tasks.codebase.label'](),
-      prompt: m['playground.tasks.codebase.prompt'](),
+      id: 'urlclone',
+      label: m['playground.tasks.urlclone.label'](),
+      prompt: m['playground.tasks.urlclone.prompt'](),
+      icon: Globe,
+      action: 'url',
+    },
+  ];
+}
+
+/* Display-only capability showcase rendered under the composer — informs the
+   visitor what Kimi K3 can do, with no click action (not task launchers). */
+interface CapabilityDef {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+function useCapabilities(): CapabilityDef[] {
+  return [
+    {
+      id: 'ui',
+      label: m['playground.capabilities.ui.label'](),
+      icon: ScanLine,
+    },
+    {
+      id: 'repo',
+      label: m['playground.capabilities.repo.label'](),
       icon: FolderGit2,
-      action: 'seed',
     },
     {
       id: 'docs',
-      label: m['playground.tasks.docs.label'](),
-      prompt: m['playground.tasks.docs.prompt'](),
+      label: m['playground.capabilities.docs.label'](),
       icon: Files,
-      action: 'seed',
     },
     {
-      id: 'agent',
-      label: m['playground.tasks.agent.label'](),
-      prompt: m['playground.tasks.agent.prompt'](),
+      id: 'agents',
+      label: m['playground.capabilities.agents.label'](),
       icon: Workflow,
-      action: 'seed',
     },
   ];
 }

@@ -177,6 +177,13 @@ export function getSettingGroups(): SettingGroup[] {
       tab: 'ai',
     },
     { name: 'fal', title: 'Fal', description: 'Fal AI API', tab: 'ai' },
+    {
+      name: 'screenshot',
+      title: 'Screenshot',
+      description:
+        'URL → screenshot service (remote API) for the URL → clone playground task',
+      tab: 'ai',
+    },
 
     // Analytics
     {
@@ -862,6 +869,25 @@ export function getSettings(): Setting[] {
       type: 'text',
       placeholder: '10',
       group: 'fal',
+      tab: 'ai',
+    },
+
+    // ─── AI / Screenshot (URL → image for the 网址→克隆 task) ──────────
+    {
+      name: 'screenshot_api_base',
+      title: 'Screenshot API Base URL',
+      type: 'text',
+      placeholder: 'https://api.screenshotone.com/take',
+      tip: 'A GET endpoint that returns image bytes for ?url=. The target URL and key are appended automatically.',
+      group: 'screenshot',
+      tab: 'ai',
+    },
+    {
+      name: 'screenshot_api_key',
+      title: 'Screenshot API Key',
+      type: 'password',
+      placeholder: 'xxx',
+      group: 'screenshot',
       tab: 'ai',
     },
 
