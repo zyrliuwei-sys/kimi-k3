@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createFileRoute } from '@tanstack/react-router';
+import { eq } from 'drizzle-orm';
 
 import {
   openaiChatCompletionStream,
@@ -8,6 +9,8 @@ import {
   type ChatTurn,
 } from '@/core/ai/chat';
 import { getAuth } from '@/core/auth';
+import { db } from '@/core/db';
+import { user } from '@/config/db/schema';
 import { getConfig } from '@/modules/config/service';
 import { consume as consumeCredits } from '@/modules/credits/service';
 import { checkIpQuota, enforceMinIntervalRateLimit } from '@/lib/rate-limit';
@@ -18,7 +21,8 @@ import { respErr } from '@/lib/resp';
  *
  * Rate-limited per IP and gated freemium-style: anonymous visitors get a small
  * number of free messages (`ANON_FREE_LIMIT`) then a sign-up wall; signed-in
- * users spend 1 credit per message (`CHAT_CREDIT_COST`) then a paywall.
+ * users get 1 free chat per day, then spend 1 credit per message
+ * (`CHAT_CREDIT_COST`) once that's used up — then a paywall.
  * Conversations are NOT persisted here — that's what /api/chat is for. Prefer
  * the configured `evolink` provider (model defaults to `kimi-k3`) when its key
  * is present.
@@ -39,8 +43,8 @@ const MAX_TURNS = 20;
 const MAX_CONTENT_LEN = 4000;
 const RATE_LIMIT_INTERVAL_MS = 6000;
 // Freemium gate: anonymous visitors get this many free messages (per
-// browser/IP), then hit a sign-up wall. Signed-in users pay 1 credit per
-// message via the credits module (free taste = their signup credit grant).
+// browser/IP), then hit a sign-up wall. Signed-in users get 1 free chat per
+// day (user.free_chats / user.free_chats_date), then 1 credit per message.
 const ANON_FREE_LIMIT = 1;
 const CHAT_CREDIT_COST = 1;
 
@@ -225,6 +229,52 @@ async function buildMessages(
   return { messages, model };
 }
 
+/**
+ * Signed-in chat allowance. Each user gets 1 free chat per day, tracked in
+ * `user.free_chats` / `user.free_chats_date` (independent of paid credits).
+ * On the first chat of a new day the allowance refreshes to 1; a free chat is
+ * spent first, and only when it's exhausted does the message cost a paid
+ * credit (→ paywall if the user has none). Returns whether the message is
+ * paid for (true) or should be gated (false).
+ */
+async function consumeSignedInChat(userId: string): Promise<boolean> {
+  const today = new Date().toISOString().slice(0, 10);
+
+  try {
+    const [u] = await db()
+      .select({
+        freeChats: user.freeChats,
+        freeChatsDate: user.freeChatsDate,
+      })
+      .from(user)
+      .where(eq(user.id, userId))
+      .limit(1);
+    if (u) {
+      // First chat of a new day refreshes the daily free allowance to 1.
+      const free = u.freeChatsDate !== today ? 1 : u.freeChats;
+      if (free > 0) {
+        await db()
+          .update(user)
+          .set({ freeChats: free - 1, freeChatsDate: today })
+          .where(eq(user.id, userId));
+        return true;
+      }
+    }
+  } catch {
+    // Columns missing (schema not yet pushed) or transient DB error → fall
+    // through to paid credits so chat keeps working instead of 500ing.
+  }
+
+  // No free chat left today → fall back to a paid credit.
+  const consumed = await consumeCredits({
+    userId,
+    credits: CHAT_CREDIT_COST,
+    scene: 'hero_chat',
+    description: 'Hero chat · Kimi K3',
+  });
+  return consumed.success;
+}
+
 async function POST({ request }: { request: Request }) {
   const limited = enforceMinIntervalRateLimit(request, {
     intervalMs: RATE_LIMIT_INTERVAL_MS,
@@ -277,13 +327,8 @@ async function POST({ request }: { request: Request }) {
     });
     if (quota.exceeded) gate = 'login_required';
   } else {
-    const consumed = await consumeCredits({
-      userId: session.user.id,
-      credits: CHAT_CREDIT_COST,
-      scene: 'hero_chat',
-      description: 'Hero chat · Kimi K3',
-    });
-    if (!consumed.success) gate = 'payment_required';
+    const ok = await consumeSignedInChat(session.user.id);
+    if (!ok) gate = 'payment_required';
   }
 
   if (gate) {

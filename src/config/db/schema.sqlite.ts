@@ -34,6 +34,8 @@ export const user = table(
     utmSource: text('utm_source').notNull().default(''),
     ip: text('ip').notNull().default(''),
     locale: text('locale').notNull().default(''),
+    freeChats: integer('free_chats').default(1).notNull(),
+    freeChatsDate: text('free_chats_date').notNull().default(''),
   },
   (table) => [
     index('idx_user_name').on(table.name),

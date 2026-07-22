@@ -36,6 +36,10 @@ export const user = table(
     utmSource: varchar('utm_source', { length: 100 }).notNull().default(''),
     ip: varchar('ip', { length: 45 }).notNull().default(''),
     locale: varchar('locale', { length: 20 }).notNull().default(''),
+    freeChats: int('free_chats').default(1).notNull(),
+    freeChatsDate: varchar('free_chats_date', { length: 10 })
+      .notNull()
+      .default(''),
   },
   (table) => [
     index('idx_user_name').on(table.name),

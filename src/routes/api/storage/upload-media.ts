@@ -50,9 +50,9 @@ const INLINE_MAX_BYTES =
 // endpoint's "1 free message per IP" gate remains the real AI-cost ceiling;
 // these just bound storage/Disk exposure. Per-IP quota relies on the
 // unspoofable CF-Connecting-IP resolved by getClientIpFromRequest.
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB per file
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB per file (matches Web & Motion)
 const MAX_FILES = 4; // per request
-const ANON_UPLOAD_LIMIT = 3; // free anonymous uploads per IP
+const ANON_UPLOAD_LIMIT = 1; // free anonymous uploads per IP
 
 async function POST({ request }: { request: Request }) {
   const limited = enforceMinIntervalRateLimit(request, {
