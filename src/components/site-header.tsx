@@ -40,9 +40,7 @@ export function SiteHeader({ navLinks }: { navLinks?: NavLink[] }) {
             height={28}
             className="size-7 rounded-lg"
           />
-          <span className="text-base font-semibold tracking-tight">
-            {envConfigs.app_name}
-          </span>
+          <span className="text-base font-semibold tracking-tight">anyany</span>
         </Link>
 
         {/* Desktop nav */}

@@ -53,7 +53,7 @@ export function Footer() {
                 className="size-7 rounded-lg"
               />
               <span className="text-base font-semibold text-neutral-50">
-                {envConfigs.app_name}
+                anyany
               </span>
             </Link>
             <p className="mt-4 max-w-xs text-sm leading-relaxed text-neutral-400">
@@ -124,7 +124,7 @@ export function Footer() {
         <div className="mt-14 flex flex-col gap-4 border-t border-neutral-800 pt-6 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
             <span className="text-sm text-neutral-500">
-              © {new Date().getFullYear()} {envConfigs.app_name}.{' '}
+              © {new Date().getFullYear()} anyany.{' '}
               {m['landing.footer.rights']()}
             </span>
             <a
