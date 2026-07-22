@@ -4,6 +4,7 @@ import { AIMediaType, getAIManager } from '@/core/ai';
 import { getAuth } from '@/core/auth';
 import {
   AITaskStatus,
+  countUserActiveVideoTasks,
   createTask,
   updateTask,
 } from '@/modules/ai-tasks/service';
@@ -37,19 +38,51 @@ async function POST({ request }: { request: Request }) {
     if (!videoUrl) return respErr('videoUrl is required', { status: 400 });
 
     const configs = await getAllConfigs();
-    if (!configs.fal_api_key) {
-      return respErr('AI provider (Fal) is not configured', { status: 400 });
-    }
-
-    if (!isAllowedVideoUrl(videoUrl, allowedVideoHosts(configs))) {
-      return respErr('Video URL is not from an allowed origin', {
-        status: 400,
-      });
-    }
 
     const model = configs.video_replicate_model || DEFAULT_MODEL;
-    const costCredits =
+    let costCredits =
       Number(configs.video_replicate_credit_cost) || DEFAULT_CREDIT_COST;
+
+    // New users get their first video replicate free — no credits required.
+    // Anyone with zero prior (non-failed) video tasks skips the credit charge.
+    const priorVideoTasks = await countUserActiveVideoTasks(session.user.id);
+    if (priorVideoTasks === 0) {
+      costCredits = 0;
+    }
+
+    // Fal needs an API key AND a source URL from an allowed host (it fetches
+    // the video server-side, so the origin is SSRF-guarded). Without either we
+    // can't run the AI pipeline, so fall back to an exact-replica passthrough
+    // ("原样复刻"): serve the uploaded video back as-is for one-click download.
+    // When Fal is configured, the real video → video pipeline runs below.
+    const falReady =
+      !!configs.fal_api_key &&
+      isAllowedVideoUrl(videoUrl, allowedVideoHosts(configs));
+
+    if (!falReady) {
+      const replica = await createTask({
+        userId: session.user.id,
+        mediaType: AIMediaType.VIDEO,
+        provider: 'replica',
+        model: 'passthrough',
+        prompt: DEFAULT_PROMPT,
+        costCredits: 0,
+      });
+      await updateTask({
+        taskId: replica.id,
+        status: AITaskStatus.SUCCESS,
+        taskResult: {
+          videoUrl,
+          inputVideoUrl: videoUrl,
+          mode: 'passthrough',
+        },
+      });
+      return respData({
+        taskId: replica.id,
+        status: AITaskStatus.SUCCESS,
+        videoUrl,
+      });
+    }
 
     // 1. Record the task + deduct credits (throws 'Insufficient credits').
     let task;

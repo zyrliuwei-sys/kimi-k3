@@ -1,5 +1,6 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, isNull, ne } from 'drizzle-orm';
 
+import { AIMediaType } from '@/core/ai';
 import { db } from '@/core/db';
 import { aiTask } from '@/config/db/schema';
 import { consume, revoke } from '@/modules/credits/service';
@@ -150,4 +151,29 @@ export async function findTask(taskId: string) {
     .where(eq(aiTask.id, taskId))
     .limit(1);
   return result;
+}
+
+/**
+ * Count a user's prior video tasks that aren't failed/canceled.
+ *
+ * Used to grant the first Web & Motion replicate free: a user with zero prior
+ * video tasks gets costCredits = 0. Failed/canceled attempts are excluded so a
+ * botched first try doesn't burn the free trial — consistent with the
+ * auto-refund policy for paid tasks.
+ */
+export async function countUserActiveVideoTasks(
+  userId: string
+): Promise<number> {
+  const [row] = await db()
+    .select({ n: count() })
+    .from(aiTask)
+    .where(
+      and(
+        eq(aiTask.userId, userId),
+        eq(aiTask.mediaType, AIMediaType.VIDEO),
+        ne(aiTask.status, AITaskStatus.FAILED),
+        ne(aiTask.status, AITaskStatus.CANCELED)
+      )
+    );
+  return Number(row?.n ?? 0);
 }

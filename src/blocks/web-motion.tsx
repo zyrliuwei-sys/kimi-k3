@@ -86,14 +86,18 @@ export function WebMotion() {
 
   const startMutation = useMutation({
     mutationFn: (url: string) =>
-      apiPost<{ taskId: string; status: string }>('/api/ai-tasks', {
-        videoUrl: url,
-      }),
+      apiPost<{ taskId: string; status: string; videoUrl?: string }>(
+        '/api/ai-tasks',
+        {
+          videoUrl: url,
+        }
+      ),
     onSuccess: (data) => {
       pollCount.current = 0;
       setTask({
         id: data.taskId,
         status: (data.status as TaskStatus) || 'processing',
+        videoUrl: data.videoUrl,
       });
     },
     onError: (e: unknown) => {
