@@ -9,7 +9,7 @@ import { MarkdownContent } from '@/components/markdown-content';
  * Renders a screenshot-clone reply as a live, sandboxed webpage instead of dead
  * code. The model returns the recreated site as an HTML document; we pull it out
  * of the message and frame it in an isolated iframe so the generated markup/scripts
- * run in an opaque origin that cannot touch the prdlaaa app (no cookies, storage,
+ * run in an opaque origin that cannot touch the kimik3 app (no cookies, storage,
  * or parent-DOM access). Safer than the unsanitized `dangerouslySetInnerHTML`
  * used by the plain markdown renderer.
  */

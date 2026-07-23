@@ -57,7 +57,7 @@ function buildHomeJsonLd() {
       {
         '@type': 'Organization',
         '@id': `${url}/#organization`,
-        name: 'prdlaaa',
+        name: 'kimik3',
         url,
         logo: `${url}/logo.svg`,
       },
@@ -65,7 +65,7 @@ function buildHomeJsonLd() {
         '@type': 'WebSite',
         '@id': `${url}/#website`,
         url,
-        name: 'prdlaaa',
+        name: 'kimik3',
         description: m['landing.meta.home_description'](),
         publisher: { '@id': `${url}/#organization` },
       },

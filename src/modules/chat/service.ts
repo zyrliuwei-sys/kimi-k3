@@ -15,10 +15,10 @@ const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
 
 const SYSTEM_PROMPT =
-  'You are prdlaaa, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
+  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
 
 const NOT_CONFIGURED_REPLY =
-  "👋 I'm prdlaaa — your AI workspace for chat, research, and content.\n\nNo live model is reachable yet. An admin can connect one from **Admin → Settings → AI** by pasting a key under the **EvoLink** group (`evolink_api_key`); set the model to `kimi-k3` — or leave it blank and Kimi K3 is used by default. Once that's in place, every message here gets a real Kimi K3 response.\n\nIn the meantime, your conversations are still saved here.";
+  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo live model is reachable yet. An admin can connect one from **Admin → Settings → AI** by pasting a key under the **EvoLink** group (`evolink_api_key`); set the model to `kimi-k3` — or leave it blank and Kimi K3 is used by default. Once that's in place, every message here gets a real Kimi K3 response.\n\nIn the meantime, your conversations are still saved here.";
 
 export interface ChatModelConfig {
   provider: string;
