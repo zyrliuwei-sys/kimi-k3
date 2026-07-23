@@ -75,6 +75,7 @@ interface TaskDef {
   prompt: string;
   icon: React.ComponentType<{ className?: string }>;
   action: TaskAction;
+  image?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -884,6 +885,44 @@ function Composer({
           </div>
         )}
 
+        {/* Task cards with images */}
+        {tasks.length > 0 && (
+          <div className="grid grid-cols-3 gap-2 px-2 pt-1 pb-1">
+            {tasks.map((task) => {
+              const Icon = task.icon;
+              const isActive = activeTask === task.id;
+              return (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => onTask(task)}
+                  className={cn(
+                    'group relative overflow-hidden rounded-xl border transition-all',
+                    isActive
+                      ? 'border-[#7c3aed] ring-2 ring-[#7c3aed]/30'
+                      : 'border-foreground/10 hover:border-foreground/20'
+                  )}
+                >
+                  {task.image && (
+                    <img
+                      src={task.image}
+                      alt={task.label}
+                      className="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    />
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
+                  <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 p-2">
+                    <Icon className="size-3.5 text-white" />
+                    <span className="text-xs font-medium text-white">
+                      {task.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         <textarea
           ref={taRef}
           value={input}
@@ -1322,6 +1361,7 @@ function useTasks(): TaskDef[] {
       prompt: m['playground.tasks.screenshot.prompt'](),
       icon: ScanLine,
       action: 'upload',
+      image: '/imgs/generated/screenshot-ui.jpg',
     },
     {
       id: 'webproto',
@@ -1329,6 +1369,7 @@ function useTasks(): TaskDef[] {
       prompt: m['playground.tasks.webproto.prompt'](),
       icon: MonitorPlay,
       action: 'dialog',
+      image: '/imgs/generated/web-motion.jpg',
     },
     {
       id: 'urlclone',
@@ -1336,6 +1377,7 @@ function useTasks(): TaskDef[] {
       prompt: m['playground.tasks.urlclone.prompt'](),
       icon: Globe,
       action: 'url',
+      image: '/imgs/generated/url-clone.jpg',
     },
   ];
 }
