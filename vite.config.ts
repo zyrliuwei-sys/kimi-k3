@@ -100,6 +100,53 @@ export default defineConfig({
       srcDirectory: 'src',
     }),
     viteReact(),
-    nitro(),
+    nitro({
+      // Security headers applied to every response. These are the minimum
+      // a SaaS that accepts payments should ship:
+      //   - HSTS forces HTTPS for 2 years, blocking downgrade attacks
+      //   - X-Frame-Options: DENY blocks clickjacking on /pricing + checkout
+      //   - X-Content-Type-Options: nosniff blocks MIME-confusion attacks
+      //   - Referrer-Policy prevents leaking the path (incl. tokens) to other origins
+      //   - Permissions-Policy disables device APIs the app doesn't use
+      //   - CSP is a permissive starter — tighten after watching browser
+      //     console for blocked resources. shadcn/Tailwind inject inline
+      //     styles, so style-src includes 'unsafe-inline' by design.
+      routeRules: {
+        '/**': {
+          headers: {
+            'Strict-Transport-Security':
+              'max-age=63072000; includeSubDomains; preload',
+            'X-Frame-Options': 'DENY',
+            'X-Content-Type-Options': 'nosniff',
+            'Referrer-Policy': 'strict-origin-when-cross-origin',
+            'Permissions-Policy':
+              'camera=(), microphone=(), geolocation=(), interest-cohort=()',
+            'Content-Security-Policy': [
+              "default-src 'self'",
+              // Scripts: 'unsafe-inline' covers TanStack Start hydration,
+              // 'unsafe-eval' covers React Query devtools in dev (prod tree-
+              // shakes them out, so these are mostly inert there).
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+              // Styles: Tailwind + shadcn rely on inline styles.
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              // Images: R2/S3 public buckets + base64 inline attachments.
+              "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.amazonaws.com",
+              // Fonts: @fontsource (bundled, served from self) + Google Fonts.
+              "font-src 'self' data: https://fonts.gstatic.com",
+              // XHR/fetch: AI providers, Stripe API, Replicate, Resend,
+              // your own API routes. The wildcard covers unknown AI providers
+              // you might enable later; tighten once you've finalized the list.
+              "connect-src 'self' https://api.stripe.com https://api.evolink.ai https://api.openai.com https://*.amazonaws.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://api.resend.com https://api.replicate.com https://generativelanguage.googleapis.com https://api.fal.ai https://api.kie.ai",
+              // Stripe Elements / checkout iframes.
+              'frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com',
+              "frame-ancestors 'none'",
+              "form-action 'self'",
+              "base-uri 'self'",
+              "object-src 'none'",
+            ].join('; '),
+          },
+        },
+      },
+    }),
   ],
 });
