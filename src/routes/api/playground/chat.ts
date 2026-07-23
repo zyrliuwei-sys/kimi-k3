@@ -136,26 +136,88 @@ const MIME_FROM_EXT: Record<string, string> = {
 };
 
 /**
+ * Trusted URL prefixes the playground is allowed to inline. Anything else
+ * (arbitrary internal IPs, cloud metadata endpoints, attacker-controlled
+ * hosts) must be rejected — otherwise `fetch(url)` becomes an SSRF primitive
+ * and a malicious attachment leaks private file contents into the model
+ * prompt. Resolved at request time so admin-managed storage hosts are picked
+ * up live.
+ */
+async function getTrustedStorageHosts(): Promise<Set<string>> {
+  const hosts = new Set<string>();
+  const r2Domain = await getConfig('r2_domain');
+  if (r2Domain) {
+    try {
+      hosts.add(new URL(r2Domain).host);
+    } catch {}
+  }
+  const s3Endpoint = await getConfig('s3_endpoint');
+  if (s3Endpoint) {
+    try {
+      hosts.add(new URL(s3Endpoint).host);
+    } catch {}
+  }
+  return hosts;
+}
+
+/**
  * Convert an attachment URL into an inline base64 data URL the model can read
  * without a public fetch. Vision providers download a remote `image_url` to
  * count tokens, so a `/uploads/...` path on localhost (or a private bucket in
  * prod) makes them fail with `count_token_failed`. Inlining the bytes removes
  * that dependency entirely — works in dev and prod.
+ *
+ * SECURITY: rejects anything that isn't an uploaded file (local `/uploads/...`)
+ * or a URL on an explicitly-trusted storage host. Both blocks are protected
+ * against path traversal / SSRF — `path.join` normalizes `..`, so the result
+ * is re-anchored under `public/uploads/` before any read.
  */
-async function toDataUrl(url: string): Promise<string> {
+async function toDataUrl(
+  url: string,
+  trustedHosts: Set<string>
+): Promise<string> {
   if (url.startsWith('data:')) return url;
 
-  // Local upload (no storage configured) — read straight from public/.
+  // Local upload (no storage configured) — read straight from public/uploads.
+  // Allow ONLY paths under /uploads/ and verify the resolved file stays inside
+  // the uploads directory after normalization (blocks `/uploads/../../etc/...`).
   if (url.startsWith('/')) {
-    const file = path.join(process.cwd(), 'public', url);
-    const buf = await readFile(file);
-    const ext = (file.split('.').pop() || '').toLowerCase();
+    if (!url.startsWith('/uploads/')) {
+      throw new Error('Refusing to read files outside /uploads/');
+    }
+    const uploadsRoot = path.join(process.cwd(), 'public', 'uploads');
+    const resolved = path.resolve(uploadsRoot, url.replace(/^\/uploads\//, ''));
+    if (
+      !resolved.startsWith(uploadsRoot + path.sep) &&
+      resolved !== uploadsRoot
+    ) {
+      throw new Error('Path traversal blocked');
+    }
+    const buf = await readFile(resolved);
+    const ext = (resolved.split('.').pop() || '').toLowerCase();
     const mime = MIME_FROM_EXT[ext] || 'image/png';
     return `data:${mime};base64,${buf.toString('base64')}`;
   }
 
-  // Remote URL (storage configured) — fetch and inline.
-  const res = await fetch(url);
+  // Remote URL (storage configured) — only fetch from trusted storage hosts.
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error('Invalid attachment URL');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error(`Unsupported URL protocol: ${parsed.protocol}`);
+  }
+  if (!trustedHosts.has(parsed.host)) {
+    throw new Error(`Refusing to fetch from non-trusted host: ${parsed.host}`);
+  }
+  const res = await fetch(url, { redirect: 'manual' });
+  // Follow no redirects — a redirect from a "trusted" host to a metadata IP
+  // would re-introduce SSRF. The trusted host must serve the bytes directly.
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error('Redirects are not allowed on attachment URLs');
+  }
   if (!res.ok) throw new Error(`Failed to fetch image (${res.status})`);
   const buf = Buffer.from(await res.arrayBuffer());
   const mime = res.headers.get('content-type')?.split(';')[0] || 'image/png';
@@ -170,7 +232,8 @@ async function toDataUrl(url: string): Promise<string> {
 async function buildMessages(
   turns: ChatTurn[],
   attachments: Attachment[],
-  cfg: PlaygroundConfig
+  cfg: PlaygroundConfig,
+  trustedHosts: Set<string>
 ): Promise<{ messages: ChatTurn[]; model: string }> {
   const images = attachments.filter((a) => a.type === 'image');
   const videos = attachments.filter((a) => a.type === 'video');
@@ -219,7 +282,7 @@ async function buildMessages(
   for (const img of images) {
     parts.push({
       type: 'image_url',
-      image_url: { url: await toDataUrl(img.url) },
+      image_url: { url: await toDataUrl(img.url, trustedHosts) },
     });
   }
 
@@ -301,10 +364,12 @@ async function POST({ request }: { request: Request }) {
 
   return sseResponse(async (emit) => {
     try {
+      const trustedHosts = await getTrustedStorageHosts();
       const { messages, model } = await buildMessages(
         turns,
         rawAttachments,
-        cfg
+        cfg,
+        trustedHosts
       );
       for await (const delta of openaiChatCompletionStream({
         apiKey: cfg.apiKey,

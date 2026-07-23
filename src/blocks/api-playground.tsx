@@ -90,6 +90,28 @@ async function uploadMediaFile(file: File): Promise<Attachment> {
   };
 }
 
+// Client-side pre-flight — mirrors the server allowlist
+// (`src/routes/api/storage/upload-media.ts`). Rejecting here saves the user
+// the round-trip + server-side rejection for the obvious bad inputs.
+const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
+const MAX_FILES = 50;
+const ALLOWED_MIME_PREFIXES = ['image/', 'video/'];
+const ALLOWED_MIME_EXACT = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+
+function isSupportedMime(mime: string): boolean {
+  if (!mime) return false;
+  if (ALLOWED_MIME_PREFIXES.some((p) => mime.startsWith(p))) return true;
+  return ALLOWED_MIME_EXACT.has(mime);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
@@ -164,18 +186,51 @@ export function ApiPlayground() {
 
   async function handleFilesSelected(files: FileList | null) {
     if (!files || !files.length) return;
+    const list = Array.from(files);
+
+    // Pre-flight checks — surface obvious errors before we burn bandwidth.
+    if (list.length > MAX_FILES) {
+      toast.error(m['playground.attachment.err_too_many']());
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    const offenders: Array<{ file: File; reason: 'size' | 'mime' }> = [];
+    for (const file of list) {
+      if (file.size > MAX_FILE_BYTES) offenders.push({ file, reason: 'size' });
+      else if (!isSupportedMime(file.type))
+        offenders.push({ file, reason: 'mime' });
+    }
+    if (offenders.length) {
+      for (const o of offenders) {
+        const key =
+          o.reason === 'size'
+            ? 'playground.attachment.err_too_large'
+            : 'playground.attachment.err_unsupported';
+        toast.error(m[key]({ name: o.file.name }));
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
     setUploading(true);
     try {
+      // Upload in parallel — independent files don't need to wait for each
+      // other. allSettled so one rejection doesn't abort the rest.
+      const results = await Promise.allSettled(list.map(uploadMediaFile));
       const added: Attachment[] = [];
-      for (const file of Array.from(files)) {
-        try {
-          added.push(await uploadMediaFile(file));
-        } catch (e: any) {
-          toast.error(e?.message || 'Upload failed');
+      for (let i = 0; i < results.length; i++) {
+        const r = results[i];
+        if (r.status === 'fulfilled') {
+          added.push(r.value);
+        } else {
+          const msg = (r.reason as Error)?.message || '';
+          const key = /Anonymous upload limit/i.test(msg)
+            ? 'playground.attachment.err_anon_limit'
+            : 'playground.attachment.err_upload_failed';
+          toast.error(m[key]({ name: list[i].name }));
         }
       }
-      if (!added.length) return;
-      setAttachments((prev) => [...prev, ...added]);
+      if (added.length) setAttachments((prev) => [...prev, ...added]);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -688,7 +743,7 @@ function Composer({
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="bg-card border-foreground/10 focus-within:border-foreground/25 rounded-[1.5rem] border p-2 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]"
+        className="bg-card border-foreground/10 focus-within:border-foreground/25 rounded-[2rem] border p-3 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]"
       >
         {/* Hidden media input — images + videos, multi-select. */}
         <input
@@ -757,7 +812,7 @@ function Composer({
           onKeyDown={onKeyDown}
           rows={1}
           placeholder={m['playground.input.placeholder']()}
-          className="placeholder:text-foreground/40 block max-h-[200px] min-h-[2.25rem] w-full resize-none bg-transparent px-3 pt-2.5 font-mono text-[14px] leading-relaxed outline-none"
+          className="placeholder:text-foreground/40 block max-h-[280px] min-h-[4rem] w-full resize-none bg-transparent px-4 pt-3 font-mono text-[15px] leading-relaxed outline-none"
         />
 
         {showHint && (
@@ -776,9 +831,9 @@ function Composer({
             }}
             aria-label={m['playground.attachment.add']()}
             title={m['playground.attachment.add']()}
-            className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-9 items-center justify-center rounded-full transition-colors"
+            className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 items-center justify-center rounded-full transition-colors"
           >
-            <Plus className="size-5" />
+            <Plus className="size-[22px]" />
           </button>
 
           <div className="flex items-center gap-1.5">
@@ -795,9 +850,9 @@ function Composer({
               onClick={onSend}
               disabled={!canSend || isThinking}
               aria-label={m['playground.input.send']()}
-              className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+              className="brand-gradient flex size-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <ArrowUp className="size-[18px]" />
+              <ArrowUp className="size-5" />
             </button>
           </div>
         </div>
@@ -827,7 +882,7 @@ function Composer({
         </div>
       </div>
 
-      <p className="text-foreground/35 mt-2.5 text-center font-mono text-[11px] tracking-tight">
+      <p className="text-foreground/35 mt-2.5 text-center font-mono text-[11px] tracking-tight uppercase">
         {m['playground.disclaimer']()}
       </p>
     </div>

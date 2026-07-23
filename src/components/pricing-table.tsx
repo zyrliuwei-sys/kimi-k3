@@ -171,10 +171,16 @@ export function PricingTable({
               </p>
             )}
 
-            {/* CTA — full-width pill */}
+            {/* CTA — full-width pill, solid filled so every pack reads as
+                a clear action. The featured plan picks up the gradient on
+                top to keep its "Popular" hierarchy. */}
             <Button
-              variant={plan.featured ? 'default' : 'outline'}
-              className="h-10 w-full rounded-full text-sm font-medium"
+              variant="default"
+              className={cn(
+                'h-10 w-full rounded-full text-sm font-medium',
+                plan.featured &&
+                  'brand-gradient text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] hover:opacity-95 hover:[a]:opacity-95'
+              )}
               onClick={() => handleCheckout(plan)}
               disabled={loadingId === plan.id}
             >

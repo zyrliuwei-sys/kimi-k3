@@ -10,6 +10,28 @@ import { checkIpQuota, enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 import { respData, respErr } from '@/lib/resp';
 
 /**
+ * True when the runtime filesystem is read-only (or the process cannot create
+ * a writable `public/uploads` next to the bundle). On Lambda-style deploys
+ * `process.cwd()` is `/var/task` which is immutable at runtime, so the local
+ * fallback would ENOENT. Detect these envs and short-circuit the fallback.
+ */
+function isLocalFallbackAvailable(): boolean {
+  const cwd = process.cwd();
+  // Lambda / Vercel / Netlify bundle roots.
+  if (
+    cwd === '/var/task' ||
+    cwd.startsWith('/var/task/') ||
+    cwd.startsWith('/opt/') ||
+    cwd === '/workspace'
+  ) {
+    return false;
+  }
+  // Explicit opt-out via env (escape hatch for any other immutable FS).
+  if (process.env.DISABLE_LOCAL_UPLOAD_FALLBACK === 'true') return false;
+  return true;
+}
+
+/**
  * Chat attachment upload — accepts images AND short videos. Used by the API
  * Playground "+" button. Mirrors `upload-image.ts` (which support tickets also
  * rely on) but widens the accepted MIME set so the chat composer can attach
@@ -157,6 +179,11 @@ async function POST({ request }: { request: Request }) {
       // local URL (R2Provider prepends its own uploadPath otherwise). Configure
       // R2 (admin → Storage) for production.
       if (!storage) {
+        if (!isLocalFallbackAvailable()) {
+          return respErr(
+            'File upload is disabled in this environment. Please configure storage (Admin → Storage) before uploading.'
+          );
+        }
         if (body.length > INLINE_MAX_BYTES) {
           const limitKb = Math.round(INLINE_MAX_BYTES / 1024);
           return respErr(

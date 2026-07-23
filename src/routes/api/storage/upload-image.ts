@@ -28,6 +28,25 @@ const extFromMime = (mimeType: string) => {
 const INLINE_MAX_BYTES =
   (Number(envConfigs.inline_image_max_kb) || 10240) * 1024;
 
+/**
+ * True when the runtime filesystem supports writing `public/uploads`. Lambda /
+ * Vercel / Netlify bundle roots (`/var/task`, `/opt/...`, `/workspace`) are
+ * read-only at runtime, so the local fallback would ENOENT.
+ */
+function isLocalFallbackAvailable(): boolean {
+  const cwd = process.cwd();
+  if (
+    cwd === '/var/task' ||
+    cwd.startsWith('/var/task/') ||
+    cwd.startsWith('/opt/') ||
+    cwd === '/workspace'
+  ) {
+    return false;
+  }
+  if (process.env.DISABLE_LOCAL_UPLOAD_FALLBACK === 'true') return false;
+  return true;
+}
+
 async function POST({ request }: { request: Request }) {
   const limited = enforceMinIntervalRateLimit(request, {
     intervalMs: 1000,
@@ -74,6 +93,11 @@ async function POST({ request }: { request: Request }) {
       // local URL. Avoids inlining a giant base64 data URL into DB columns (some
       // are varchar(255)). Configure R2 (admin → Storage) for production.
       if (!storage) {
+        if (!isLocalFallbackAvailable()) {
+          return respErr(
+            'File upload is disabled in this environment. Please configure storage (Admin → Storage) before uploading.'
+          );
+        }
         if (body.length > INLINE_MAX_BYTES) {
           const limitKb = Math.round(INLINE_MAX_BYTES / 1024);
           return respErr(
