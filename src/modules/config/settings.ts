@@ -222,7 +222,7 @@ export function getSettings(): Setting[] {
       name: 'app_name',
       title: 'App Name',
       type: 'text',
-      placeholder: 'kimik3',
+      placeholder: 'prdlaaa',
       group: 'appinfo',
       tab: 'general',
     },
@@ -231,7 +231,7 @@ export function getSettings(): Setting[] {
       title: 'App Description',
       type: 'textarea',
       placeholder:
-        'kimik3 — the all-in-one AI workspace for chat, research, and content.',
+        'prdlaaa — the all-in-one AI workspace for chat, research, and content.',
       group: 'appinfo',
       tab: 'general',
     },

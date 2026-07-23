@@ -42,9 +42,9 @@ const RATE_LIMIT_INTERVAL_MS = 6000;
 // No free tier — 0 subscription quota + 0 credits = paywall.
 
 const SYSTEM_PROMPT =
-  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity. When the user attaches images, look at them and respond to what you see.';
+  'You are prdlaaa, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity. When the user attaches images, look at them and respond to what you see.';
 
-const NOT_CONFIGURED_REPLY = `👋 I'm kimik3 — but no live model is reachable yet.
+const NOT_CONFIGURED_REPLY = `👋 I'm prdlaaa — but no live model is reachable yet.
 
 An admin needs to connect one from **Admin → Settings → AI**:
 1. Paste your key under the **evolink** group (\`evolink_api_key\`).

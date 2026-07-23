@@ -23,10 +23,10 @@ export const envConfigs: Record<string, string> = {
     /\/+$/,
     ''
   ),
-  app_name: publicEnv('VITE_APP_NAME') ?? 'kimik3',
+  app_name: publicEnv('VITE_APP_NAME') ?? 'prdlaaa',
   app_description:
     publicEnv('VITE_APP_DESCRIPTION') ??
-    'kimik3 — the all-in-one AI workspace for chat, research, and content.',
+    'prdlaaa — the all-in-one AI workspace for chat, research, and content.',
   app_logo: publicEnv('VITE_APP_LOGO') ?? '/logo.svg',
 
   // Database
