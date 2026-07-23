@@ -8,7 +8,6 @@ import {
   Film,
   FolderGit2,
   Loader2,
-  MonitorPlay,
   Plus,
   RefreshCw,
   ScanLine,
@@ -27,7 +26,6 @@ import { streamChat } from '@/lib/chat-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
-import { WebMotion } from '@/blocks/web-motion';
 import { ClonePreview } from '@/components/clone-preview';
 import { MarkdownContent } from '@/components/markdown-content';
 import {
@@ -125,7 +123,6 @@ export function ApiPlayground() {
 
   const [modelId, setModelId] = useState('k3-extreme');
   const [authOpen, setAuthOpen] = useState(false);
-  const [webMotionOpen, setWebMotionOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [loadingProvider, setLoadingProvider] =
     useState<PaymentProvider | null>(null);
@@ -458,10 +455,6 @@ export function ApiPlayground() {
         </div>
       )}
 
-      <WebMotionDialog
-        open={webMotionOpen}
-        onClose={() => setWebMotionOpen(false)}
-      />
       <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
       <PaymentProviderModal
         open={billingOpen}
@@ -492,93 +485,6 @@ export function ApiPlayground() {
           }
         }}
       />
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Web & Motion dialog (video → video replicate)                      */
-/* ------------------------------------------------------------------ */
-
-function WebMotionDialog({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
-  const { data: session, isPending } = useSession();
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
-
-  return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          onClick={onClose}
-          role="dialog"
-          aria-modal="true"
-          aria-label={m['web_motion.title']()}
-        >
-          <motion.div
-            className="bg-background relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl shadow-2xl"
-            initial={{ opacity: 0, scale: 0.96, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 12 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="hover:bg-foreground/5 absolute top-3 right-3 z-10 grid size-9 place-items-center rounded-full transition-colors"
-            >
-              <X className="size-4" />
-            </button>
-            {isPending ? (
-              <div className="flex min-h-[40vh] items-center justify-center">
-                <Loader2 className="text-foreground/40 size-6 animate-spin" />
-              </div>
-            ) : session?.user ? (
-              <WebMotion />
-            ) : (
-              <WebMotionSignIn onClose={onClose} />
-            )}
-          </motion.div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
-function WebMotionSignIn({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="flex flex-col items-center gap-4 px-6 py-16 text-center">
-      <span className="brand-gradient grid size-12 place-items-center rounded-2xl shadow-sm shadow-violet-500/25">
-        <MonitorPlay className="size-5 text-white" />
-      </span>
-      <p className="text-foreground/70 max-w-sm text-sm leading-relaxed">
-        {m['web_motion.signin']()}
-      </p>
-      <Link
-        href="/sign-in?callbackUrl=/web-motion"
-        onClick={onClose}
-        className="brand-gradient inline-flex h-11 items-center justify-center gap-2 rounded-xl px-6 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] transition-all hover:opacity-95"
-      >
-        {m['common.nav.sign_in']()}
-      </Link>
     </div>
   );
 }

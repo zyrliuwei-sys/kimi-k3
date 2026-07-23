@@ -5,7 +5,6 @@ export function Header() {
   const navLinks = [
     { href: '/#showcase', label: m['landing.nav.features']() },
     { href: '/pricing', label: m['landing.nav.pricing']() },
-    { href: '/web-motion', label: m['landing.nav.web_motion']() },
     { href: '/#faq', label: m['landing.nav.faq']() },
   ];
 

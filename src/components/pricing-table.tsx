@@ -23,6 +23,11 @@ export interface PricingPlan {
   originalPrice?: string;
   currency?: string;
   interval?: string;
+  // Yearly-subscription specific copy. When `yearlyTotal` is set, render an
+  // extra line under the price like "billed annually · $190/yr".
+  yearlyTotal?: string;
+  yearlySubline?: string;
+  yearlyCta?: string;
   featured?: boolean;
   badge?: string;
   features: PricingFeature[];
@@ -162,6 +167,15 @@ export function PricingTable({
               <span className="text-muted-foreground mb-1 text-sm line-through">
                 {plan.originalPrice}
               </span>
+            )}
+            {plan.yearlyTotal && (
+              <p className="text-muted-foreground mb-1 text-sm">
+                {plan.yearlySubline ? `${plan.yearlySubline} · ` : ''}
+                <span className="text-foreground/80 font-medium">
+                  {plan.yearlyTotal}
+                </span>
+                {plan.yearlySubline ? '/yr' : ''}
+              </p>
             )}
 
             {/* Description */}
