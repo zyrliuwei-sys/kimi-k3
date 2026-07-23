@@ -518,6 +518,35 @@ export function ApiPlayground() {
         onClose={() => setWebMotionOpen(false)}
       />
       <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
+      <PaymentProviderModal
+        open={billingOpen}
+        onOpenChange={(open) => {
+          setBillingOpen(open);
+          setLoadingProvider(null);
+        }}
+        providers={['creem']}
+        loadingProvider={loadingProvider}
+        onSelect={async (provider) => {
+          setLoadingProvider(provider);
+          try {
+            const r = await apiPost<{ checkout_url?: string }>(
+              '/api/payment/checkout',
+              {
+                plan_id: 'starter',
+                payment_provider: provider,
+              }
+            );
+            if (r.checkout_url) {
+              window.location.href = r.checkout_url;
+            }
+          } catch {
+            toast.error('Failed to open checkout');
+          } finally {
+            setLoadingProvider(null);
+            setBillingOpen(false);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -718,36 +747,6 @@ function AuthPromptDialog({
           </motion.div>
         </motion.div>
       )}
-
-      <PaymentProviderModal
-        open={billingOpen}
-        onOpenChange={(open) => {
-          setBillingOpen(open);
-          setLoadingProvider(null);
-        }}
-        providers={['creem']}
-        loadingProvider={loadingProvider}
-        onSelect={async (provider) => {
-          setLoadingProvider(provider);
-          try {
-            const r = await apiPost<{ checkout_url?: string }>(
-              '/api/payment/checkout',
-              {
-                plan_id: 'starter',
-                payment_provider: provider,
-              }
-            );
-            if (r.checkout_url) {
-              window.location.href = r.checkout_url;
-            }
-          } catch {
-            toast.error('Failed to open checkout');
-          } finally {
-            setLoadingProvider(null);
-            setBillingOpen(false);
-          }
-        }}
-      />
     </AnimatePresence>
   );
 }
