@@ -4,6 +4,7 @@ import { tDynamic } from '@/core/i18n/dynamic';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
 import { getLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
+import { About } from '@/blocks/about';
 import { Assets } from '@/blocks/assets';
 import { BuiltFor } from '@/blocks/built-for';
 import { CTA } from '@/blocks/cta';
@@ -11,9 +12,9 @@ import { FAQ, FAQ_ITEMS } from '@/blocks/faq';
 import { Footer } from '@/blocks/footer';
 import { Header } from '@/blocks/header';
 import { Hero } from '@/blocks/hero';
+import { HeroChat } from '@/blocks/hero-chat';
 import { Pricing } from '@/blocks/pricing';
 import { Showcase } from '@/blocks/showcase';
-import { Start } from '@/blocks/start';
 import { Stats } from '@/blocks/stats';
 import { SupportWidget } from '@/blocks/support-widget';
 
@@ -28,9 +29,10 @@ function HomePage() {
       <Header />
       <main>
         <Hero />
+        <About />
         <Assets />
         <Showcase />
-        <Start />
+        <HeroChat />
         <BuiltFor />
         <Stats />
         <Pricing />

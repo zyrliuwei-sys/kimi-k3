@@ -1210,11 +1210,6 @@ function useCapabilities(): CapabilityDef[] {
       label: m['playground.capabilities.agents.label'](),
       icon: Workflow,
     },
-    {
-      id: 'premium',
-      label: m['playground.capabilities.premium.label'](),
-      icon: Terminal,
-    },
   ];
 }
 

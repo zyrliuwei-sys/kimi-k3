@@ -114,7 +114,7 @@ export function Footer() {
             <a
               href="https://theresanaiforthat.com/ai/kimik3-unofficial-guide/?ref=featured&v=7720459"
               target="_blank"
-              rel="nofollow"
+              rel="noopener noreferrer nofollow"
               className="inline-block transition-opacity hover:opacity-80"
             >
               <img
