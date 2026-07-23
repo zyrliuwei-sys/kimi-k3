@@ -224,13 +224,19 @@ export async function grantRoleForNewUser(params: {
 }) {
   const { userId, configs } = params;
 
-  if (configs.initial_role_enabled !== 'true') return;
-
-  const roleName = configs.initial_role_name;
-  if (!roleName) return;
+  // Role name: explicit config wins; fall back to 'viewer' (created by rbac:init).
+  const roleName =
+    configs.initial_role_enabled === 'true'
+      ? configs.initial_role_name
+      : 'viewer';
 
   const foundRole = await getRoleByName(roleName);
-  if (!foundRole) return;
+  if (!foundRole) {
+    console.warn(
+      `[rbac] grantRoleForNewUser: role "${roleName}" not found, skipping`
+    );
+    return;
+  }
 
   await assignRoleToUser(userId, foundRole.id);
 }

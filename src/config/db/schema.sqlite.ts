@@ -231,6 +231,7 @@ export const order = table(
     callbackUrl: text('callback_url'),
     creditsAmount: integer('credits_amount'),
     creditsValidDays: integer('credits_valid_days'),
+    messagesQuota: integer('messages_quota').default(0),
     planName: text('plan_name'),
     paymentProductId: text('payment_product_id'),
     invoiceId: text('invoice_id'),
@@ -297,6 +298,8 @@ export const subscription = table(
     canceledEndAt: integer('canceled_end_at', { mode: 'timestamp_ms' }),
     canceledReason: text('canceled_reason'),
     canceledReasonType: text('canceled_reason_type'),
+    messagesQuota: integer('messages_quota').default(0),
+    messagesUsed: integer('messages_used').default(0),
   },
   (table) => [
     index('idx_subscription_user_status_interval').on(
@@ -697,3 +700,28 @@ export type InviteCode = typeof inviteCode.$inferSelect;
 export type NewInviteCode = typeof inviteCode.$inferInsert;
 export type UserInvite = typeof userInvite.$inferSelect;
 export type NewUserInvite = typeof userInvite.$inferInsert;
+
+// ─── Waitlist ────────────────────────────────────────────────────────────────
+
+export const waitlist = table(
+  'waitlist',
+  {
+    id: text('id').primaryKey(),
+    email: text('email').notNull().unique(),
+    source: text('source').notNull().default(''),
+    locale: text('locale').notNull().default(''),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+  },
+  (t) => [
+    index('idx_waitlist_email').on(t.email),
+    index('idx_waitlist_created_at').on(t.createdAt),
+  ]
+);
+
+export type Waitlist = typeof waitlist.$inferSelect;
+export type NewWaitlist = typeof waitlist.$inferInsert;
+
+// ─── Custom tables ───────────────────────────────────────────────────────────
+// Add your own tables below this line.

@@ -211,6 +211,7 @@ export const order = table(
     callbackUrl: text('callback_url'),
     creditsAmount: integer('credits_amount'),
     creditsValidDays: integer('credits_valid_days'),
+    messagesQuota: integer('messages_quota').default(0),
     planName: text('plan_name'),
     paymentProductId: text('payment_product_id'),
     invoiceId: text('invoice_id'),
@@ -272,6 +273,8 @@ export const subscription = table(
     canceledEndAt: timestamp('canceled_end_at'),
     canceledReason: text('canceled_reason'),
     canceledReasonType: text('canceled_reason_type'),
+    messagesQuota: integer('messages_quota').default(0),
+    messagesUsed: integer('messages_used').default(0),
   },
   (table) => [
     index('idx_subscription_user_status_interval').on(

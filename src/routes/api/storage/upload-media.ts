@@ -34,24 +34,44 @@ const extFromMime = (mimeType: string) => {
     'video/webm': 'webm',
     'video/ogg': 'ogv',
     'video/quicktime': 'mov',
+    // Documents
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+      'docx',
+    'application/vnd.ms-excel': 'xls',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+    'application/vnd.ms-powerpoint': 'ppt',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+      'pptx',
   };
   return map[mimeType] || '';
 };
 
 const isImage = (t: string) => t.startsWith('image/');
 const isVideo = (t: string) => t.startsWith('video/');
+const DOCUMENT_MIMES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+]);
+const isDocument = (t: string) => DOCUMENT_MIMES.has(t);
 
 // Cap for the no-storage local-disk fallback (dev). Configurable via
 // INLINE_IMAGE_MAX_KB (shared with upload-image so the dev ceiling is uniform).
 const INLINE_MAX_BYTES =
-  (Number(envConfigs.inline_image_max_kb) || 10240) * 1024;
+  (Number(envConfigs.inline_image_max_kb) || 204800) * 1024;
 
 // Abuse guardrails for the now-anonymous playground upload path. The chat
 // endpoint's "1 free message per IP" gate remains the real AI-cost ceiling;
 // these just bound storage/Disk exposure. Per-IP quota relies on the
 // unspoofable CF-Connecting-IP resolved by getClientIpFromRequest.
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB per file (matches Web & Motion)
-const MAX_FILES = 4; // per request
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB per file
+const MAX_FILES = 50; // per request
 const ANON_UPLOAD_LIMIT = 1; // free anonymous uploads per IP
 
 async function POST({ request }: { request: Request }) {
@@ -84,7 +104,7 @@ async function POST({ request }: { request: Request }) {
     const files = formData.getAll('files') as File[];
     if (!files.length) return respErr('No files provided');
     if (files.length > MAX_FILES) {
-      return respErr('Too many files (max 4).', { status: 413 });
+      return respErr('Too many files (max 50).', { status: 413 });
     }
 
     const storage = await getStorage();
@@ -92,16 +112,26 @@ async function POST({ request }: { request: Request }) {
       url: string;
       key: string;
       filename: string;
-      type: 'image' | 'video';
+      type: 'image' | 'video' | 'document';
       deduped: boolean;
     }> = [];
 
     for (const file of files) {
-      if (!isImage(file.type) && !isVideo(file.type)) {
+      if (
+        !isImage(file.type) &&
+        !isVideo(file.type) &&
+        !isDocument(file.type)
+      ) {
         return respErr(
-          `File ${file.name} is not an image or video (got ${file.type || 'unknown'})`
+          `File ${file.name} is not a supported image, video, or document (got ${file.type || 'unknown'})`
         );
       }
+
+      const fileKind: 'image' | 'video' | 'document' = isImage(file.type)
+        ? 'image'
+        : isVideo(file.type)
+          ? 'video'
+          : 'document';
 
       const arrayBuffer = await file.arrayBuffer();
       const body = new Uint8Array(arrayBuffer);
@@ -140,7 +170,7 @@ async function POST({ request }: { request: Request }) {
           url: `/uploads/${objectKey}`,
           key: `uploads/${objectKey}`,
           filename: file.name,
-          type: isImage(file.type) ? 'image' : 'video',
+          type: fileKind,
           deduped: false,
         });
         continue;
@@ -154,7 +184,7 @@ async function POST({ request }: { request: Request }) {
             url: publicUrl,
             key: objectKey,
             filename: file.name,
-            type: isImage(file.type) ? 'image' : 'video',
+            type: fileKind,
             deduped: true,
           });
           continue;
@@ -176,7 +206,7 @@ async function POST({ request }: { request: Request }) {
         url: result.url,
         key: result.key || objectKey,
         filename: file.name,
-        type: isImage(file.type) ? 'image' : 'video',
+        type: fileKind,
         deduped: false,
       });
     }

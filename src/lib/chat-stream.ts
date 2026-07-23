@@ -21,7 +21,11 @@ export interface ChatStreamHandlers {
 
 export interface ChatStreamBody {
   messages: { role: 'user' | 'assistant'; content: string }[];
-  attachments?: { type: 'image' | 'video'; url: string; filename?: string }[];
+  attachments?: {
+    type: 'image' | 'video' | 'document';
+    url: string;
+    filename?: string;
+  }[];
 }
 
 export async function streamChat(

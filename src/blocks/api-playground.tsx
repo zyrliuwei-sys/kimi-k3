@@ -4,6 +4,7 @@ import {
   Check,
   ChevronDown,
   Files,
+  FileText,
   Film,
   FolderGit2,
   Globe,
@@ -47,7 +48,7 @@ interface ModelOption {
 }
 
 interface Attachment {
-  type: 'image' | 'video';
+  type: 'image' | 'video' | 'document';
   url: string;
   filename?: string;
 }
@@ -90,7 +91,7 @@ async function uploadMediaFile(file: File): Promise<Attachment> {
   }
   const r = result.data.results[0];
   return {
-    type: r.type as 'image' | 'video',
+    type: r.type as 'image' | 'video' | 'document',
     url: r.url,
     filename: r.filename,
   };
@@ -759,6 +760,7 @@ function Composer({
   setCloneUrl: (v: string) => void;
 }) {
   const capabilities = useCapabilities();
+  const [showHint, setShowHint] = useState(false);
   return (
     <div className="w-full">
       <motion.div
@@ -771,7 +773,7 @@ function Composer({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
           multiple
           onChange={(e) => onFilesSelected(e.target.files)}
           className="hidden"
@@ -793,11 +795,20 @@ function Composer({
                   />
                 ) : (
                   <span className="bg-foreground/5 text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-lg">
-                    <Film className="size-4" />
+                    {a.type === 'video' ? (
+                      <Film className="size-4" />
+                    ) : (
+                      <FileText className="size-4" />
+                    )}
                   </span>
                 )}
                 <span className="text-foreground/60 max-w-[10rem] truncate text-xs">
-                  {a.filename || (a.type === 'image' ? 'image' : 'video')}
+                  {a.filename ||
+                    (a.type === 'image'
+                      ? 'image'
+                      : a.type === 'video'
+                        ? 'video'
+                        : 'document')}
                 </span>
                 <button
                   type="button"
@@ -842,10 +853,20 @@ function Composer({
           className="placeholder:text-foreground/40 block max-h-[200px] min-h-[2.25rem] w-full resize-none bg-transparent px-3 pt-2.5 font-mono text-[14px] leading-relaxed outline-none"
         />
 
+        {showHint && (
+          <div className="text-foreground/50 flex items-start gap-1.5 px-3 pt-1 text-[11px] leading-relaxed">
+            <FileText className="mt-0.5 size-3 shrink-0" />
+            <span>{m['playground.attachment.hint']()}</span>
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-2 pt-1.5">
           <button
             type="button"
-            onClick={onPlusClick}
+            onClick={() => {
+              setShowHint(true);
+              onPlusClick();
+            }}
             aria-label={m['playground.attachment.add']()}
             title={m['playground.attachment.add']()}
             className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-9 items-center justify-center rounded-full transition-colors"
@@ -988,6 +1009,8 @@ function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
   const images = message.attachments?.filter((a) => a.type === 'image') ?? [];
   const videos = message.attachments?.filter((a) => a.type === 'video') ?? [];
+  const documents =
+    message.attachments?.filter((a) => a.type === 'document') ?? [];
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -1047,6 +1070,22 @@ function MessageBubble({ message }: { message: Message }) {
               >
                 <Film className="size-3.5" />
                 {v.filename || 'video'}
+              </a>
+            ))}
+          </div>
+        )}
+        {documents.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {documents.map((d) => (
+              <a
+                key={d.url}
+                href={d.url}
+                target="_blank"
+                rel="noreferrer"
+                className="bg-background/15 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+              >
+                <FileText className="size-3.5" />
+                {d.filename || 'document'}
               </a>
             ))}
           </div>
@@ -1217,6 +1256,20 @@ function useModels(): ModelOption[] {
       desc: m['playground.model.k3_desc'](),
       badge: 'NEW',
     },
+    {
+      id: 'k3-standard',
+      name: m['playground.model.k3'](),
+      effort: 'standard',
+      effortLabel: m['playground.model.k3_standard'](),
+      desc: m['playground.model.k3_desc'](),
+    },
+    {
+      id: 'k26',
+      name: m['playground.model.k26'](),
+      effort: 'standard',
+      effortLabel: m['playground.model.k3_standard'](),
+      desc: m['playground.model.k26_desc'](),
+    },
   ];
 }
 
@@ -1275,6 +1328,11 @@ function useCapabilities(): CapabilityDef[] {
       id: 'agents',
       label: m['playground.capabilities.agents.label'](),
       icon: Workflow,
+    },
+    {
+      id: 'premium',
+      label: m['playground.capabilities.premium.label'](),
+      icon: Terminal,
     },
   ];
 }

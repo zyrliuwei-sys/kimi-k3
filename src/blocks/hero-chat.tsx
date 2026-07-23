@@ -18,10 +18,10 @@ import { buttonVariants } from '@/components/ui/button';
 
 /**
  * Hero chat dialog. Streams replies from the public, rate-limited Kimi K3
- * endpoint `POST /api/playground/chat` (SSE) and renders the freemium gate the
- * backend signals mid-stream:
- *  - anonymous visitor: 1 free message, then a sign-up wall;
- *  - signed-in user: each message costs 1 credit, then a paywall.
+ * endpoint `POST /api/playground/chat` (SSE) and renders the gate the backend
+ * signals mid-stream:
+ *  - anonymous visitor: sign-up/login required;
+ *  - signed-in user with no credits: paywall (must purchase a credit pack).
  * The conversation is stateless (not persisted) — reload resets the thread.
  *
  * Layout: a wide horizontal composer bar is the centerpiece. The conversation

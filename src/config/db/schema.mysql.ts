@@ -201,6 +201,7 @@ export const order = table(
     callbackUrl: text('callback_url'),
     creditsAmount: int('credits_amount'),
     creditsValidDays: int('credits_valid_days'),
+    messagesQuota: int('messages_quota').default(0),
     planName: varchar191('plan_name'),
     paymentProductId: varchar191('payment_product_id'),
     invoiceId: varchar191('invoice_id'),
@@ -260,6 +261,8 @@ export const subscription = table(
     canceledEndAt: timestamp('canceled_end_at'),
     canceledReason: text('canceled_reason'),
     canceledReasonType: varchar('canceled_reason_type', { length: 50 }),
+    messagesQuota: integer('messages_quota').default(0),
+    messagesUsed: integer('messages_used').default(0),
   },
   (table) => [
     index('idx_subscription_user_status_interval').on(
@@ -560,6 +563,26 @@ export type Ticket = typeof ticket.$inferSelect;
 export type NewTicket = typeof ticket.$inferInsert;
 export type TicketMessage = typeof ticketMessage.$inferSelect;
 export type NewTicketMessage = typeof ticketMessage.$inferInsert;
+
+// ─── Waitlist ────────────────────────────────────────────────────────────────
+
+export const waitlist = table(
+  'waitlist',
+  {
+    id: varchar191('id').primaryKey(),
+    email: varchar191('email').notNull().unique(),
+    source: varchar191('source').notNull().default(''),
+    locale: varchar191('locale').notNull().default(''),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_waitlist_email').on(t.email),
+    index('idx_waitlist_created_at').on(t.createdAt),
+  ]
+);
+
+export type Waitlist = typeof waitlist.$inferSelect;
+export type NewWaitlist = typeof waitlist.$inferInsert;
 
 // ─── Custom tables ───────────────────────────────────────────────────────────
 // Add your own tables below this line.

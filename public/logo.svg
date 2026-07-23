@@ -1,16 +1,41 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="kimik3 logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="anyany logo">
   <defs>
-    <linearGradient id="kg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#7c3aed"/>
-      <stop offset="0.5" stop-color="#6366f1"/>
+    <!-- Base brand gradient (indigo → violet → sky) -->
+    <linearGradient id="aa-base" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8b5cf6"/>
+      <stop offset="0.55" stop-color="#6366f1"/>
       <stop offset="1" stop-color="#0ea5e9"/>
     </linearGradient>
+    <!-- Apple-style top light for glossy depth -->
+    <linearGradient id="aa-gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.28"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.10"/>
+    </linearGradient>
+    <!-- Subtle stroke gradient on the mark -->
+    <linearGradient id="aa-stroke" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#eef2ff"/>
+    </linearGradient>
+    <filter id="aa-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#1e1b4b" flood-opacity="0.28"/>
+    </filter>
   </defs>
-  <rect width="512" height="512" rx="116" fill="url(#kg)"/>
-  <!-- lowercase k -->
-  <text x="45%" y="52%" text-anchor="middle" dominant-baseline="central" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif" font-size="330" font-weight="800" fill="#ffffff">k</text>
-  <!-- AI spark (upper right) -->
-  <path transform="translate(380,126)" d="M 0,-48 C 10.5,-10.5 10.5,-10.5 48,0 C 10.5,10.5 10.5,10.5 0,48 C -10.5,10.5 -10.5,10.5 -48,0 C -10.5,-10.5 -10.5,-10.5 0,-48 Z" fill="#ffffff"/>
-  <!-- secondary spark -->
-  <path transform="translate(150,372) scale(0.5)" d="M 0,-48 C 10.5,-10.5 10.5,-10.5 48,0 C 10.5,10.5 10.5,10.5 0,48 C -10.5,10.5 -10.5,10.5 -48,0 C -10.5,-10.5 -10.5,-10.5 0,-48 Z" fill="#ffffff" opacity="0.92"/>
+
+  <!-- Squircle plate -->
+  <rect width="512" height="512" rx="116" fill="url(#aa-base)"/>
+  <rect width="512" height="512" rx="116" fill="url(#aa-gloss)"/>
+
+  <!-- Infinity mark: two loops = any + any -->
+  <path d="M 256 256
+           A 74 74 0 0 1 108 256
+           A 74 74 0 0 1 256 256
+           A 74 74 0 0 0 404 256
+           A 74 74 0 0 0 256 256 Z"
+        fill="none"
+        stroke="url(#aa-stroke)"
+        stroke-width="38"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        filter="url(#aa-shadow)"/>
 </svg>

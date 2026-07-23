@@ -318,11 +318,8 @@ export function getAuth(configs?: Record<string, string>) {
           },
         }
       : {}),
-    // New users no longer receive a signup credit grant. Instead they get a
-    // daily free-chat allowance via the `free_chats` / `free_chats_date`
-    // columns on the user table (DB default 1, refreshed to 1 on the first
-    // chat of each new day — see /api/playground/chat). Paid credits are now
-    // only obtained by purchasing a pack.
+    // New users get no free credits. They must sign up/login, then purchase a
+    // credit pack to use the playground or any AI feature.
     logger: { disabled: true },
   } satisfies BetterAuthOptions);
 
