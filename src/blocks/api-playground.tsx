@@ -31,6 +31,10 @@ import { usePublicConfig } from '@/hooks/use-public-config';
 import { WebMotion } from '@/blocks/web-motion';
 import { ClonePreview } from '@/components/clone-preview';
 import { MarkdownContent } from '@/components/markdown-content';
+import {
+  PaymentProviderModal,
+  type PaymentProvider,
+} from '@/components/payment-provider-modal';
 
 /* ------------------------------------------------------------------ */
 /*  Types & config                                                     */
@@ -112,6 +116,9 @@ export function ApiPlayground() {
   const [activeTask, setActiveTask] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [webMotionOpen, setWebMotionOpen] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(false);
+  const [loadingProvider, setLoadingProvider] =
+    useState<PaymentProvider | null>(null);
   const [cloneUrl, setCloneUrl] = useState('');
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -331,6 +338,10 @@ export function ApiPlayground() {
           onDelta: (delta) => pushOrAppend(delta),
           onGate: (status) => {
             setIsThinking(false);
+            if (status === 'pay' && needsAuth === false) {
+              setBillingOpen(true);
+              return;
+            }
             const body =
               status === 'login_required'
                 ? m['playground.gate.login']()
@@ -706,6 +717,36 @@ function AuthPromptDialog({
           </motion.div>
         </motion.div>
       )}
+
+      <PaymentProviderModal
+        open={billingOpen}
+        onOpenChange={(open) => {
+          setBillingOpen(open);
+          setLoadingProvider(null);
+        }}
+        providers={['creem']}
+        loadingProvider={loadingProvider}
+        onSelect={async (provider) => {
+          setLoadingProvider(provider);
+          try {
+            const r = await apiPost<{ checkout_url?: string }>(
+              '/api/payment/checkout',
+              {
+                plan_id: 'starter',
+                payment_provider: provider,
+              }
+            );
+            if (r.checkout_url) {
+              window.location.href = r.checkout_url;
+            }
+          } catch {
+            toast.error('Failed to open checkout');
+          } finally {
+            setLoadingProvider(null);
+            setBillingOpen(false);
+          }
+        }}
+      />
     </AnimatePresence>
   );
 }

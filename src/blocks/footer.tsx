@@ -1,5 +1,3 @@
-import { ArrowRight } from 'lucide-react';
-
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
@@ -73,33 +71,6 @@ export function Footer() {
             title={m['landing.footer.col_resources']()}
             links={resources}
           />
-
-          {/* newsletter */}
-          <div>
-            <p className="text-sm font-semibold text-neutral-100">
-              {m['landing.footer.newsletter_title']()}
-            </p>
-            <p className="mt-3 text-sm text-neutral-400">
-              {m['landing.footer.newsletter_desc']()}
-            </p>
-            <form
-              className="mt-4 flex items-center gap-2"
-              onSubmit={(e) => e.preventDefault()}
-            >
-              <input
-                type="email"
-                placeholder={m['landing.footer.newsletter_placeholder']()}
-                className="min-w-0 flex-1 rounded-lg border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-600 focus:outline-none"
-              />
-              <button
-                type="submit"
-                aria-label={m['landing.footer.newsletter_button']()}
-                className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-lg text-white"
-              >
-                <ArrowRight className="size-4" />
-              </button>
-            </form>
-          </div>
         </div>
 
         {/* Common searches — slim keyword strip; helps crawlers reach the
