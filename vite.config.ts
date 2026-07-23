@@ -126,19 +126,21 @@ export default defineConfig({
               // Scripts: 'unsafe-inline' covers TanStack Start hydration,
               // 'unsafe-eval' covers React Query devtools in dev (prod tree-
               // shakes them out, so these are mostly inert there).
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com",
               // Styles: Tailwind + shadcn rely on inline styles.
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               // Images: R2/S3 public buckets + base64 inline attachments.
-              "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.amazonaws.com",
+              "img-src 'self' data: blob: https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.amazonaws.com https://i.ytimg.com https://yt3.ggpht.com",
               // Fonts: @fontsource (bundled, served from self) + Google Fonts.
               "font-src 'self' data: https://fonts.gstatic.com",
               // XHR/fetch: AI providers, Stripe API, Replicate, Resend,
               // your own API routes. The wildcard covers unknown AI providers
               // you might enable later; tighten once you've finalized the list.
               "connect-src 'self' https://api.stripe.com https://api.evolink.ai https://api.openai.com https://*.amazonaws.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://api.resend.com https://api.replicate.com https://generativelanguage.googleapis.com https://api.fal.ai https://api.kie.ai",
-              // Stripe Elements / checkout iframes.
-              'frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com',
+              // Stripe Elements / checkout iframes, plus YouTube (nocookie
+              // domain for privacy-enhanced embeds). Add more hosts here if
+              // you embed other video providers (Vimeo, Wistia, etc.).
+              'frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.youtube-nocookie.com https://www.youtube.com',
               "frame-ancestors 'none'",
               "form-action 'self'",
               "base-uri 'self'",
