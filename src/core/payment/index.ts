@@ -22,15 +22,13 @@ export class PaymentManager {
     }
   }
 
-  // get provider by name
+  // get provider by name — returns undefined if no provider with this exact
+  // name is registered. Do NOT silently fall back to the default provider: an
+  // explicit name must resolve to that provider or fail clearly, otherwise a
+  // selected-but-unconfigured provider (e.g. PayPal) would be silently routed
+  // to the default one and surface as a confusing error from the wrong API.
   getProvider(name: string): PaymentProvider | undefined {
-    const provider = this.providers.find((p) => p.name === name);
-
-    if (!provider && this.defaultProvider) {
-      return this.defaultProvider;
-    }
-
-    return provider;
+    return this.providers.find((p) => p.name === name);
   }
 
   // get all provider names
