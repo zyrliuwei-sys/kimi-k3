@@ -7,7 +7,6 @@ import {
   FileText,
   Film,
   FolderGit2,
-  Globe,
   Loader2,
   MonitorPlay,
   Plus,
@@ -67,17 +66,6 @@ interface Message {
   streaming?: boolean; // still receiving deltas → show code, not the preview
 }
 
-type TaskAction = 'upload' | 'dialog' | 'url';
-
-interface TaskDef {
-  id: string;
-  label: string;
-  prompt: string;
-  icon: React.ComponentType<{ className?: string }>;
-  action: TaskAction;
-  image?: string;
-}
-
 /* ------------------------------------------------------------------ */
 /*  Upload helper                                                      */
 /* ------------------------------------------------------------------ */
@@ -114,14 +102,11 @@ export function ApiPlayground() {
   const [uploading, setUploading] = useState(false);
 
   const [modelId, setModelId] = useState('k3-extreme');
-  const [activeTask, setActiveTask] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [webMotionOpen, setWebMotionOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [loadingProvider, setLoadingProvider] =
     useState<PaymentProvider | null>(null);
-  const [cloneUrl, setCloneUrl] = useState('');
-
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -129,7 +114,6 @@ export function ApiPlayground() {
   const abortRef = useRef<AbortController | null>(null);
 
   const models = useModels();
-  const tasks = useTasks();
 
   const selected = models.find((mo) => mo.id === modelId) ?? models[0];
 
@@ -180,10 +164,6 @@ export function ApiPlayground() {
 
   async function handleFilesSelected(files: FileList | null) {
     if (!files || !files.length) return;
-    // Remember whether the screenshot-clone task was active when the picker
-    // opened: if so, auto-send the clone request the moment the upload lands,
-    // so "pick a webpage screenshot" flows straight into a cloned webpage.
-    const wasScreenshotClone = activeTask === 'screenshot';
     setUploading(true);
     try {
       const added: Attachment[] = [];
@@ -195,12 +175,7 @@ export function ApiPlayground() {
         }
       }
       if (!added.length) return;
-      const newAttachments = [...attachments, ...added];
-      setAttachments(newAttachments);
-      if (wasScreenshotClone) {
-        const prompt = tasks.find((t) => t.id === 'screenshot')?.prompt || '';
-        handleSend({ text: prompt, attachments: newAttachments, clone: true });
-      }
+      setAttachments((prev) => [...prev, ...added]);
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -211,41 +186,6 @@ export function ApiPlayground() {
     setAttachments((prev) => prev.filter((a) => a.url !== url));
   }
 
-  async function handleUrlClone(copy: string) {
-    const url = cloneUrl.trim();
-    if (!url) {
-      toast.error(m['playground.urlclone.url_required']());
-      return;
-    }
-    if (!copy) {
-      toast.error(m['playground.urlclone.copy_required']());
-      return;
-    }
-    setUploading(true);
-    let imageUrl: string;
-    try {
-      const r = await apiPost<{ url: string }>('/api/playground/screenshot', {
-        url,
-      });
-      imageUrl = r.url;
-    } catch (e: unknown) {
-      setUploading(false);
-      toast.error(
-        e instanceof ApiError
-          ? e.message
-          : m['playground.urlclone.shot_failed']()
-      );
-      return;
-    }
-    setUploading(false);
-    setCloneUrl('');
-    handleSend({
-      text: `${m['playground.tasks.urlclone.instruction']()}\n\n${copy}`,
-      attachments: [{ type: 'image', url: imageUrl }],
-      clone: true,
-    });
-  }
-
   async function handleSend(opts?: {
     text?: string;
     attachments?: Attachment[];
@@ -253,12 +193,6 @@ export function ApiPlayground() {
   }) {
     if (!requireAuth()) return;
     const text = (opts?.text ?? input).trim();
-
-    // URL → clone: intercept a direct user send (opts undefined) — screenshot
-    // the URL first, then continue as a clone turn with the image attached.
-    if (!opts && activeTask === 'urlclone') {
-      return handleUrlClone(text);
-    }
 
     const pendingAttachments = opts?.attachments ?? attachments;
     // Image-only messages get a default prompt so the backend has a valid user
@@ -272,7 +206,7 @@ export function ApiPlayground() {
 
     // A screenshot-clone turn (auto-sent after upload, or manually sent while
     // the task chip is active) flags its assistant reply for live preview.
-    const isClone = !!opts?.clone || activeTask === 'screenshot';
+    const isClone = !!opts?.clone;
 
     const userMsg: Message = {
       id: ++idRef.current,
@@ -284,7 +218,6 @@ export function ApiPlayground() {
     setMessages(turns);
     setInput('');
     setAttachments([]);
-    setActiveTask(null);
     setIsThinking(true);
     requestAnimationFrame(() => {
       const el = taRef.current;
@@ -392,44 +325,6 @@ export function ApiPlayground() {
     }
   }
 
-  // Selecting an agent-task mode seeds the input with a mode-specific prompt
-  // and highlights the chip. Screenshot restore also opens the file picker so
-  // the user can attach the image to restore. Clicking the active chip clears
-  // the seeded prompt (but never the user's own typing) and deselects.
-  function handleTask(task: TaskDef) {
-    if (!requireAuth()) return;
-    // Web & motion opens its own video → video replicate dialog instead of
-    // seeding a chat prompt.
-    if (task.action === 'dialog') {
-      setWebMotionOpen(true);
-      return;
-    }
-    // URL → clone: no prompt seeding — just reveal the URL field (toggle off
-    // if the same chip is clicked again).
-    if (task.action === 'url') {
-      setActiveTask((cur) => (cur === task.id ? null : task.id));
-      return;
-    }
-    const prevTask = activeTask ? tasks.find((t) => t.id === activeTask) : null;
-    const isSeeded =
-      prevTask != null && input.trim() === prevTask.prompt.trim();
-    const isSelecting = activeTask !== task.id;
-
-    if (isSelecting) {
-      setActiveTask(task.id);
-      setInput((prev) =>
-        !prev.trim() || isSeeded
-          ? task.prompt
-          : `${prev.trim()}\n${task.prompt}`
-      );
-      if (task.action === 'upload') openFilePicker();
-    } else {
-      setActiveTask(null);
-      if (isSeeded) setInput('');
-    }
-    taRef.current?.focus();
-  }
-
   function resetThread() {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -459,11 +354,6 @@ export function ApiPlayground() {
     onFilesSelected: handleFilesSelected,
     onRemoveAttachment: removeAttachment,
     fileInputRef,
-    tasks,
-    activeTask,
-    onTask: handleTask,
-    cloneUrl,
-    setCloneUrl,
   };
 
   return (
@@ -772,11 +662,6 @@ function Composer({
   onFilesSelected,
   onRemoveAttachment,
   fileInputRef,
-  tasks,
-  activeTask,
-  onTask,
-  cloneUrl,
-  setCloneUrl,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -794,11 +679,6 @@ function Composer({
   onFilesSelected: (files: FileList | null) => void;
   onRemoveAttachment: (url: string) => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
-  tasks: TaskDef[];
-  activeTask: string | null;
-  onTask: (task: TaskDef) => void;
-  cloneUrl: string;
-  setCloneUrl: (v: string) => void;
 }) {
   const capabilities = useCapabilities();
   const [showHint, setShowHint] = useState(false);
@@ -867,58 +747,6 @@ function Composer({
                 {m['playground.attachment.uploading']()}
               </div>
             )}
-          </div>
-        )}
-
-        {activeTask === 'urlclone' && (
-          <div className="flex items-center gap-2 px-3 pt-2 pb-1">
-            <Globe className="text-foreground/45 size-4 shrink-0" />
-            <input
-              type="url"
-              inputMode="url"
-              value={cloneUrl}
-              onChange={(e) => setCloneUrl(e.target.value)}
-              placeholder={m['playground.urlclone.url_placeholder']()}
-              className="placeholder:text-foreground/40 h-9 flex-1 bg-transparent text-sm outline-none"
-            />
-          </div>
-        )}
-
-        {/* Task cards with images */}
-        {tasks.length > 0 && (
-          <div className="grid grid-cols-3 gap-2 px-2 pt-1 pb-1">
-            {tasks.map((task) => {
-              const Icon = task.icon;
-              const isActive = activeTask === task.id;
-              return (
-                <button
-                  key={task.id}
-                  type="button"
-                  onClick={() => onTask(task)}
-                  className={cn(
-                    'group relative overflow-hidden rounded-xl border transition-all',
-                    isActive
-                      ? 'border-[#7c3aed] ring-2 ring-[#7c3aed]/30'
-                      : 'border-foreground/10 hover:border-foreground/20'
-                  )}
-                >
-                  {task.image && (
-                    <img
-                      src={task.image}
-                      alt={task.label}
-                      className="aspect-video w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                    />
-                  )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-transparent" />
-                  <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 p-2">
-                    <Icon className="size-3.5 text-white" />
-                    <span className="text-xs font-medium text-white">
-                      {task.label}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
           </div>
         )}
 
@@ -1348,35 +1176,6 @@ function useModels(): ModelOption[] {
       effort: 'standard',
       effortLabel: m['playground.model.k3_standard'](),
       desc: m['playground.model.k26_desc'](),
-    },
-  ];
-}
-
-function useTasks(): TaskDef[] {
-  return [
-    {
-      id: 'screenshot',
-      label: m['playground.tasks.screenshot.label'](),
-      prompt: m['playground.tasks.screenshot.prompt'](),
-      icon: ScanLine,
-      action: 'upload',
-      image: '/imgs/generated/screenshot-ui.jpg',
-    },
-    {
-      id: 'webproto',
-      label: m['playground.tasks.webproto.label'](),
-      prompt: m['playground.tasks.webproto.prompt'](),
-      icon: MonitorPlay,
-      action: 'dialog',
-      image: '/imgs/generated/web-motion.jpg',
-    },
-    {
-      id: 'urlclone',
-      label: m['playground.tasks.urlclone.label'](),
-      prompt: m['playground.tasks.urlclone.prompt'](),
-      icon: Globe,
-      action: 'url',
-      image: '/imgs/generated/url-clone.jpg',
     },
   ];
 }
