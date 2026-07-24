@@ -139,10 +139,13 @@ export function PricingTable({
           <div
             key={plan.id}
             className={cn(
-              'border-border relative flex flex-col rounded-2xl border p-8 transition-all',
+              // 2px stroke + a darker tone so the card outline actually reads
+              // against the page background; featured card gets an extra ring
+              // on top of that to keep its "popular" hierarchy.
+              'relative flex flex-col rounded-2xl border-2 p-8 transition-all',
               plan.featured
-                ? 'bg-card ring-foreground/10 shadow-md ring-1'
-                : 'bg-background hover:border-foreground/30'
+                ? 'border-foreground/25 bg-card ring-foreground/10 shadow-[0_24px_60px_-30px_rgba(124,58,237,0.45)] ring-2'
+                : 'border-foreground/15 bg-background hover:border-foreground/30'
             )}
           >
             {/* Plan name */}

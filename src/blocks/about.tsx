@@ -24,13 +24,13 @@ export function About() {
           <h2 className="font-serif text-4xl font-medium tracking-tight sm:text-5xl">
             {m['landing.about.title']()}
           </h2>
-          <p className="text-muted-foreground mt-5 text-lg leading-relaxed">
+          <p className="text-muted-foreground mt-5 text-left text-lg leading-relaxed">
             {m['landing.about.subtitle']()}
           </p>
         </Reveal>
 
         <Reveal delay={80}>
-          <div className="text-foreground/75 mx-auto mt-12 max-w-2xl space-y-6 text-[15.5px] leading-[1.75]">
+          <div className="text-foreground/75 mx-auto mt-12 max-w-2xl space-y-6 text-left text-[15.5px] leading-[1.75]">
             {paragraphs.map((p, i) => (
               <p key={i}>{p}</p>
             ))}

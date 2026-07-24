@@ -177,8 +177,8 @@ export function HeroChat() {
         />
       )}
 
-      {/* The wide horizontal composer bar */}
-      <div className="bg-card border-foreground/10 focus-within:border-foreground/20 relative flex flex-col gap-2.5 rounded-[1.5rem] border p-2.5 pl-5 shadow-[0_24px_70px_-34px_rgba(13,11,8,0.5)] backdrop-blur-xl transition-colors focus-within:ring-4 focus-within:ring-[#7c3aed]/[0.08]">
+      {/* The wide horizontal composer bar — narrowed to 50% and centered */}
+      <div className="bg-card border-foreground/10 focus-within:border-foreground/20 relative mx-auto flex w-full max-w-1/2 flex-col gap-2.5 rounded-[1.5rem] border p-2.5 pl-5 shadow-[0_24px_70px_-34px_rgba(13,11,8,0.5)] backdrop-blur-xl transition-colors focus-within:ring-4 focus-within:ring-[#7c3aed]/[0.08]">
         <textarea
           ref={taRef}
           value={input}
@@ -225,10 +225,6 @@ export function HeroChat() {
           </button>
         </div>
       </div>
-
-      <p className="text-foreground/40 mt-3 text-center text-[11px]">
-        {m['landing.hero_chat.disclaimer']()}
-      </p>
     </div>
   );
 }
@@ -303,7 +299,7 @@ function GateCard({ kind }: { kind: 'login' | 'pay' }) {
           ? m['landing.hero_chat.gate_login_title']()
           : m['landing.hero_chat.gate_pay_title']()}
       </p>
-      <p className="text-foreground/55 mx-auto mt-1 max-w-sm text-[13px] leading-relaxed">
+      <p className="text-foreground/55 mx-auto mt-1 max-w-sm text-left text-[13px] leading-relaxed">
         {isLogin
           ? m['landing.hero_chat.gate_login_desc']()
           : m['landing.hero_chat.gate_pay_desc']()}
@@ -335,13 +331,13 @@ function EmptyState({
 }) {
   return (
     <div className="mb-6 flex flex-col items-center px-2 text-center">
-      <div className="brand-gradient mb-3 flex size-11 items-center justify-center rounded-2xl shadow-[0_12px_30px_-10px_rgba(124,58,237,0.55)]">
+      <div className="brand-gradient mb-3 flex size-11 shrink-0 items-center justify-center rounded-2xl shadow-[0_12px_30px_-10px_rgba(124,58,237,0.55)]">
         <Sparkles className="size-5 text-white" />
       </div>
       <h3 className="text-base font-semibold tracking-tight">
         {m['landing.hero_chat.greeting']()}
       </h3>
-      <p className="text-foreground/55 mt-1 max-w-sm text-[13px] leading-relaxed">
+      <p className="text-foreground/55 mt-1 max-w-sm text-center text-[13px] leading-relaxed">
         {m['landing.hero_chat.greeting_sub']()}
       </p>
       {examples.length > 0 && (

@@ -13,13 +13,13 @@ export function Assets() {
     <section className="px-4 py-20 sm:py-28">
       <div className="mx-auto max-w-5xl">
         <Reveal className="mx-auto max-w-2xl text-center">
-          <h2 className="text-[clamp(2rem,4.2vw,3rem)] leading-[1.08] font-medium tracking-[-0.02em]">
-            {m['landing.assets.title_prefix']()}{' '}
+          <h2 className="flex flex-row flex-wrap items-baseline justify-center gap-x-3 text-[clamp(2rem,4.2vw,3rem)] leading-[1.08] font-medium tracking-[-0.02em]">
+            <span>{m['landing.assets.title_prefix']()}</span>
             <span className="text-brand-gradient">
               {m['landing.assets.title_gradient']()}
             </span>
           </h2>
-          <p className="text-foreground/60 mt-5 text-lg leading-relaxed">
+          <p className="text-foreground/60 mt-5 text-left text-lg leading-relaxed">
             {m['landing.assets.description']()}
           </p>
         </Reveal>

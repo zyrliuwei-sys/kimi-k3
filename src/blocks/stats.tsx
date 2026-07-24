@@ -18,7 +18,7 @@ export function Stats() {
             <h2 className="mx-auto max-w-2xl text-[clamp(1.75rem,3.6vw,2.5rem)] leading-tight font-medium tracking-[-0.02em]">
               {m['landing.stats.title']()}
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-base text-neutral-400">
+            <p className="mx-auto mt-4 max-w-xl text-left text-base text-neutral-400">
               {m['landing.stats.subtitle']()}
             </p>
 

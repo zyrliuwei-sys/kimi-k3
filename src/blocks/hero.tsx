@@ -33,7 +33,7 @@ export function Hero() {
             </span>
           </h1>
 
-          <p className="text-foreground/65 mx-auto mt-6 max-w-2xl text-base leading-relaxed sm:text-lg lg:mx-0">
+          <p className="text-foreground/65 mx-auto mt-6 max-w-2xl text-left text-base leading-relaxed sm:text-lg lg:mx-0">
             {m['landing.hero.subheadline']()}
           </p>
 
@@ -78,7 +78,7 @@ export function Hero() {
               allowFullScreen
             />
           </div>
-          <p className="text-foreground/45 mt-3 flex items-center justify-center gap-1.5 text-xs">
+          <p className="text-foreground/45 mt-3 flex items-center justify-end gap-1.5 text-right text-xs">
             <PlayCircle className="size-3.5" />
             {m['landing.hero.shot_caption']()}
           </p>
