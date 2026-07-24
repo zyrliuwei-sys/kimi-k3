@@ -9,6 +9,7 @@ import { Assets } from '@/blocks/assets';
 import { BuiltFor } from '@/blocks/built-for';
 import { CTA } from '@/blocks/cta';
 import { FAQ, FAQ_ITEMS } from '@/blocks/faq';
+import { Features } from '@/blocks/features';
 import { Footer } from '@/blocks/footer';
 import { Header } from '@/blocks/header';
 import { Hero } from '@/blocks/hero';
@@ -33,6 +34,7 @@ function HomePage() {
         <Assets />
         <Showcase />
         <HeroChat />
+        <Features />
         <BuiltFor />
         <Stats />
         <Pricing />

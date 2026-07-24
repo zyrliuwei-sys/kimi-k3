@@ -1,8 +1,13 @@
 'use client';
 
-import { useState, type ComponentType, type SVGProps } from 'react';
+import {
+  useState,
+  type ComponentType,
+  type CSSProperties,
+  type SVGProps,
+} from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Check } from 'lucide-react';
+import { Check as IconCheck } from 'lucide-react';
 
 import { apiPost } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
@@ -102,7 +107,7 @@ export function PricingTable({
 
   return (
     <div className="space-y-10">
-      {/* Group tabs — pill toggle */}
+      {/* Group tabs — pill toggle (only when more than one group) */}
       {groups.length > 1 && (
         <div className="flex justify-center">
           <div className="border-border bg-muted/40 inline-flex items-center rounded-full border p-1">
@@ -125,104 +130,277 @@ export function PricingTable({
       )}
 
       {/* Plans grid */}
-      <div
-        className={cn(
-          'mx-auto grid gap-6',
-          currentGroup?.plans.length === 2
-            ? 'max-w-3xl sm:grid-cols-2'
-            : currentGroup?.plans.length === 3
-              ? 'max-w-5xl sm:grid-cols-2 lg:grid-cols-3'
-              : 'max-w-6xl sm:grid-cols-2 lg:grid-cols-4'
-        )}
-      >
+      <div className="mx-auto grid w-full grid-cols-1 gap-4 md:grid-cols-3 md:gap-8">
         {currentGroup?.plans.map((plan) => (
-          <div
+          <PricingCard
             key={plan.id}
-            className={cn(
-              // 2px stroke + a darker tone so the card outline actually reads
-              // against the page background; featured card gets an extra ring
-              // on top of that to keep its "popular" hierarchy.
-              'relative flex flex-col rounded-2xl border-2 p-8 transition-all',
-              plan.featured
-                ? 'border-foreground/25 bg-card ring-foreground/10 shadow-[0_24px_60px_-30px_rgba(124,58,237,0.45)] ring-2'
-                : 'border-foreground/15 bg-background hover:border-foreground/30'
-            )}
-          >
-            {/* Plan name */}
-            {plan.name && (
-              <p className="text-foreground mb-2 text-sm font-medium">
-                {plan.name}
-              </p>
-            )}
-
-            {/* Price */}
-            <div className="mb-2 flex items-baseline gap-1">
-              <span className="font-serif text-5xl tracking-tight">
-                {plan.price}
-              </span>
-              {plan.interval && (
-                <span className="text-muted-foreground text-sm">
-                  /{plan.interval}
-                </span>
-              )}
-            </div>
-            {plan.originalPrice && (
-              <span className="text-muted-foreground mb-1 text-sm line-through">
-                {plan.originalPrice}
-              </span>
-            )}
-            {plan.yearlyTotal && (
-              <p className="text-muted-foreground mb-1 text-sm">
-                {plan.yearlySubline ? `${plan.yearlySubline} · ` : ''}
-                <span className="text-foreground/80 font-medium">
-                  {plan.yearlyTotal}
-                </span>
-                {plan.yearlySubline ? '/yr' : ''}
-              </p>
-            )}
-
-            {/* Description */}
-            {plan.description && (
-              <p className="text-muted-foreground mb-8 text-sm">
-                {plan.description}
-              </p>
-            )}
-
-            {/* CTA — full-width pill, solid filled so every pack reads as
-                a clear action. The featured plan picks up the gradient on
-                top to keep its "Popular" hierarchy. */}
-            <Button
-              variant="default"
-              className={cn(
-                'h-10 w-full rounded-full text-sm font-medium',
-                plan.featured &&
-                  'brand-gradient text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] hover:opacity-95 hover:[a]:opacity-95'
-              )}
-              onClick={() => handleCheckout(plan)}
-              disabled={loadingId === plan.id}
-            >
-              {loadingId === plan.id
-                ? m['common.pricing.processing']()
-                : plan.buttonText || m['common.pricing.get_started']()}
-            </Button>
-
-            {/* Features */}
-            <ul className="mt-8 space-y-3">
-              {plan.features.map((feature, i) => {
-                const isObj = typeof feature !== 'string';
-                const Icon: IconComponent = (isObj && feature.icon) || Check;
-                const label = isObj ? feature.label : feature;
-                return (
-                  <li key={i} className="flex items-center gap-2.5 text-sm">
-                    <Icon className="text-muted-foreground size-4 shrink-0" />
-                    <span className="text-foreground/90">{label}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
+            plan={plan}
+            loading={loadingId === plan.id}
+            onCheckout={() => handleCheckout(plan)}
+          />
         ))}
       </div>
     </div>
   );
 }
+
+function PricingCard({
+  plan,
+  loading,
+  onCheckout,
+}: {
+  plan: PricingPlan;
+  loading: boolean;
+  onCheckout: () => void;
+}) {
+  const isFeatured = !!plan.featured;
+
+  return (
+    <div
+      className={cn(
+        'flex w-full flex-col rounded-3xl p-2',
+        isFeatured
+          ? 'bg-neutral-900 dark:bg-neutral-100'
+          : 'bg-neutral-50 dark:bg-neutral-800'
+      )}
+    >
+      {/* Name + description panel */}
+      <div
+        className={cn(
+          'rounded-[18px] px-8 py-12 md:px-8 md:py-12',
+          isFeatured
+            ? 'bg-neutral-800 shadow-[0_8px_16px_-4px_rgba(0,0,0,0.15),0_4px_6px_-2px_rgba(0,0,0,0.1),0_0_0_1px_rgba(0,0,0,0.08)] dark:bg-white dark:shadow-[0_8px_16px_-4px_rgba(0,0,0,0.08),0_4px_6px_-2px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.06)]'
+            : 'bg-white shadow-[0_8px_8px_-3px_rgba(0,0,0,0.04),0_3px_3px_-1.5px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)] dark:bg-neutral-900 dark:shadow-[0_8px_8px_-3px_rgba(255,255,255,0.02),0_0_0_1px_rgba(255,255,255,0.05)]'
+        )}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <p
+            className={cn(
+              'text-base font-bold md:text-2xl',
+              isFeatured
+                ? 'text-white dark:text-neutral-900'
+                : 'text-neutral-700 dark:text-neutral-200'
+            )}
+          >
+            {plan.name}
+          </p>
+          {plan.badge && (
+            <span
+              className={cn(
+                'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium',
+                isFeatured
+                  ? 'bg-neutral-700 text-neutral-200 dark:bg-neutral-300 dark:text-neutral-800'
+                  : 'bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200'
+              )}
+            >
+              {plan.badge}
+            </span>
+          )}
+        </div>
+        {plan.description && (
+          <p
+            className={cn(
+              'mt-2 text-sm text-balance lg:text-base',
+              isFeatured
+                ? 'text-neutral-400 dark:text-neutral-600'
+                : 'text-neutral-500 dark:text-neutral-400'
+            )}
+          >
+            {plan.description}
+          </p>
+        )}
+      </div>
+
+      {/* Price + CTA + features */}
+      <div className="mt-2 p-8 md:mt-8">
+        {/* Original price strikethrough (yearly mode) */}
+        {plan.originalPrice && (
+          <span
+            className={cn(
+              'mb-1 block text-sm line-through',
+              isFeatured
+                ? 'text-neutral-500 dark:text-neutral-500'
+                : 'text-neutral-400 dark:text-neutral-500'
+            )}
+          >
+            {plan.originalPrice}
+          </span>
+        )}
+
+        <div className="flex items-baseline-last gap-2">
+          <span
+            className={cn(
+              'text-2xl font-medium tracking-tight md:text-3xl lg:text-6xl',
+              isFeatured
+                ? 'text-white dark:text-neutral-900'
+                : 'text-neutral-800 dark:text-neutral-100'
+            )}
+          >
+            {plan.price}
+          </span>
+          {plan.interval && (
+            <>
+              <span
+                className={cn(
+                  'text-sm',
+                  isFeatured
+                    ? 'text-neutral-500 dark:text-neutral-500'
+                    : 'text-neutral-500 dark:text-neutral-400'
+                )}
+              >
+                /
+              </span>
+              <span
+                className={cn(
+                  'text-sm',
+                  isFeatured
+                    ? 'text-neutral-500 dark:text-neutral-500'
+                    : 'text-neutral-500 dark:text-neutral-400'
+                )}
+              >
+                {plan.interval}
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Yearly subline (yearly mode only) */}
+        {plan.yearlySubline && plan.yearlyTotal && (
+          <p
+            className={cn(
+              'mt-2 text-sm',
+              isFeatured
+                ? 'text-neutral-400 dark:text-neutral-600'
+                : 'text-neutral-500 dark:text-neutral-400'
+            )}
+          >
+            {plan.yearlySubline} ·{' '}
+            <span className="text-foreground/80 font-medium">
+              {plan.yearlyTotal}
+            </span>
+            /yr
+          </p>
+        )}
+
+        <Button
+          variant="default"
+          className={cn(
+            'mt-4 w-full cursor-pointer rounded-full px-4 py-6 text-base font-medium transition-all duration-200 active:scale-[0.98] md:mt-6',
+            isFeatured
+              ? 'bg-linear-to-t from-indigo-600 to-indigo-500 text-white shadow-[0px_0.5px_1px_0px_var(--color-indigo-300)_inset] hover:opacity-95'
+              : 'bg-white text-neutral-600 shadow-[0_8px_8px_-3px_rgba(0,0,0,0.04),0_3px_3px_-1.5px_rgba(0,0,0,0.04),0_0_0_1px_rgba(0,0,0,0.04)] dark:bg-neutral-950 dark:text-neutral-300 dark:shadow-[0_8px_8px_-3px_rgba(255,255,255,0.02),0_0_0_1px_rgba(255,255,255,0.05)]'
+          )}
+          onClick={onCheckout}
+          disabled={loading}
+        >
+          {loading
+            ? m['common.pricing.processing']()
+            : plan.buttonText || m['common.pricing.get_started']()}
+        </Button>
+
+        <GridLineHorizontal className="my-8" featured={isFeatured} />
+
+        <p
+          className={cn(
+            'font-mono text-sm tracking-tight uppercase',
+            isFeatured
+              ? 'text-neutral-500 dark:text-neutral-500'
+              : 'text-neutral-400 dark:text-neutral-500'
+          )}
+        >
+          {plan.name} plan includes
+        </p>
+
+        <div className="my-4 flex flex-col gap-6">
+          {plan.features.map((feature, index) => {
+            const isObj = typeof feature !== 'string';
+            const label = isObj ? feature.label : feature;
+            return (
+              <Step key={index} featured={isFeatured}>
+                {label}
+              </Step>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const Step = ({
+  children,
+  featured,
+}: {
+  children: React.ReactNode;
+  featured?: boolean;
+}) => {
+  return (
+    <div className="flex items-start justify-start gap-2">
+      <div
+        className={cn(
+          'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full',
+          featured
+            ? 'bg-neutral-700 dark:bg-neutral-300'
+            : 'bg-neutral-200 dark:bg-neutral-700'
+        )}
+      >
+        <IconCheck
+          className={cn(
+            'size-2 stroke-[4px]',
+            featured
+              ? 'text-white dark:text-neutral-900'
+              : 'text-neutral-700 dark:text-neutral-300'
+          )}
+        />
+      </div>
+      <p
+        className={cn(
+          'text-sm font-medium',
+          featured
+            ? 'text-neutral-300 dark:text-neutral-700'
+            : 'text-neutral-600 dark:text-neutral-400'
+        )}
+      >
+        {children}
+      </p>
+    </div>
+  );
+};
+
+export const GridLineHorizontal = ({
+  className,
+  offset,
+  featured,
+}: {
+  className?: string;
+  offset?: string;
+  featured?: boolean;
+}) => {
+  return (
+    <div
+      style={
+        {
+          '--background': featured ? '#171717' : '#ffffff',
+          '--background-dark': featured ? '#f5f5f5' : '#171717',
+          '--height': '1px',
+          '--width': '5px',
+          '--fade-stop': '100%',
+          '--offset': offset || '200px',
+          maskComposite: 'exclude',
+        } as CSSProperties
+      }
+      className={cn(
+        'h-(--height) w-full',
+        'bg-size-[var(--width)_var(--height)]',
+        '[mask:linear-gradient(to_left,var(--background)_var(--fade-stop),transparent),linear-gradient(to_right,var(--background)_var(--fade-stop),transparent),linear-gradient(black,black)]',
+        'dark:[mask:linear-gradient(to_left,var(--background-dark)_var(--fade-stop),transparent),linear-gradient(to_right,var(--background-dark)_var(--fade-stop),transparent),linear-gradient(black,black)]',
+        'mask-exclude',
+        'z-30',
+        featured
+          ? 'bg-[linear-gradient(to_right,#525252,#525252_50%,transparent_0,transparent)] dark:bg-[linear-gradient(to_right,#a3a3a3,#a3a3a3_50%,transparent_0,transparent)]'
+          : 'bg-[linear-gradient(to_right,#e5e5e5,#e5e5e5_50%,transparent_0,transparent)] dark:bg-[linear-gradient(to_right,#404040,#404040_50%,transparent_0,transparent)]',
+        className
+      )}
+    />
+  );
+};

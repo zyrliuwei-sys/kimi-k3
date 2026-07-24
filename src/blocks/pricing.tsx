@@ -48,9 +48,6 @@ function buildLiteMonthlyFeatures(
     feat(icon, m['landing.pricing.feature_python_sdk']()),
     feat(icon, m['landing.pricing.feature_node_sdk']()),
     feat(icon, m['landing.pricing.feature_api_playground']()),
-    feat(icon, m['landing.pricing.feature_prompt_cheatsheet']()),
-    feat(icon, m['landing.pricing.feature_multilang']()),
-    feat(icon, m['landing.pricing.feature_uptime_basic']()),
   ];
 }
 
@@ -66,11 +63,8 @@ function buildLiteYearlyFeatures(
     feat(icon, m['landing.pricing.feature_streaming']()),
     feat(icon, m['landing.pricing.feature_json_mode']()),
     feat(icon, m['landing.pricing.feature_python_sdk']()),
-    feat(icon, m['landing.pricing.feature_node_sdk']()),
-    feat(icon, m['landing.pricing.feature_api_playground']()),
     feat(icon, m['landing.pricing.feature_locked_price']()),
     feat(icon, m['landing.pricing.feature_annual_billing']()),
-    feat(icon, m['landing.pricing.feature_annual_report']()),
   ];
 }
 
