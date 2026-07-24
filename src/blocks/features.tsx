@@ -47,10 +47,10 @@ export function Features() {
             <CardSkeletonBody>
               <div className="mt-2 ml-6 h-full w-full rounded-lg border border-neutral-200 bg-neutral-100 p-4 dark:border-neutral-700 dark:bg-neutral-800">
                 <img
-                  src="https://assets.aceternity.com/pro/dashboard.webp"
-                  alt="Dashboard"
-                  width={500}
-                  height={500}
+                  src="/imgs/generated/bento-pricing-1784863505134.png"
+                  alt="Per-request credit cost breakdown dashboard with top-up button"
+                  width={600}
+                  height={400}
                   className="w-full rounded-lg object-cover"
                 />
               </div>
@@ -78,8 +78,8 @@ export function Features() {
             <CardSkeletonBody>
               <div className="mt-2 ml-6 h-full w-full rounded-lg border border-neutral-200 bg-neutral-100 p-4 dark:border-neutral-700 dark:bg-neutral-800">
                 <img
-                  src="https://assets.aceternity.com/pro/dashboard.webp"
-                  alt="Dashboard"
+                  src="/imgs/generated/bento-code-1784863518772.png"
+                  alt="Kimi K3 API playground with copy-ready code examples"
                   width={500}
                   height={500}
                   className="w-full rounded-lg object-cover"

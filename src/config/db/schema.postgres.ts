@@ -657,3 +657,124 @@ export const waitlist = table(
 
 export type Waitlist = typeof waitlist.$inferSelect;
 export type NewWaitlist = typeof waitlist.$inferInsert;
+
+// ─── Document Library ────────────────────────────────────────────────────────
+// /document-library feature: user-owned collections of uploaded docs (PDF/Word/
+// Excel). Each collection has documents, each document is parsed server-side
+// into plain text + per-page metadata. The chat history is per-collection so
+// multiple docs share a single conversation context (K3's 1M context window).
+
+export const docCollection = table(
+  'doc_collection',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id),
+    name: text('name').notNull(),
+    description: text('description').notNull().default(''),
+    docCount: integer('doc_count').notNull().default(0),
+    totalPages: integer('total_pages').notNull().default(0),
+    totalBytes: integer('total_bytes').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_doc_collection_user').on(t.userId),
+    index('idx_doc_collection_updated').on(t.updatedAt),
+  ]
+);
+
+export const docCollectionDocument = table(
+  'doc_collection_document',
+  {
+    id: text('id').primaryKey(),
+    collectionId: text('collection_id')
+      .notNull()
+      .references(() => docCollection.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id),
+    filename: text('filename').notNull(),
+    storageUrl: text('storage_url').notNull(),
+    storageKey: text('storage_key').notNull().default(''),
+    mimeType: text('mime_type').notNull(),
+    fileBytes: integer('file_bytes').notNull(),
+    pageCount: integer('page_count').notNull().default(0),
+    parseStatus: text('parse_status').notNull().default('pending'),
+    parseError: text('parse_error'),
+    contentText: text('content_text'),
+    contentMeta: text('content_meta'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_doc_document_collection').on(t.collectionId),
+    index('idx_doc_document_user').on(t.userId),
+    index('idx_doc_document_status').on(t.parseStatus),
+  ]
+);
+
+export const docCollectionMessage = table(
+  'doc_collection_message',
+  {
+    id: text('id').primaryKey(),
+    collectionId: text('collection_id')
+      .notNull()
+      .references(() => docCollection.id, { onDelete: 'cascade' }),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id),
+    role: text('role').notNull(),
+    content: text('content').notNull(),
+    citations: text('citations'),
+    model: text('model'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_doc_message_collection').on(t.collectionId, t.createdAt),
+    index('idx_doc_message_user').on(t.userId),
+  ]
+);
+
+export type DocCollection = typeof docCollection.$inferSelect;
+export type NewDocCollection = typeof docCollection.$inferInsert;
+export type DocCollectionDocument = typeof docCollectionDocument.$inferSelect;
+export type NewDocCollectionDocument =
+  typeof docCollectionDocument.$inferInsert;
+export type DocCollectionMessage = typeof docCollectionMessage.$inferSelect;
+export type NewDocCollectionMessage = typeof docCollectionMessage.$inferInsert;
+
+export const pptTask = table(
+  'ppt_task',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id),
+    title: text('title').notNull(),
+    templateId: text('template_id').notNull().default('biz-dark'),
+    slideCount: integer('slide_count').notNull().default(15),
+    sourceType: text('source_type').notNull(),
+    sourceRef: text('source_ref').notNull().default(''),
+    prompt: text('prompt').notNull().default(''),
+    status: text('status').notNull().default('queued'),
+    progress: integer('progress').notNull().default(0),
+    outlineJson: text('outline_json'),
+    slidesJson: text('slides_json'),
+    resultUrl: text('result_url'),
+    resultBytes: integer('result_bytes'),
+    errorMessage: text('error_message'),
+    creditsConsumed: integer('credits_consumed').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_ppt_task_user').on(t.userId),
+    index('idx_ppt_task_status').on(t.status),
+    index('idx_ppt_task_updated').on(t.updatedAt),
+  ]
+);
+
+export type PptTask = typeof pptTask.$inferSelect;
+export type NewPptTask = typeof pptTask.$inferInsert;

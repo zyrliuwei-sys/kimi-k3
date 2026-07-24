@@ -10,18 +10,26 @@ import {
 import { getAuth } from '@/core/auth';
 import { getConfig } from '@/modules/config/service';
 import { consumeMessage } from '@/modules/subscription-quota/service';
+import { getCookieFromHeader } from '@/lib/cookie';
 import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 import { respErr } from '@/lib/resp';
 
 /**
  * Stateless "API Playground" chat endpoint — **streaming** (SSE).
  *
- * Gated: anonymous visitors must sign up/login; signed-in users must have
- * paid credits. Every message costs 1 credit (`CHAT_CREDIT_COST`). No free
- * messages — users with 0 credits hit a paywall.
- * Conversations are NOT persisted here — that's what /api/chat is for. Prefer
- * the configured `evolink` provider (model defaults to `kimi-k3`) when its key
- * is present.
+ * Access tiers (in order):
+ *   1. Anonymous visitor with no `kimi_free_chat_used` cookie → ONE free
+ *      chat. On the way out we set the cookie so the next anonymous request
+ *      trips the gate.
+ *   2. Anonymous visitor with the cookie already set → `login_required`
+ *      gate (must sign up / log in).
+ *   3. Signed-in user with subscription quota or paid credits → allowed
+ *      (`consumeMessage` debits).
+ *   4. Signed-in user with neither → `payment_required` gate.
+ *
+ * Conversations are NOT persisted here — that's what /api/chat is for.
+ * Prefer the configured `evolink` provider (model defaults to `kimi-k3`)
+ * when its key is present.
  *
  * The response is a `text/event-stream` of typed JSON frames:
  *   data: {"t":"delta","text":"…"}     — incremental reply text
@@ -97,8 +105,14 @@ async function resolvePlaygroundConfig(): Promise<PlaygroundConfig> {
   return { provider: 'openai', apiKey, baseUrl, model, hasKey: !!apiKey };
 }
 
-/** Build a `text/event-stream` Response that runs `work`, emitting frames. */
-function sseResponse(work: (emit: SseEmit) => Promise<void>): Response {
+/** Build a `text/event-stream` Response that runs `work`, emitting frames.
+ *  `setCookies` lets the caller attach one or more Set-Cookie headers to the
+ *  response (used to flip the `kimi_free_chat_used` cookie after the first
+ *  anonymous chat). */
+function sseResponse(
+  work: (emit: SseEmit) => Promise<void>,
+  setCookies: string[] = []
+): Response {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -113,14 +127,16 @@ function sseResponse(work: (emit: SseEmit) => Promise<void>): Response {
       }
     },
   });
-  return new Response(stream, {
-    headers: {
-      'Content-Type': 'text/event-stream; charset=utf-8',
-      'Cache-Control': 'no-cache, no-transform',
-      Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no',
-    },
+  const headers = new Headers({
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
   });
+  for (const cookie of setCookies) {
+    headers.append('Set-Cookie', cookie);
+  }
+  return new Response(stream, { headers });
 }
 
 const MIME_FROM_EXT: Record<string, string> = {
@@ -302,6 +318,15 @@ async function checkChatAccess(
   return result.success ? 'ok' : 'payment_required';
 }
 
+/** Cookie that marks an anonymous visitor as having used their free chat.
+ *  HttpOnly so it can't be cleared from JS; 1-year max-age so clearing site
+ *  data is the only way to reset. */
+const FREE_CHAT_COOKIE = 'kimi_free_chat_used';
+const FREE_CHAT_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+function freeChatCookieHeader(): string {
+  return `${FREE_CHAT_COOKIE}=1; Max-Age=${FREE_CHAT_MAX_AGE_SECONDS}; Path=/; HttpOnly; SameSite=Lax`;
+}
+
 async function POST({ request }: { request: Request }) {
   const limited = enforceMinIntervalRateLimit(request, {
     intervalMs: RATE_LIMIT_INTERVAL_MS,
@@ -346,11 +371,26 @@ async function POST({ request }: { request: Request }) {
   const auth = getAuth();
   const session = await auth.api.getSession({ headers: request.headers });
 
+  // Tier 1 + 2: anonymous visitor gets exactly one free chat, tracked via
+  // an HttpOnly cookie. The cookie is checked server-side so clearing
+  // document.cookie via JS can't reset it (only clearing site data works).
+  const hasUsedFreeChat = !!getCookieFromHeader(
+    request.headers.get('cookie'),
+    FREE_CHAT_COOKIE
+  );
+
   let gate: 'login_required' | 'payment_required' | null = null;
+  let markFreeChatUsed = false;
   if (!session?.user) {
-    // No free anonymous tier — must register/login, then buy a plan.
-    gate = 'login_required';
+    if (!hasUsedFreeChat) {
+      // Tier 1: first anonymous chat — allowed; flip the cookie on the way out.
+      markFreeChatUsed = true;
+    } else {
+      // Tier 2: free chat already used — must sign up / log in.
+      gate = 'login_required';
+    }
   } else {
+    // Tier 3 + 4: signed-in users need a subscription quota or credit balance.
     const access = await checkChatAccess(session.user.id);
     if (access !== 'ok') gate = 'payment_required';
   }
@@ -362,29 +402,32 @@ async function POST({ request }: { request: Request }) {
     });
   }
 
-  return sseResponse(async (emit) => {
-    try {
-      const trustedHosts = await getTrustedStorageHosts();
-      const { messages, model } = await buildMessages(
-        turns,
-        rawAttachments,
-        cfg,
-        trustedHosts
-      );
-      for await (const delta of openaiChatCompletionStream({
-        apiKey: cfg.apiKey,
-        baseUrl: cfg.baseUrl,
-        model,
-        messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
-      })) {
-        if (delta) emit({ t: 'delta', text: delta });
+  return sseResponse(
+    async (emit) => {
+      try {
+        const trustedHosts = await getTrustedStorageHosts();
+        const { messages, model } = await buildMessages(
+          turns,
+          rawAttachments,
+          cfg,
+          trustedHosts
+        );
+        for await (const delta of openaiChatCompletionStream({
+          apiKey: cfg.apiKey,
+          baseUrl: cfg.baseUrl,
+          model,
+          messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
+        })) {
+          if (delta) emit({ t: 'delta', text: delta });
+        }
+        emit({ t: 'done', model, provider: cfg.provider });
+      } catch (e: any) {
+        emit({ t: 'error', message: e?.message || 'Generation failed' });
+        emit({ t: 'done' });
       }
-      emit({ t: 'done', model, provider: cfg.provider });
-    } catch (e: any) {
-      emit({ t: 'error', message: e?.message || 'Generation failed' });
-      emit({ t: 'done' });
-    }
-  });
+    },
+    markFreeChatUsed ? [freeChatCookieHeader()] : []
+  );
 }
 
 export const Route = createFileRoute('/api/playground/chat')({

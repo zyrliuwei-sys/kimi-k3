@@ -584,5 +584,128 @@ export const waitlist = table(
 export type Waitlist = typeof waitlist.$inferSelect;
 export type NewWaitlist = typeof waitlist.$inferInsert;
 
+// ─── Document Library ────────────────────────────────────────────────────────
+// /document-library feature: user-owned collections of uploaded docs (PDF/Word/
+// Excel). Each collection has documents, each document is parsed server-side
+// into plain text + per-page metadata. The chat history is per-collection so
+// multiple docs share a single conversation context (K3's 1M context window).
+
+export const docCollection = table(
+  'doc_collection',
+  {
+    id: varchar191('id').primaryKey(),
+    userId: varchar191('user_id')
+      .notNull()
+      .references(() => user.id),
+    name: varchar191('name').notNull(),
+    description: varchar191('description').notNull().default(''),
+    docCount: int('doc_count').notNull().default(0),
+    totalPages: int('total_pages').notNull().default(0),
+    totalBytes: int('total_bytes').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_doc_collection_user').on(t.userId),
+    index('idx_doc_collection_updated').on(t.updatedAt),
+  ]
+);
+
+export const docCollectionDocument = table(
+  'doc_collection_document',
+  {
+    id: varchar191('id').primaryKey(),
+    collectionId: varchar191('collection_id')
+      .notNull()
+      .references(() => docCollection.id, { onDelete: 'cascade' }),
+    userId: varchar191('user_id')
+      .notNull()
+      .references(() => user.id),
+    filename: varchar191('filename').notNull(),
+    storageUrl: varchar191('storage_url').notNull(),
+    storageKey: varchar191('storage_key').notNull().default(''),
+    mimeType: varchar191('mime_type').notNull(),
+    fileBytes: int('file_bytes').notNull(),
+    pageCount: int('page_count').notNull().default(0),
+    parseStatus: varchar191('parse_status').notNull().default('pending'),
+    parseError: varchar191('parse_error'),
+    // MySQL TEXT caps at 65535 bytes; the content field can be hundreds of KB
+    // of extracted text, so we use longtext to be safe.
+    contentText: longtext('content_text'),
+    contentMeta: longtext('content_meta'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_doc_document_collection').on(t.collectionId),
+    index('idx_doc_document_user').on(t.userId),
+    index('idx_doc_document_status').on(t.parseStatus),
+  ]
+);
+
+export const docCollectionMessage = table(
+  'doc_collection_message',
+  {
+    id: varchar191('id').primaryKey(),
+    collectionId: varchar191('collection_id')
+      .notNull()
+      .references(() => docCollection.id, { onDelete: 'cascade' }),
+    userId: varchar191('user_id')
+      .notNull()
+      .references(() => user.id),
+    role: varchar191('role').notNull(),
+    content: longtext('content').notNull(),
+    citations: longtext('citations'),
+    model: varchar191('model'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_doc_message_collection').on(t.collectionId, t.createdAt),
+    index('idx_doc_message_user').on(t.userId),
+  ]
+);
+
+export type DocCollection = typeof docCollection.$inferSelect;
+export type NewDocCollection = typeof docCollection.$inferInsert;
+export type DocCollectionDocument = typeof docCollectionDocument.$inferSelect;
+export type NewDocCollectionDocument =
+  typeof docCollectionDocument.$inferInsert;
+export type DocCollectionMessage = typeof docCollectionMessage.$inferSelect;
+export type NewDocCollectionMessage = typeof docCollectionMessage.$inferInsert;
+
+export const pptTask = table(
+  'ppt_task',
+  {
+    id: varchar191('id').primaryKey(),
+    userId: varchar191('user_id')
+      .notNull()
+      .references(() => user.id),
+    title: varchar191('title').notNull(),
+    templateId: varchar191('template_id').notNull().default('biz-dark'),
+    slideCount: int('slide_count').notNull().default(15),
+    sourceType: varchar191('source_type').notNull(),
+    sourceRef: varchar191('source_ref').notNull().default(''),
+    prompt: varchar191('prompt').notNull().default(''),
+    status: varchar191('status').notNull().default('queued'),
+    progress: int('progress').notNull().default(0),
+    outlineJson: longtext('outline_json'),
+    slidesJson: longtext('slides_json'),
+    resultUrl: varchar191('result_url'),
+    resultBytes: int('result_bytes'),
+    errorMessage: varchar191('error_message'),
+    creditsConsumed: int('credits_consumed').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_ppt_task_user').on(t.userId),
+    index('idx_ppt_task_status').on(t.status),
+    index('idx_ppt_task_updated').on(t.updatedAt),
+  ]
+);
+
+export type PptTask = typeof pptTask.$inferSelect;
+export type NewPptTask = typeof pptTask.$inferInsert;
+
 // ─── Custom tables ───────────────────────────────────────────────────────────
 // Add your own tables below this line.

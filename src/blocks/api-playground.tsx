@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ArrowUp,
+  BookOpen,
   Check,
   ChevronDown,
   Files,
@@ -8,6 +9,7 @@ import {
   Film,
   FolderGit2,
   Loader2,
+  MessageSquare,
   Plus,
   RefreshCw,
   ScanLine,
@@ -23,6 +25,7 @@ import { signIn, useSession } from '@/core/auth/client';
 import { Link } from '@/core/i18n/navigation';
 import { ApiError, apiPost } from '@/lib/api-client';
 import { streamChat } from '@/lib/chat-stream';
+import { streamDocAsk, type DocSource } from '@/lib/doc-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
@@ -62,6 +65,8 @@ interface Message {
   // Assistant-only flags for the screenshot-clone flow:
   clone?: boolean; // this reply recreates a webpage → offer a live preview
   streaming?: boolean; // still receiving deltas → show code, not the preview
+  // Document-library mode:
+  citations?: DocSource[]; // sources the model cited inline
 }
 
 /* ------------------------------------------------------------------ */
@@ -114,7 +119,15 @@ function isSupportedMime(mime: string): boolean {
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
+type PlaygroundMode = 'chat' | 'documents';
+
 export function ApiPlayground() {
+  const [mode, setMode] = useState<PlaygroundMode>('chat');
+  const [docCollectionId, setDocCollectionId] = useState<string | null>(null);
+  const [docCollectionName, setDocCollectionName] = useState<string>('');
+  const [docCount, setDocCount] = useState(0);
+  const [pageCount, setPageCount] = useState(0);
+  const [loadingSamples, setLoadingSamples] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -245,6 +258,92 @@ export function ApiPlayground() {
   }) {
     if (!requireAuth()) return;
     const text = (opts?.text ?? input).trim();
+
+    // ── Document-library mode: bypass chat attachments and stream via the
+    //    doc-library SSE endpoint, which stitches parsed docs into the prompt.
+    if (mode === 'documents') {
+      if (!docCollectionId) {
+        toast.error('Load sample documents first');
+        return;
+      }
+      if (!text || isThinking) return;
+      const userMsg: Message = {
+        id: ++idRef.current,
+        role: 'user',
+        content: text,
+      };
+      const assistantId = ++idRef.current;
+      setMessages((prev) => [
+        ...prev,
+        userMsg,
+        {
+          id: assistantId,
+          role: 'assistant',
+          content: '',
+          streaming: true,
+        },
+      ]);
+      setInput('');
+      if (taRef.current) taRef.current.style.height = 'auto';
+      setIsThinking(true);
+
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      await streamDocAsk(
+        { collectionId: docCollectionId, question: text },
+        {
+          signal: controller.signal,
+          onDelta: (chunk) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, content: m.content + chunk } : m
+              )
+            );
+          },
+          onSources: (sources) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, citations: sources } : m
+              )
+            );
+          },
+          onError: (msg) => {
+            if (msg === 'login_required') {
+              setAuthOpen(true);
+            } else if (msg === 'payment_required') {
+              setBillingOpen(true);
+            } else {
+              toast.error(msg || 'Generation failed');
+            }
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? {
+                      ...m,
+                      content:
+                        m.content ||
+                        '⚠️ Something went wrong. Please try again.',
+                    }
+                  : m
+              )
+            );
+          },
+          onDone: () => {
+            setIsThinking(false);
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId ? { ...m, streaming: false } : m
+              )
+            );
+          },
+        }
+      ).finally(() => {
+        setIsThinking(false);
+      });
+      return;
+    }
 
     const pendingAttachments = opts?.attachments ?? attachments;
     // Image-only messages get a default prompt so the backend has a valid user
@@ -386,6 +485,55 @@ export function ApiPlayground() {
     setIsThinking(false);
   }
 
+  // ── Document-library mode helpers ────────────────────────────────────────
+
+  async function handleLoadSamples() {
+    if (loadingSamples) return;
+    if (!requireAuth()) return;
+    setLoadingSamples(true);
+    try {
+      const result = await apiPost<{
+        collectionsCreated: number;
+        documentsCreated: number;
+      }>('/api/doc-library/samples', {});
+      const cols = await fetch('/api/doc-library/collection')
+        .then((r) => r.json())
+        .then((d) => (Array.isArray(d?.data) ? d.data : []))
+        .catch(() => []);
+      const sample = cols.find((c: any) =>
+        String(c.name || '').endsWith('Sample')
+      );
+      if (sample) {
+        setDocCollectionId(sample.id);
+        setDocCollectionName(sample.name);
+        setDocCount(sample.docCount ?? 0);
+        setPageCount(sample.totalPages ?? 0);
+        if (result.collectionsCreated === 0) {
+          toast.success('Samples already loaded');
+        } else {
+          toast.success(
+            `Loaded ${result.collectionsCreated} collections, ${result.documentsCreated} docs`
+          );
+        }
+      } else {
+        toast.error('Samples are present but could not be located');
+      }
+    } catch (e: any) {
+      toast.error(e?.message || 'Failed to load samples');
+    } finally {
+      setLoadingSamples(false);
+    }
+  }
+
+  function handleExitDocMode() {
+    setMode('chat');
+    setDocCollectionId(null);
+    setDocCollectionName('');
+    setDocCount(0);
+    setPageCount(0);
+    resetThread();
+  }
+
   const hasThread = messages.length > 0 || isThinking;
   const canSend = !!input.trim() || attachments.length > 0;
 
@@ -394,7 +542,7 @@ export function ApiPlayground() {
     setInput,
     onKeyDown: handleKeyDown,
     onSend: handleSend,
-    canSend,
+    canSend: mode === 'documents' ? !!input.trim() : canSend,
     isThinking: isThinking || uploading,
     models,
     selected,
@@ -406,6 +554,11 @@ export function ApiPlayground() {
     onFilesSelected: handleFilesSelected,
     onRemoveAttachment: removeAttachment,
     fileInputRef,
+    mode,
+    docCollectionName,
+    onLoadSamples: handleLoadSamples,
+    loadingSamples,
+    onExitDocMode: handleExitDocMode,
   };
 
   return (
@@ -428,7 +581,13 @@ export function ApiPlayground() {
             ref={scrollRef}
             className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
           >
-            <ThreadHeader onReset={resetThread} modelName={selected.name} />
+            <ThreadHeader
+              onReset={resetThread}
+              modelName={selected.name}
+              mode={mode}
+              docCollectionName={docCollectionName}
+              onExitDocMode={handleExitDocMode}
+            />
             <div className="mx-auto w-full max-w-3xl flex-1 px-4">
               <div className="space-y-6 py-6">
                 {messages.map((msg) => (
@@ -447,7 +606,16 @@ export function ApiPlayground() {
         // so the input sits right under the greeting instead of pinned low.
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
           <div className="flex w-full max-w-2xl flex-col items-center">
-            <WelcomeState selected={selected} />
+            <WelcomeState
+              selected={selected}
+              mode={mode}
+              onModeChange={setMode}
+              docCollectionName={docCollectionName}
+              onLoadSamples={handleLoadSamples}
+              loadingSamples={loadingSamples}
+              docCount={docCount}
+              pageCount={pageCount}
+            />
             <div className="mt-8 w-full">
               <Composer {...composerProps} />
             </div>
@@ -799,7 +967,25 @@ function Composer({
 /*  Welcome / empty state                                              */
 /* ------------------------------------------------------------------ */
 
-function WelcomeState({ selected }: { selected: ModelOption }) {
+function WelcomeState({
+  selected,
+  mode,
+  onModeChange,
+  docCollectionName,
+  onLoadSamples,
+  loadingSamples,
+  docCount,
+  pageCount,
+}: {
+  selected: ModelOption;
+  mode: PlaygroundMode;
+  onModeChange: (m: PlaygroundMode) => void;
+  docCollectionName: string;
+  onLoadSamples: () => void;
+  loadingSamples: boolean;
+  docCount: number;
+  pageCount: number;
+}) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -813,11 +999,15 @@ function WelcomeState({ selected }: { selected: ModelOption }) {
         initial={{ opacity: 0, y: -6 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="border-foreground/10 bg-card/60 mb-9 flex w-full items-center justify-between gap-3 rounded-full border py-1 pr-1.5 pl-1.5 backdrop-blur"
+        className="border-foreground/10 bg-card/60 mb-6 flex w-full items-center justify-between gap-3 rounded-full border py-1 pr-1.5 pl-1.5 backdrop-blur"
       >
         <span className="inline-flex items-center gap-2.5 py-0.5 pl-1.5">
           <span className="brand-gradient grid size-7 shrink-0 place-items-center rounded-full shadow-sm shadow-violet-500/25">
-            <Terminal className="size-3.5 text-white" />
+            {mode === 'documents' ? (
+              <BookOpen className="size-3.5 text-white" />
+            ) : (
+              <Terminal className="size-3.5 text-white" />
+            )}
           </span>
           <span className="text-foreground/60 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
             {m['playground.welcome.eyebrow']()}
@@ -835,13 +1025,198 @@ function WelcomeState({ selected }: { selected: ModelOption }) {
         </span>
       </motion.div>
 
-      <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
-        {m['playground.welcome.greeting']()}
-      </h1>
-      <p className="text-foreground/55 mt-5 max-w-md text-[15px] leading-relaxed">
-        {m['playground.welcome.subtitle']()}
-      </p>
+      {/* Mode toggle */}
+      <div className="bg-card/60 border-foreground/10 mb-6 inline-flex items-center gap-1 rounded-full border p-1">
+        <button
+          type="button"
+          onClick={() => onModeChange('chat')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors',
+            mode === 'chat'
+              ? 'bg-foreground text-background'
+              : 'text-foreground/55 hover:text-foreground'
+          )}
+        >
+          <MessageSquare className="size-3.5" />
+          Chat
+        </button>
+        <button
+          type="button"
+          onClick={() => onModeChange('documents')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors',
+            mode === 'documents'
+              ? 'bg-foreground text-background'
+              : 'text-foreground/55 hover:text-foreground'
+          )}
+        >
+          <BookOpen className="size-3.5" />
+          Documents
+        </button>
+      </div>
+
+      {mode === 'documents' ? (
+        <DocumentsEmpty
+          collectionName={docCollectionName}
+          loading={loadingSamples}
+          onLoadSamples={onLoadSamples}
+          onPickExample={(q) => {
+            setInput(q);
+            // Defer to next tick so the textarea has the new value before
+            // we trigger send.
+            requestAnimationFrame(() => handleSend(q));
+          }}
+          docCount={docCount}
+          pageCount={pageCount}
+        />
+      ) : (
+        <>
+          <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
+            {m['playground.welcome.greeting']()}
+          </h1>
+          <p className="text-foreground/55 mt-5 max-w-md text-[15px] leading-relaxed">
+            {m['playground.welcome.subtitle']()}
+          </p>
+        </>
+      )}
     </motion.div>
+  );
+}
+
+function DocumentsEmpty({
+  collectionName,
+  loading,
+  onLoadSamples,
+  onPickExample,
+  docCount,
+  pageCount,
+}: {
+  collectionName: string;
+  loading: boolean;
+  onLoadSamples: () => void;
+  onPickExample: (q: string) => void;
+  docCount: number;
+  pageCount: number;
+}) {
+  const hasLoaded = !!collectionName;
+  const statsLabel = hasLoaded
+    ? m['doc_library.footer.stats']({
+        docs: docCount,
+        pages: pageCount,
+        tokens: Math.max(1, Math.round((pageCount * 500) / 1000)),
+      })
+    : m['doc_library.footer.stats_zero']();
+
+  return (
+    <div className="flex w-full max-w-2xl flex-col items-center">
+      {/* Hero */}
+      <h1 className="font-serif text-[clamp(1.75rem,4.4vw,3rem)] leading-[1.08] font-medium tracking-[-0.025em]">
+        {m['doc_library.hero.heading']()}
+      </h1>
+      <p className="text-foreground/60 mt-3 max-w-lg text-[14px] leading-relaxed">
+        {m['doc_library.hero.subheading']()}
+      </p>
+
+      {/* Capability badges — 4 small cards in a row */}
+      <div className="mt-7 grid w-full grid-cols-2 gap-2 sm:grid-cols-4">
+        <CapabilityBadge
+          icon={<BookOpen className="size-3.5" />}
+          title={m['doc_library.capability.context.title']()}
+          desc={m['doc_library.capability.context.desc']()}
+        />
+        <CapabilityBadge
+          icon={<Sparkles className="size-3.5" />}
+          title={m['doc_library.capability.cited.title']()}
+          desc={m['doc_library.capability.cited.desc']()}
+        />
+        <CapabilityBadge
+          icon={<Files className="size-3.5" />}
+          title={m['doc_library.capability.cross.title']()}
+          desc={m['doc_library.capability.cross.desc']()}
+        />
+        <CapabilityBadge
+          icon={<ScanLine className="size-3.5" />}
+          title={m['doc_library.capability.multilang.title']()}
+          desc={m['doc_library.capability.multilang.desc']()}
+        />
+      </div>
+
+      {/* Try asking section — example chips */}
+      <div className="mt-6 w-full">
+        <div className="text-foreground/45 mb-2 font-mono text-[10px] font-medium tracking-[0.18em] uppercase">
+          {m['doc_library.examples.title']()}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            m['doc_library.examples.earnout'](),
+            m['doc_library.examples.compare'](),
+            m['doc_library.examples.summary'](),
+            m['doc_library.examples.checklist'](),
+          ].map((q) => (
+            <button
+              key={q}
+              type="button"
+              onClick={() => onPickExample(q)}
+              disabled={!hasLoaded}
+              className="border-foreground/10 bg-card hover:border-foreground/25 hover:bg-foreground/[0.03] inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-left text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ArrowUp className="text-foreground/40 size-3" />
+              <span className="line-clamp-1">{q}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* CTA + footer stats */}
+      {!hasLoaded ? (
+        <>
+          <button
+            type="button"
+            onClick={onLoadSamples}
+            disabled={loading}
+            className="brand-gradient mt-7 inline-flex h-11 items-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] transition-all hover:brightness-110 disabled:opacity-50"
+          >
+            {loading ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )}
+            {loading
+              ? m['doc_library.empty.loading_samples']()
+              : m['doc_library.empty.load_samples']()}
+          </button>
+          <p className="text-foreground/40 mt-3 font-mono text-[11px] tracking-wide">
+            {statsLabel}
+          </p>
+        </>
+      ) : (
+        <p className="text-foreground/40 mt-6 font-mono text-[11px] tracking-wide">
+          {statsLabel}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function CapabilityBadge({
+  icon,
+  title,
+  desc,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+}) {
+  return (
+    <div className="border-foreground/10 bg-card/40 flex flex-col items-start gap-1 rounded-xl border p-2.5 text-left">
+      <div className="text-foreground/70 flex items-center gap-1.5">
+        {icon}
+        <span className="text-[11px] font-semibold tracking-tight">
+          {title}
+        </span>
+      </div>
+      <p className="text-foreground/55 text-[10.5px] leading-snug">{desc}</p>
+    </div>
   );
 }
 
@@ -852,23 +1227,53 @@ function WelcomeState({ selected }: { selected: ModelOption }) {
 function ThreadHeader({
   onReset,
   modelName,
+  mode,
+  docCollectionName,
+  onExitDocMode,
 }: {
   onReset: () => void;
   modelName: string;
+  mode?: PlaygroundMode;
+  docCollectionName?: string;
+  onExitDocMode?: () => void;
 }) {
+  const inDocs = mode === 'documents';
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 pt-5">
-      <span className="text-foreground/45 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
-        {m['playground.welcome.eyebrow']()} · {modelName}
+      <span className="text-foreground/45 flex items-center gap-2 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
+        {inDocs ? (
+          <>
+            <BookOpen className="size-3" />
+            <span className="truncate">{docCollectionName || 'Documents'}</span>
+            <span className="text-foreground/25">·</span>
+            <span>{modelName}</span>
+          </>
+        ) : (
+          <>
+            {m['playground.welcome.eyebrow']()} · {modelName}
+          </>
+        )}
       </span>
-      <button
-        type="button"
-        onClick={onReset}
-        className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
-      >
-        <RefreshCw className="size-3.5" />
-        {m['settings.chat.new_chat']()}
-      </button>
+      <div className="flex items-center gap-1.5">
+        {inDocs && (
+          <button
+            type="button"
+            onClick={onExitDocMode}
+            className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
+          >
+            <X className="size-3.5" />
+            Exit docs
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onReset}
+          className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
+        >
+          <RefreshCw className="size-3.5" />
+          {m['settings.chat.new_chat']()}
+        </button>
+      </div>
     </div>
   );
 }
@@ -966,6 +1371,29 @@ function MessageBubble({ message }: { message: Message }) {
           ) : (
             <MarkdownContent content={message.content} />
           ))}
+        {!isUser && message.citations && message.citations.length > 0 && (
+          <div className="border-foreground/10 mt-3 flex flex-col gap-1.5 border-t pt-2.5">
+            <div className="text-foreground/45 text-[10px] font-medium tracking-wide uppercase">
+              Sources
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {message.citations.map((s, i) => (
+                <a
+                  key={`${s.docId}-${i}`}
+                  href="#"
+                  onClick={(e) => e.preventDefault()}
+                  className="inline-flex max-w-full items-center gap-1 rounded-md border border-amber-300/60 bg-amber-50/60 px-2 py-0.5 text-[11px] font-medium text-amber-900 hover:bg-amber-100/60 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
+                >
+                  <FileText className="size-3 shrink-0" />
+                  <span className="truncate">{s.filename}</span>
+                  {s.page && (
+                    <span className="shrink-0 opacity-60">p.{s.page}</span>
+                  )}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>
   );
