@@ -8,10 +8,23 @@
  * the billing window.
  *
  * Priority: active subscription quota → credit balance fallback
+ *
+ * Cost model (post Stage 1):
+ *   - Subscription path: per-message (1 quota slot per call, regardless of
+ *     token tier). Subscribers get effectively-unlimited usage.
+ *   - Credit path: per-token-tier, scaled by `TIER_CREDIT_MULTIPLIER`
+ *     (short=1, medium=3, long=15) OR an explicit override (`cost`).
+ *     Doc-library uses an explicit cost (30 cr flat) because its real cost
+ *     varies wildly with input size — a flat rate is simpler and acts as a
+ *     loss-leader to drive conversion.
  */
 
-import { and, eq, gt, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
+import {
+  TIER_CREDIT_MULTIPLIER,
+  type ContextTier,
+} from '@/core/ai/tier-pricing';
 import { db } from '@/core/db';
 import { subscription } from '@/config/db/schema';
 import {
@@ -22,20 +35,41 @@ import { getCurrentSubscription } from '@/modules/subscriptions/service';
 
 export type QuotaConsumeResult =
   | { via: 'quota'; success: true; remaining: number }
-  | { via: 'credits'; result: ConsumeResult }
+  | { via: 'credits'; success: true; result: ConsumeResult; cost: number }
   | {
       via: 'none';
       success: false;
       reason: 'no_subscription' | 'quota_exhausted' | 'credit_exhausted';
     };
 
-/** Consume 1 message slot. Tries subscription quota first, then credit balance. */
+export interface ConsumeMessageOptions {
+  /**
+   * Explicit credit cost override. Use this for doc-library's flat 30 cr
+   * charge, or any feature that doesn't fit the tier multiplier. Wins
+   * over `tier` if both are set.
+   */
+  cost?: number;
+  /**
+   * Token tier. The credit cost = TIER_CREDIT_MULTIPLIER[tier]. Defaults
+   * to 'short' (1 credit) when neither `cost` nor `tier` is provided —
+   * preserves the pre-Stage-1 behavior so existing callers don't break.
+   */
+  tier?: ContextTier;
+  /** Scene label written to the credit.consume record. */
+  scene?: string;
+  /** Description written to the credit.consume record. */
+  description?: string;
+}
+
+/** Consume a message slot. Tries subscription quota first, then credit balance. */
 export async function consumeMessage(
-  userId: string
+  userId: string,
+  options: ConsumeMessageOptions = {}
 ): Promise<QuotaConsumeResult> {
   const sub = await getCurrentSubscription(userId);
 
-  // 1. Subscription quota path
+  // 1. Subscription quota path — 1 quota slot per call regardless of cost.
+  //    This is intentional: subscribers get the "all-you-can-eat" feel.
   if (sub && sub.messagesQuota && sub.messagesQuota > 0) {
     const used = sub.messagesUsed ?? 0;
     const remaining = sub.messagesQuota - used;
@@ -52,16 +86,20 @@ export async function consumeMessage(
     // Quota exhausted — fall through to credit fallback
   }
 
-  // 2. Credit balance fallback
+  // 2. Credit balance fallback — cost depends on tier / override.
+  //    Resolution order: explicit cost > tier multiplier > default 1.
+  const cost =
+    options.cost ?? (options.tier ? TIER_CREDIT_MULTIPLIER[options.tier] : 1);
+
   const result = await consumeCredits({
     userId,
-    credits: 1,
-    scene: 'hero_chat',
-    description: 'Hero chat · Kimi K3',
+    credits: cost,
+    scene: options.scene || 'hero_chat',
+    description: options.description || 'Hero chat · Kimi K3',
   });
 
   if (result.success) {
-    return { via: 'credits', result };
+    return { via: 'credits', success: true, result, cost };
   }
 
   // 3. Both exhausted

@@ -18,7 +18,7 @@ import {
   buildSlideFillPrompt,
   SYSTEM_PROMPT,
 } from './prompts';
-import { getTemplate, type Template } from './templates';
+import { getTemplate, TEMPLATES, type Template } from './templates';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -35,7 +35,8 @@ export interface GenerateInput {
   title: string;
   topic?: string;
   prompt?: string;
-  templateId: string;
+  /** Optional. If absent (or unknown), the service picks one via K3. */
+  templateId?: string;
   slideCount: number;
   sourceType: 'empty' | 'text' | 'doc_collection';
   sourceText?: string;
@@ -148,6 +149,83 @@ async function resolveModelConfig() {
   const model =
     (await getConfig('openai_model')) || process.env.OPENAI_MODEL || '';
   return { apiKey, baseUrl, model };
+}
+
+// ─── Template selection (one-click path) ───────────────────────────────────
+
+const TEMPLATE_IDS = TEMPLATES.map((t) => t.id);
+
+const KEYWORD_HINTS: Array<{ words: string[]; id: string }> = [
+  {
+    words: ['data', 'dashboard', 'analytics', 'metric', 'kpi', 'chart'],
+    id: 'data-screen',
+  },
+  { words: ['minimal', 'simple', 'clean', 'mono'], id: 'minimal-mono' },
+  {
+    words: ['creative', 'bold', 'launch', 'marketing', 'campaign'],
+    id: 'bold-color',
+  },
+  {
+    words: ['education', 'training', 'class', 'workshop', 'tutorial'],
+    id: 'edu-playful',
+  },
+  {
+    words: ['retro', 'vintage', 'editorial', 'magazine', 'warm'],
+    id: 'retro-cream',
+  },
+  {
+    words: ['business', 'exec', 'report', 'corporate', 'finance', 'quarterly'],
+    id: 'biz-dark',
+  },
+];
+
+/**
+ * Pick a template id for the one-click path. Order of preference:
+ *   1. Keyword hints (cheap, deterministic, no network)
+ *   2. K3 classification (one short call)
+ *   3. Fall back to the default template
+ */
+async function pickTemplateWithK3({
+  prompt,
+  cfg,
+}: {
+  prompt: string;
+  cfg: Awaited<ReturnType<typeof resolveModelConfig>>;
+}): Promise<string> {
+  // 1. Cheap keyword match — wins for obvious cases.
+  const lower = prompt.toLowerCase();
+  for (const hint of KEYWORD_HINTS) {
+    if (hint.words.some((w) => lower.includes(w))) {
+      return hint.id;
+    }
+  }
+
+  // 2. Ask K3 to classify.
+  try {
+    const raw = await openaiChatCompletion({
+      apiKey: cfg.apiKey,
+      baseUrl: cfg.baseUrl,
+      model: cfg.model,
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You classify presentation topics into one of these template ids. Reply with ONLY the id, no prose.',
+        },
+        {
+          role: 'user',
+          content: `Available template ids: ${TEMPLATE_IDS.join(', ')}.\n\nTopic: ${prompt}\n\nPick the best matching template id.`,
+        },
+      ],
+    });
+    const picked = raw.trim();
+    if (TEMPLATE_IDS.includes(picked)) return picked;
+  } catch {
+    // Network / rate-limit — fall through to default.
+  }
+
+  // 3. Default.
+  return TEMPLATES[0].id;
 }
 
 // ─── JSON parsing (defensive) ───────────────────────────────────────────────
@@ -503,16 +581,21 @@ export async function generateDeck(input: GenerateInput): Promise<PptTask> {
     });
   }
 
-  // 2. Insert the task row so the client can poll it.
+  // 2. Insert the task row so the client can poll it. If the caller didn't
+  //    pick a template (the one-click path), seed it with a placeholder —
+  //    we'll overwrite it after the AI picks in step 2b.
   const taskId = getUuid();
-  const template = getTemplate(input.templateId);
+  const seededTemplateId =
+    input.templateId && getTemplate(input.templateId)
+      ? input.templateId
+      : TEMPLATES[0].id;
   await db()
     .insert(pptTask)
     .values({
       id: taskId,
       userId: input.userId,
       title: input.title,
-      templateId: input.templateId,
+      templateId: seededTemplateId,
       slideCount: input.slideCount,
       sourceType: input.sourceType,
       sourceRef:
@@ -535,7 +618,25 @@ export async function generateDeck(input: GenerateInput): Promise<PptTask> {
       );
     }
 
-    // 3a. Outline
+    // 3a. Template selection — if the caller didn't pass one (the
+    //    one-click path), let K3 pick the best fit from the prompt. The
+    //    chosen template id is persisted to the task so the client + renderer
+    //    stay in sync.
+    let template = getTemplate(seededTemplateId);
+    if (!input.templateId) {
+      await updateStatus(taskId, 'outlining', 5);
+      const pickedId = await pickTemplateWithK3({
+        prompt: input.prompt || input.topic || input.title,
+        cfg,
+      });
+      template = getTemplate(pickedId);
+      await db()
+        .update(pptTask)
+        .set({ templateId: pickedId })
+        .where(eq(pptTask.id, taskId));
+    }
+
+    // 3b. Outline
     await updateStatus(taskId, 'outlining', 10);
     const sourceText = await gatherSourceText(input);
     const outlineRaw = await openaiChatCompletion({

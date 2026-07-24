@@ -1,6 +1,6 @@
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
-import { oneTap } from 'better-auth/plugins';
+import { magicLink, oneTap } from 'better-auth/plugins';
 
 import { db } from '@/core/db';
 import type { EmailProvider } from '@/core/email';
@@ -10,6 +10,7 @@ import { VerifyEmail } from '@/core/email/templates/verify-email';
 import { AUTH_SECRET_PLACEHOLDER, envConfigs } from '@/config';
 import * as schema from '@/config/db/schema';
 import { getAllConfigs } from '@/modules/config/service';
+import { grantForNewUser } from '@/modules/credits/service';
 import { getUuid } from '@/lib/hash';
 
 function assertProductionAuthSecret() {
@@ -64,6 +65,7 @@ let authInstance: any;
 let socialConfigsSignature = '';
 let emailEnabledLoaded = true;
 let emailVerificationEnabledLoaded = false;
+let magicLinkEnabledLoaded = false;
 
 function getSocialProviders(configs: Record<string, string>) {
   const providers: Record<string, any> = {};
@@ -139,6 +141,44 @@ function getAuthPlugins(configs: Record<string, string> | undefined) {
   if (configs.google_client_id && configs.google_one_tap_enabled === 'true') {
     plugins.push(oneTap());
   }
+  // Magic-link (passwordless email sign-in). Only enabled when email is fully
+  // configured — Resend / Cloudflare Email. The plugin's sendMagicLink
+  // callback reuses the same Resend provider we use for verification emails,
+  // so there's no second credential to manage.
+  if (
+    configs.magic_link_enabled === 'true' &&
+    configs.email_auth_enabled !== 'false' &&
+    isEmailConfigured(configs)
+  ) {
+    plugins.push(
+      magicLink({
+        // 10 minutes — long enough for someone to switch tabs, short enough
+        // that a leaked link is unlikely to outlive its usefulness.
+        expiresIn: 600,
+        // Allow 3 verification attempts (covers typos + stale links from
+        // a different device). Infinity would let brute-force tokens ride.
+        allowedAttempts: 3,
+        // New email auto-creates an account — better-auth issues the user
+        // row on first verify. Disable to force admin invite.
+        disableSignUp: configs.magic_link_disable_signup === 'true',
+        sendMagicLink: async ({ email, url }) => {
+          const all = await getAllConfigs();
+          const emailCtx = getEmailProvider(all);
+          if (!emailCtx) {
+            console.error('[auth] sendMagicLink: No email provider configured');
+            return;
+          }
+          const appName = all.app_name || envConfigs.app_name;
+          await emailCtx.provider.sendEmail({
+            to: email,
+            subject: `Sign in to ${appName}`,
+            text: `Click this link to sign in to ${appName}. It expires in 10 minutes.\n\n${url}\n\nIf you didn't request this, you can ignore this email.`,
+            html: `<p>Click the link below to sign in to <strong>${appName}</strong>. It expires in 10 minutes.</p><p><a href="${url}">Sign in to ${appName}</a></p><p>If you didn't request this, you can ignore this email.</p>`,
+          });
+        },
+      })
+    );
+  }
   return plugins;
 }
 
@@ -170,6 +210,16 @@ export function getAuth(configs?: Record<string, string>) {
     if (nextVerificationEnabled !== emailVerificationEnabledLoaded) {
       authInstance = null;
       emailVerificationEnabledLoaded = nextVerificationEnabled;
+    }
+  }
+
+  // Rebuild if the magic-link flag changed
+  if (configs) {
+    const nextMagicLinkEnabled =
+      configs.magic_link_enabled === 'true' && isEmailConfigured(configs);
+    if (nextMagicLinkEnabled !== magicLinkEnabledLoaded) {
+      authInstance = null;
+      magicLinkEnabledLoaded = nextMagicLinkEnabled;
     }
   }
 
@@ -226,6 +276,29 @@ export function getAuth(configs?: Record<string, string>) {
     },
     advanced: {
       database: { generateId: () => getUuid() },
+      // better-auth's databaseHooks fire on every user insert regardless of
+      // sign-up path (email, Google OAuth, GitHub OAuth, magic-link, etc.).
+      // We use the `after` hook to grant signup credits. The catch +
+      // console.error prevents a config-table outage from breaking auth —
+      // sign-ups still succeed even if the credit grant silently no-ops.
+      databaseHooks: {
+        user: {
+          create: {
+            after: async (user) => {
+              try {
+                const all = await getAllConfigs();
+                await grantForNewUser({
+                  userId: user.id,
+                  userEmail: user.email,
+                  configs: all,
+                });
+              } catch (e) {
+                console.error('[auth] databaseHook grant credits failed:', e);
+              }
+            },
+          },
+        },
+      },
     },
     emailAndPassword: {
       enabled: emailAndPasswordEnabled,

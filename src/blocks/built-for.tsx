@@ -23,7 +23,7 @@ export function BuiltFor() {
           <h2 className="text-[clamp(1.5rem,3.6vw,2.75rem)] leading-[1.08] font-medium tracking-[-0.02em] whitespace-nowrap">
             {m['landing.builtfor.title']()}
           </h2>
-          <p className="text-foreground/60 mt-5 text-justify text-lg leading-relaxed">
+          <p className="text-foreground/60 mt-5 text-center text-lg leading-relaxed">
             {m['landing.builtfor.description']()}
           </p>
         </Reveal>

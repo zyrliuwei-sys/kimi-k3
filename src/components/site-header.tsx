@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { ArrowRight, Menu, X } from 'lucide-react';
+import { ArrowRight, Menu, Sparkles, X } from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
-import { Link } from '@/core/i18n/navigation';
+import { Link, usePathname } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
+import { useSignupBonus } from '@/hooks/use-signup-bonus';
 import { LocaleSelector } from '@/components/locale-selector';
 import { SiteUserMenu } from '@/components/site-user-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -27,9 +28,37 @@ export function SiteHeader({ navLinks }: { navLinks?: NavLink[] }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const { data: session } = useSession();
   const user = session?.user;
+  const pathname = usePathname();
+
+  // Signup bonus banner — promoted above the nav so every page (including
+  // pricing, blog, signed-in app) reminds visitors about the offer. Hidden
+  // when admin disables initial_credits_* or when the user is already on
+  // the sign-up page (avoid a banner pointing at itself).
+  const bonus = useSignupBonus();
+  const showBonus =
+    bonus.enabled && bonus.credits > 0 && pathname !== '/sign-up';
 
   return (
     <header className="bg-background/80 sticky top-0 z-50 w-full backdrop-blur-sm">
+      {showBonus && (
+        <Link
+          href="/sign-up"
+          className="block bg-gradient-to-r from-emerald-500 via-emerald-500 to-teal-500 text-white transition-colors hover:from-emerald-600 hover:via-emerald-600 hover:to-teal-600"
+        >
+          <div className="mx-auto flex max-w-6xl items-center justify-center gap-2 px-4 py-2 text-center text-sm font-medium sm:text-base">
+            <Sparkles className="size-4 shrink-0 sm:size-5" />
+            <span>
+              {m['auth.signup.bonus_banner']({ credits: bonus.credits })} ·{' '}
+              {m['common.sign.no_methods_title'] &&
+                m['auth.signup.bonus_subtitle']()}
+            </span>
+            <span className="hidden items-center gap-1 underline underline-offset-2 sm:inline-flex">
+              {m['common.sign.sign_up_title']()}
+              <ArrowRight className="size-4" />
+            </span>
+          </div>
+        </Link>
+      )}
       <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
         {/* Brand */}
         <Link href="/" className="flex items-center gap-2">

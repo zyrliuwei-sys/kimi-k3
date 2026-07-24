@@ -159,7 +159,7 @@ export function HeroChat() {
       {!empty || gate ? (
         <div
           ref={scrollRef}
-          className="mb-4 max-h-[min(48vh,360px)] overflow-y-auto pr-1"
+          className="mx-auto mb-4 max-h-[min(48vh,360px)] w-full max-w-1/2 overflow-y-auto pr-1"
         >
           <div className="space-y-4">
             {messages.map((msg, i) => (

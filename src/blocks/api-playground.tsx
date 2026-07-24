@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  ArrowRight,
   ArrowUp,
   BookOpen,
   Check,
@@ -11,6 +12,7 @@ import {
   Loader2,
   MessageSquare,
   Plus,
+  Presentation,
   RefreshCw,
   ScanLine,
   Sparkles,
@@ -119,7 +121,7 @@ function isSupportedMime(mime: string): boolean {
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
-type PlaygroundMode = 'chat' | 'documents';
+type PlaygroundMode = 'chat' | 'documents' | 'ppt';
 
 export function ApiPlayground() {
   const [mode, setMode] = useState<PlaygroundMode>('chat');
@@ -262,9 +264,51 @@ export function ApiPlayground() {
     // ── Document-library mode: bypass chat attachments and stream via the
     //    doc-library SSE endpoint, which stitches parsed docs into the prompt.
     if (mode === 'documents') {
+      // If the user uploaded files via the + button but never loaded the
+      // sample collection, auto-promote those uploads into a fresh doc
+      // collection so they can ask questions right away.
       if (!docCollectionId) {
-        toast.error('Load sample documents first');
-        return;
+        const docAtts = attachments.filter((a) => a.type === 'document');
+        if (docAtts.length === 0) {
+          toast.error(
+            attachments.length > 0
+              ? 'Document mode needs PDF / Word / Excel / PPT files'
+              : 'Load sample documents first'
+          );
+          return;
+        }
+        const tId = toast.loading('Preparing your documents…');
+        try {
+          const coll = await apiPost<{ id: string }>(
+            '/api/doc-library/collection',
+            { name: 'My Documents' }
+          );
+          for (const att of docAtts) {
+            const blob = await fetch(att.url).then((r) => r.blob());
+            const file = new File([blob], att.filename || 'document', {
+              type: blob.type || 'application/octet-stream',
+            });
+            const fd = new FormData();
+            fd.set('collectionId', coll.id);
+            fd.set('files', file);
+            const res = await fetch('/api/doc-library/document', {
+              method: 'POST',
+              body: fd,
+            });
+            const json = await res
+              .json()
+              .catch(() => ({ code: -1, message: 'Upload failed' }));
+            if (json.code !== 0) {
+              throw new Error(json.message || 'Upload failed');
+            }
+          }
+          setDocCollectionId(coll.id);
+          toast.dismiss(tId);
+        } catch (err: any) {
+          toast.dismiss(tId);
+          toast.error(err?.message || 'Failed to prepare documents');
+          return;
+        }
       }
       if (!text || isThinking) return;
       const userMsg: Message = {
@@ -993,38 +1037,6 @@ function WelcomeState({
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className="flex w-full flex-col items-center text-center"
     >
-      {/* Mono status bar — eyebrow + live model readout. Frames the page as a
-          lab and surfaces the active model without a separate badge. */}
-      <motion.div
-        initial={{ opacity: 0, y: -6 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="border-foreground/10 bg-card/60 mb-6 flex w-full items-center justify-between gap-3 rounded-full border py-1 pr-1.5 pl-1.5 backdrop-blur"
-      >
-        <span className="inline-flex items-center gap-2.5 py-0.5 pl-1.5">
-          <span className="brand-gradient grid size-7 shrink-0 place-items-center rounded-full shadow-sm shadow-violet-500/25">
-            {mode === 'documents' ? (
-              <BookOpen className="size-3.5 text-white" />
-            ) : (
-              <Terminal className="size-3.5 text-white" />
-            )}
-          </span>
-          <span className="text-foreground/60 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
-            {m['playground.welcome.eyebrow']()}
-          </span>
-        </span>
-        <span className="bg-foreground/[0.04] text-foreground/55 inline-flex items-center gap-2 rounded-full px-3 py-1.5 font-mono text-[11px] tracking-tight">
-          <span className="pg-caret size-1.5 rounded-full bg-emerald-500" />
-          {selected.name}
-          {selected.effortLabel && (
-            <>
-              <span className="text-foreground/25">·</span>
-              <span className="text-foreground/45">{selected.effortLabel}</span>
-            </>
-          )}
-        </span>
-      </motion.div>
-
       {/* Mode toggle */}
       <div className="bg-card/60 border-foreground/10 mb-6 inline-flex items-center gap-1 rounded-full border p-1">
         <button
@@ -1053,6 +1065,19 @@ function WelcomeState({
           <BookOpen className="size-3.5" />
           Documents
         </button>
+        <button
+          type="button"
+          onClick={() => onModeChange('ppt')}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors',
+            mode === 'ppt'
+              ? 'bg-foreground text-background'
+              : 'text-foreground/55 hover:text-foreground'
+          )}
+        >
+          <Presentation className="size-3.5" />
+          PPT
+        </button>
       </div>
 
       {mode === 'documents' ? (
@@ -1069,6 +1094,8 @@ function WelcomeState({
           docCount={docCount}
           pageCount={pageCount}
         />
+      ) : mode === 'ppt' ? (
+        <PptTab />
       ) : (
         <>
           <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
@@ -1116,84 +1143,20 @@ function DocumentsEmpty({
       <p className="text-foreground/60 mt-3 max-w-lg text-[14px] leading-relaxed">
         {m['doc_library.hero.subheading']()}
       </p>
+    </div>
+  );
+}
 
-      {/* Capability badges — 4 small cards in a row */}
-      <div className="mt-7 grid w-full grid-cols-2 gap-2 sm:grid-cols-4">
-        <CapabilityBadge
-          icon={<BookOpen className="size-3.5" />}
-          title={m['doc_library.capability.context.title']()}
-          desc={m['doc_library.capability.context.desc']()}
-        />
-        <CapabilityBadge
-          icon={<Sparkles className="size-3.5" />}
-          title={m['doc_library.capability.cited.title']()}
-          desc={m['doc_library.capability.cited.desc']()}
-        />
-        <CapabilityBadge
-          icon={<Files className="size-3.5" />}
-          title={m['doc_library.capability.cross.title']()}
-          desc={m['doc_library.capability.cross.desc']()}
-        />
-        <CapabilityBadge
-          icon={<ScanLine className="size-3.5" />}
-          title={m['doc_library.capability.multilang.title']()}
-          desc={m['doc_library.capability.multilang.desc']()}
-        />
-      </div>
-
-      {/* Try asking section — example chips */}
-      <div className="mt-6 w-full">
-        <div className="text-foreground/45 mb-2 font-mono text-[10px] font-medium tracking-[0.18em] uppercase">
-          {m['doc_library.examples.title']()}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            m['doc_library.examples.earnout'](),
-            m['doc_library.examples.compare'](),
-            m['doc_library.examples.summary'](),
-            m['doc_library.examples.checklist'](),
-          ].map((q) => (
-            <button
-              key={q}
-              type="button"
-              onClick={() => onPickExample(q)}
-              disabled={!hasLoaded}
-              className="border-foreground/10 bg-card hover:border-foreground/25 hover:bg-foreground/[0.03] inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-left text-[12px] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ArrowUp className="text-foreground/40 size-3" />
-              <span className="line-clamp-1">{q}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* CTA + footer stats */}
-      {!hasLoaded ? (
-        <>
-          <button
-            type="button"
-            onClick={onLoadSamples}
-            disabled={loading}
-            className="brand-gradient mt-7 inline-flex h-11 items-center gap-2 rounded-full px-6 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] transition-all hover:brightness-110 disabled:opacity-50"
-          >
-            {loading ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Sparkles className="size-4" />
-            )}
-            {loading
-              ? m['doc_library.empty.loading_samples']()
-              : m['doc_library.empty.load_samples']()}
-          </button>
-          <p className="text-foreground/40 mt-3 font-mono text-[11px] tracking-wide">
-            {statsLabel}
-          </p>
-        </>
-      ) : (
-        <p className="text-foreground/40 mt-6 font-mono text-[11px] tracking-wide">
-          {statsLabel}
-        </p>
-      )}
+function PptTab() {
+  return (
+    <div className="flex w-full max-w-md flex-col items-center text-center">
+      <h1 className="font-serif text-2xl font-medium tracking-tight md:text-3xl">
+        Turn any source into a deck
+      </h1>
+      <p className="text-foreground/55 mt-3 text-sm">
+        One-click PPT generation — outline, slides, and download in under a
+        minute.
+      </p>
     </div>
   );
 }

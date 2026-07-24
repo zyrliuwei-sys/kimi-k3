@@ -10,6 +10,7 @@ import { apiPost } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { localizeHref } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
+import { useSignupBonus } from '@/hooks/use-signup-bonus';
 import { TextField } from '@/components/form-field';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -93,6 +94,11 @@ function SignUpPage() {
   const inviteCodeRequired = configs.invite_code_required === 'true';
   const hasSocial = googleEnabled || githubEnabled;
   const hasAnyMethod = emailEnabled || hasSocial;
+
+  // Signup bonus — drives the "20 credits on us" message that wraps the
+  // form. Hidden entirely when admin disables initial_credits_*.
+  const bonus = useSignupBonus();
+  const showBonus = bonus.enabled && bonus.credits > 0;
 
   const form = useForm({
     defaultValues: {
@@ -182,6 +188,16 @@ function SignUpPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
+            {showBonus && (
+              <div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-center">
+                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                  {m['auth.signup.bonus_banner']({ credits: bonus.credits })}
+                </p>
+                <p className="text-muted-foreground mt-1 text-xs">
+                  {m['auth.signup.bonus_subtitle']()}
+                </p>
+              </div>
+            )}
             {configsLoaded && !hasAnyMethod ? (
               <div className="rounded-lg border border-dashed p-6 text-center">
                 <p className="text-sm font-medium">
@@ -325,10 +341,22 @@ function SignUpPage() {
                             <Button type="submit" disabled={isSubmitting}>
                               {isSubmitting
                                 ? '...'
-                                : m['common.sign.sign_up_title']()}
+                                : showBonus
+                                  ? `${m['common.sign.sign_up_title']()} ${m['auth.signup.bonus_button_suffix']({ credits: bonus.credits })}`
+                                  : m['common.sign.sign_up_title']()}
                             </Button>
                           )}
                         </form.Subscribe>
+                        {showBonus && (
+                          <p className="text-muted-foreground text-center text-xs">
+                            {m['auth.signup.bonus_footer']({
+                              credits: bonus.credits,
+                            })}{' '}
+                            {m['auth.signup.bonus_validity']({
+                              days: bonus.validDays,
+                            })}
+                          </p>
+                        )}
                         <FieldDescription className="text-center">
                           {m['common.sign.already_have_account']()}{' '}
                           <Link

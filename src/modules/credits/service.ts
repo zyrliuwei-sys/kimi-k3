@@ -263,17 +263,19 @@ export async function grantForNewUser(params: {
 }) {
   const { userId, userEmail, configs } = params;
 
-  // Default ON with 1 credit (= 1 free chat) so a fresh install grants new
-  // users a free taste automatically. Admins can tune the amount or disable
-  // via the initial_credits_* settings (Admin → Settings → General → Credits).
+  // Defaults (must mirror src/modules/config/settings.ts for fresh installs
+  // that never opened Admin → Settings): 20 credits expiring in 30 days.
+  // Tuned for Kimi K3 economics — see the comment block in settings.ts.
   if (configs.initial_credits_enabled === 'false') return;
 
   const parsed = parseInt(configs.initial_credits_amount);
-  const credits = Number.isNaN(parsed) ? 1 : parsed;
+  const credits = Number.isNaN(parsed) ? 20 : parsed;
   if (credits <= 0) return;
 
-  const validDays = parseInt(configs.initial_credits_valid_days) || 0;
-  const description = configs.initial_credits_description || 'Initial credits';
+  const validDays = parseInt(configs.initial_credits_valid_days) || 30;
+  const description =
+    configs.initial_credits_description ||
+    'Welcome to kimik3 — 20 free credits to try it out 🎉';
 
   const expiresAt = calculateCreditExpirationTime({
     creditsValidDays: validDays,

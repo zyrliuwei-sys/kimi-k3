@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { getAuth } from '@/core/auth';
 import { getDbConfigs } from '@/modules/config/service';
+import { grantForNewUser } from '@/modules/credits/service';
 import { grantRoleForNewUser } from '@/modules/rbac/service';
 import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 
@@ -39,10 +40,16 @@ async function handle(request: Request) {
   try {
     const body = await response.clone().json();
     if (body?.user?.id && body?.token) {
-      // Fire-and-forget: don't delay the auth response.
+      // Fire-and-forget: don't delay the auth response. Both side-effects
+      // (RBAC role + signup credits) run in parallel — they're independent.
       grantRoleForNewUser({ userId: body.user.id, configs }).catch((e) =>
         console.error('[auth] auto-grant role failed:', e)
       );
+      grantForNewUser({
+        userId: body.user.id,
+        userEmail: body.user.email,
+        configs,
+      }).catch((e) => console.error('[auth] auto-grant credits failed:', e));
     }
   } catch {
     // Non-JSON response — let it through unchanged.

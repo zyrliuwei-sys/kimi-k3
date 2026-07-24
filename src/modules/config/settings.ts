@@ -262,6 +262,11 @@ export function getSettings(): Setting[] {
     },
 
     // ─── General / Credits ───────────────────────────────────────────
+    // Defaults are tuned for an overseas B2C AI product where Kimi K3 is
+    // the model. 1 credit ≈ $0.0148 of API cost, so 20 credits ≈ $0.30
+    // CAC — safe under industry freemium norms ($3-15) while still
+    // giving the user one full experience (1 long-context doc + ~5
+    // short follow-ups) before paywall.
     {
       name: 'initial_credits_enabled',
       title: 'Grant credits on signup',
@@ -275,7 +280,7 @@ export function getSettings(): Setting[] {
       title: 'Credits amount',
       type: 'number',
       placeholder: '100',
-      defaultValue: '1',
+      defaultValue: '20',
       group: 'credit',
       tab: 'general',
     },
@@ -284,6 +289,7 @@ export function getSettings(): Setting[] {
       title: 'Valid days',
       type: 'number',
       placeholder: '365',
+      defaultValue: '30',
       group: 'credit',
       tab: 'general',
     },

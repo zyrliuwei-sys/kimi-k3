@@ -7,9 +7,14 @@ import {
   type ChatContentPart,
   type ChatTurn,
 } from '@/core/ai/chat';
+import { checkLongContextAllowed } from '@/core/ai/tier-pricing';
 import { getAuth } from '@/core/auth';
 import { getConfig } from '@/modules/config/service';
-import { consumeMessage } from '@/modules/subscription-quota/service';
+import { getBalance } from '@/modules/credits/service';
+import {
+  consumeMessage,
+  getRemainingQuota,
+} from '@/modules/subscription-quota/service';
 import { getCookieFromHeader } from '@/lib/cookie';
 import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 import { respErr } from '@/lib/resp';
@@ -308,14 +313,26 @@ async function buildMessages(
 }
 
 /**
- * Signed-in chat gate: subscription quota → credit balance fallback.
- * Returns 'ok' if the message is billable, otherwise a gate status string.
+ * Signed-in chat gate — pure READ, no credit consumption.
+ *
+ * We split the gate check from the actual debit (consumeMessage) so that a
+ * transient failure (race, stale state, network blip) never causes a credit
+ * to be charged AND the user to be told "out of credits" simultaneously.
+ *
+ * Two ways the user has access:
+ *   1. Active subscription with remaining quota (per-month, not per-credit)
+ *   2. Any positive credit balance (consumed at request time, in the stream)
  */
 async function checkChatAccess(
   userId: string
 ): Promise<'ok' | 'payment_required'> {
-  const result = await consumeMessage(userId);
-  return result.success ? 'ok' : 'payment_required';
+  const quota = await getRemainingQuota(userId);
+  if (quota.remaining > 0) return 'ok';
+
+  const balance = await getBalance(userId);
+  if (balance > 0) return 'ok';
+
+  return 'payment_required';
 }
 
 /** Cookie that marks an anonymous visitor as having used their free chat.
@@ -389,11 +406,14 @@ async function POST({ request }: { request: Request }) {
       // Tier 2: free chat already used — must sign up / log in.
       gate = 'login_required';
     }
-  } else {
-    // Tier 3 + 4: signed-in users need a subscription quota or credit balance.
-    const access = await checkChatAccess(session.user.id);
-    if (access !== 'ok') gate = 'payment_required';
   }
+  // NOTE: For SIGNED-IN users we no longer pre-check the balance. We always
+  // proceed to the stream and let `consumeMessage` decide — if it fails
+  // mid-stream (insufficient credits, race with another tab, …) we emit a
+  // `gate` event so the client shows the upgrade modal. This removes the
+  // historical "user has credits, gate blocks them anyway" failure mode
+  // where the gate read and the stream consume saw different balance
+  // snapshots.
 
   if (gate) {
     return sseResponse(async (emit) => {
@@ -405,6 +425,28 @@ async function POST({ request }: { request: Request }) {
   return sseResponse(
     async (emit) => {
       try {
+        // ── Debit the credit here, after the gate has already passed ──
+        // We split this from the gate check above on purpose: if the user
+        // had access (subscription OR credit balance) when we decided to
+        // stream, and then the balance drained between gate and now, we
+        // surface a `gate` event here so the client can show the upgrade
+        // prompt — but we've consumed nothing yet for THIS request.
+        // (Race: the prior design could charge 1 cr AND still emit a
+        // payment_required gate if the consume function returned false
+        // for any non-balance reason.)
+        if (session?.user) {
+          const debit = await consumeMessage(session.user.id, {
+            tier: 'short',
+            scene: 'playground_chat',
+            description: 'Playground chat · Kimi K3',
+          });
+          if (!debit.success) {
+            emit({ t: 'gate', status: 'payment_required' });
+            emit({ t: 'done' });
+            return;
+          }
+        }
+
         const trustedHosts = await getTrustedStorageHosts();
         const { messages, model } = await buildMessages(
           turns,
@@ -412,11 +454,35 @@ async function POST({ request }: { request: Request }) {
           cfg,
           trustedHosts
         );
+        const fullMessages: ChatTurn[] = [
+          { role: 'system', content: SYSTEM_PROMPT },
+          ...messages,
+        ];
+
+        // Long-context guard. Only enforced for signed-in users (anon path
+        // is already capped at MAX_CONTENT_LEN * MAX_TURNS above, well below
+        // the threshold). Long pastes / huge attachments need a subscription.
+        if (session?.user) {
+          const tierCheck = await checkLongContextAllowed({
+            userId: session.user.id,
+            messages: fullMessages,
+          });
+          if (!tierCheck.allowed) {
+            emit({
+              t: 'error',
+              message:
+                'subscription_required: this message exceeds the long-context limit. Subscribe to send large prompts.',
+            });
+            emit({ t: 'done' });
+            return;
+          }
+        }
+
         for await (const delta of openaiChatCompletionStream({
           apiKey: cfg.apiKey,
           baseUrl: cfg.baseUrl,
           model,
-          messages: [{ role: 'system', content: SYSTEM_PROMPT }, ...messages],
+          messages: fullMessages,
         })) {
           if (delta) emit({ t: 'delta', text: delta });
         }

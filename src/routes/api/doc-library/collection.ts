@@ -20,11 +20,9 @@ import { respData, respErr } from '@/lib/resp';
  * All handlers require auth. Ownership is enforced inside the service.
  */
 
-async function requireUser() {
+async function requireUser(request: Request) {
   const auth = getAuth();
-  const session = await auth.api.getSession({
-    headers: new Headers(),
-  });
+  const session = await auth.api.getSession({ headers: request.headers });
   if (!session?.user?.id) {
     return { error: respErr('Unauthorized', { status: 401 }) } as const;
   }
@@ -35,14 +33,14 @@ export const Route = createFileRoute('/api/doc-library/collection')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const r = await requireUser();
+        const r = await requireUser(request);
         if ('error' in r) return r.error;
         const rows = await listCollections(r.userId);
         return respData(rows);
       },
 
       POST: async ({ request }) => {
-        const r = await requireUser();
+        const r = await requireUser(request);
         if ('error' in r) return r.error;
         const body = (await request.json().catch(() => ({}))) as {
           name?: string;
@@ -61,7 +59,7 @@ export const Route = createFileRoute('/api/doc-library/collection')({
       },
 
       PATCH: async ({ request }) => {
-        const r = await requireUser();
+        const r = await requireUser(request);
         if ('error' in r) return r.error;
         const url = new URL(request.url);
         const id = url.searchParams.get('id') || '';
@@ -89,7 +87,7 @@ export const Route = createFileRoute('/api/doc-library/collection')({
       },
 
       DELETE: async ({ request }) => {
-        const r = await requireUser();
+        const r = await requireUser(request);
         if ('error' in r) return r.error;
         const url = new URL(request.url);
         const id = url.searchParams.get('id') || '';

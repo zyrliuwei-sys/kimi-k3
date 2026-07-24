@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 
 import { openaiChatCompletionStream, type ChatTurn } from '@/core/ai/chat';
+import { checkLongContextAllowed } from '@/core/ai/tier-pricing';
 import { db } from '@/core/db';
 import {
   chat,
@@ -240,6 +241,19 @@ export async function* streamMessage(params: {
     turns.push({ role, content: textFromParts(msg.parts) });
   }
   turns.push({ role: 'user', content });
+
+  // 1b. long-context guard — refuse if total tokens exceed the subscription
+  //     threshold (32k). Short-circuits BEFORE we call the model so a long
+  //     history + pasted essay can't burn through credits.
+  const tierCheck = await checkLongContextAllowed({ userId, messages: turns });
+  if (!tierCheck.allowed) {
+    yield {
+      type: 'error',
+      message:
+        'subscription_required: this conversation exceeds the long-context limit. Subscribe to continue.',
+    };
+    return;
+  }
 
   // 2. resolve model config
   const cfg = await getChatModelConfig();

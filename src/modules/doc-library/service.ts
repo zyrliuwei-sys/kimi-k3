@@ -1,8 +1,10 @@
-import { and, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import { openaiChatCompletionStream } from '@/core/ai/chat';
+import { checkLongContextAllowed } from '@/core/ai/tier-pricing';
 import { db } from '@/core/db';
 import {
+  credit,
   docCollection,
   docCollectionDocument,
   docCollectionMessage,
@@ -14,6 +16,30 @@ import { respErr } from '@/lib/resp';
 
 import { parseDocument, type ParsedDocument } from './parser';
 import { buildAskPrompt, SYSTEM_PROMPT } from './prompts';
+
+// ─── Doc-library "taste, not a meal" policy ──────────────────────────────────
+// The first ask-per-user is FREE so newcomers see the value (AI answering
+// real questions from their PDF). After that, every ask costs a flat rate
+// because doc-library input size is wildly variable — a flat rate is easier
+// to explain to users than a token-tiered cost, and it doubles as a
+// deliberate loss-leader to drive subscription conversion.
+const DOC_LIBRARY_COST = 30;
+const DOC_LIBRARY_SCENE = 'doc_library';
+
+/** Has this user ever completed a doc-library ask (consumed a credit)? */
+async function hasPriorDocLibraryConsumption(userId: string): Promise<boolean> {
+  const [row] = await db()
+    .select({ n: count() })
+    .from(credit)
+    .where(
+      and(
+        eq(credit.userId, userId),
+        eq(credit.transactionType, 'consume'),
+        eq(credit.transactionScene, DOC_LIBRARY_SCENE)
+      )
+    );
+  return (row?.n ?? 0) > 0;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -434,13 +460,29 @@ async function* _streamAskImpl(
   params: AskInput,
   signal?: AbortSignal
 ): AsyncGenerator<AskStreamEvent, void, unknown> {
-  // 1. Access gate: anonymous → login required, signed-in → consume credits.
-  if (!(await consumeMessage(params.userId).then((r) => r.success))) {
+  // 1. Doc-library "taste, not a meal" — first call is FREE so the user
+  //    sees the magic ("AI really read my PDF!") before any paywall. After
+  //    that, every call costs DOC_LIBRARY_COST credits (flat rate — see
+  //    rationale in tier-pricing.ts). The "first time" marker is any prior
+  //    consume record with scene=DOC_LIBRARY_SCENE for this user.
+  const isFirstDocCall = !(await hasPriorDocLibraryConsumption(params.userId));
+  const docCost = isFirstDocCall ? 0 : DOC_LIBRARY_COST;
+
+  // 2. Access gate. cost=0 short-circuits past subscription quota and
+  //    credit balance (no charge), but still records a 0-credit consume
+  //    row so subsequent calls see "trial already used".
+  if (
+    !(await consumeMessage(params.userId, {
+      cost: docCost,
+      scene: DOC_LIBRARY_SCENE,
+      description: 'Document library · Kimi K3',
+    }).then((r) => r.success))
+  ) {
     yield { type: 'error', message: 'payment_required' };
     return;
   }
 
-  // 2. Pull collection + parsed documents.
+  // 3. Pull collection + parsed documents.
   const coll = await getCollection(params.userId, params.collectionId);
   if (!coll) {
     yield { type: 'error', message: 'Collection not found' };
@@ -483,6 +525,26 @@ async function* _streamAskImpl(
     parsed,
     history
   );
+
+  // 5b. Long-context guard — a single 280k-token document would cost
+  //     ~$1.02 to answer. Anyone uploading a stack of large documents
+  //     would otherwise be able to burn a month of revenue in minutes.
+  //     The guard runs AFTER the prompt is built so we can estimate the
+  //     real cost (parsed docs + history + question), and BEFORE the
+  //     upstream call so we never charge a credit that we can't recover.
+  const tierCheck = await checkLongContextAllowed({
+    userId: params.userId,
+    messages,
+  });
+  if (!tierCheck.allowed) {
+    yield {
+      type: 'error',
+      message:
+        'subscription_required: this document collection exceeds the long-context limit. Subscribe to ask questions across large document sets.',
+    };
+    return;
+  }
+
   const cfg = await resolveModelConfig();
   if (!cfg.hasKey) {
     yield {
