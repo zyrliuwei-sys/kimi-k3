@@ -128,7 +128,7 @@ export function Footer() {
                   className="size-8 rounded-lg"
                 />
                 <span className="text-lg font-bold text-neutral-100">
-                  anyany
+                  kimik3
                 </span>
               </Link>
             </div>

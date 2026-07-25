@@ -7,6 +7,7 @@ import {
   FileText,
   Film,
   FolderGit2,
+  Gift,
   Loader2,
   Plus,
   RefreshCw,
@@ -130,6 +131,9 @@ async function uploadMediaFiles(files: File[]): Promise<Attachment[]> {
 // (`src/routes/api/storage/upload-media.ts`). Rejecting here saves the user
 // the round-trip + server-side rejection for the obvious bad inputs.
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
+// Hard cap on a single batch. Real ceiling is the model's context window
+// (per-doc text is capped at MAX_DOC_CHARS server-side and truncated), not
+// the file count, so we let the API take whatever the user throws at it.
 const MAX_FILES = 50;
 const ALLOWED_MIME_PREFIXES = ['image/', 'video/'];
 const ALLOWED_MIME_EXACT = new Set([
@@ -423,7 +427,38 @@ export function ApiPlayground() {
   }) {
     if (!requireAuth()) return;
     const text = (opts?.text ?? input).trim();
-    const pendingAttachments = opts?.attachments ?? attachments;
+    const explicitAttachments = opts?.attachments ?? attachments;
+
+    // Document attachments need to persist across turns so follow-up messages
+    // ("turn this into a PPT", "translate it", etc.) can reference the
+    // original text the AI has already seen. Without this, the model only
+    // sees its own prior summary in the history — and a follow-up that asks
+    // for a transformation looks like a request against content the model
+    // can no longer reach.
+    //
+    // We merge every prior user turn's document attachments into the current
+    // request, deduped by URL (the storage key is the file md5, so re-sending
+    // is just a URL pointer — no extra upload round-trip). Images and videos
+    // are NOT carried forward — those are typically one-shot (the user
+    // looks at them once and moves on), and silently re-inlining a vision
+    // part on every turn would bloat the token bill.
+    const historicalDocs = new Map<string, Attachment>();
+    for (const turn of messages) {
+      if (turn.role !== 'user' || !turn.attachments) continue;
+      for (const att of turn.attachments) {
+        if (att.type !== 'document') continue;
+        if (!historicalDocs.has(att.url)) historicalDocs.set(att.url, att);
+      }
+    }
+    const merged: Attachment[] = [];
+    const seen = new Set<string>();
+    for (const att of [...explicitAttachments, ...historicalDocs.values()]) {
+      if (seen.has(att.url)) continue;
+      seen.add(att.url);
+      merged.push(att);
+    }
+    const pendingAttachments = merged;
+
     // Image-only messages get a default prompt so the backend has a valid user
     // turn and the model knows what to do with the attachment.
     const effective =
@@ -441,7 +476,11 @@ export function ApiPlayground() {
       id: ++idRef.current,
       role: 'user',
       content: effective,
-      attachments: pendingAttachments.length ? pendingAttachments : undefined,
+      // UI rendering only — store what the user actually attached THIS turn,
+      // not the merged set we forward to the model. Otherwise the bubble
+      // would pile up every historical document above every message, which
+      // buries the user's actual input.
+      attachments: explicitAttachments.length ? explicitAttachments : undefined,
     };
     const turns = [...messages, userMsg];
     setMessages(turns);
@@ -494,10 +533,18 @@ export function ApiPlayground() {
             role: msg.role,
             content: msg.content,
           })),
-          // Strip browser-local previewUrl before sending — it's a blob:
-          // URL scoped to this tab and has no meaning on the server.
+          // Strip browser-local fields before sending — they're React /
+          // optimistic-UI state (id, uploadStatus, blob URL, dedup keys)
+          // that have no meaning on the server and would bloat the request.
           attachments: pendingAttachments.map((a) => {
-            const { previewUrl: _drop, ...rest } = a;
+            const {
+              previewUrl: _preview,
+              uploadStatus: _status,
+              id: _id,
+              _size: _size,
+              _mtime: _mtime,
+              ...rest
+            } = a;
             return rest;
           }),
         },
@@ -737,6 +784,26 @@ function AuthPromptDialog({
               <p className="text-foreground/70 max-w-sm text-sm leading-relaxed">
                 {m['playground.auth.description']()}
               </p>
+
+              {/* Free-credits gift banner — the conversion hook. Sits right
+                  between the description and the action buttons so the
+                  "Create free account" CTA is preceded by the value prop. */}
+              <div className="mt-1 w-full rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-violet-500/10 p-3 text-left">
+                <div className="flex items-center gap-2.5">
+                  <span className="brand-gradient grid size-8 shrink-0 place-items-center rounded-lg text-white shadow-sm shadow-violet-500/30">
+                    <Gift className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-foreground text-[13px] leading-tight font-semibold">
+                      {m['playground.auth.gift_badge']()}
+                    </p>
+                    <p className="text-foreground/60 mt-0.5 text-[11.5px] leading-snug">
+                      {m['playground.auth.gift_description']()}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
               <div className="mt-2 flex w-full flex-col gap-2.5">
                 {googleEnabled && (
                   <>
@@ -987,10 +1054,6 @@ function Composer({
           })}
         </div>
       </div>
-
-      <p className="text-foreground/35 mt-2.5 text-center font-mono text-[11px] tracking-tight uppercase">
-        {m['playground.disclaimer']()}
-      </p>
     </div>
   );
 }

@@ -119,6 +119,10 @@ const INLINE_MAX_BYTES =
 // these just bound storage/Disk exposure. Per-IP quota relies on the
 // unspoofable CF-Connecting-IP resolved by getClientIpFromRequest.
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024; // 100MB per file
+// Cap matches the playground client's MAX_FILES — keep the two in sync.
+// The chat endpoint inlines each document's parsed text into the user turn;
+// per-doc text is capped at MAX_DOC_CHARS so the real ceiling is the model
+// context window, not the file count.
 const MAX_FILES = 50; // per request
 const ANON_UPLOAD_LIMIT = 1; // free anonymous uploads per IP
 

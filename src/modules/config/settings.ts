@@ -315,6 +315,34 @@ export function getSettings(): Setting[] {
       group: 'credit',
       tab: 'general',
     },
+    {
+      // Chat cost = max(minPerCall, ceil(estimatedTokens / 1000 × rate)).
+      // Applied at /api/playground/chat and /api/chat/$id after the model
+      // request is built (so the estimate reflects parsed documents /
+      // attached files). Actual usage from `usage.total_tokens` refunds
+      // the difference if lower; we eat over-runs to avoid "surcharge
+      // after the fact" UX.
+      name: 'chat_credit_per_1k_tokens',
+      title: 'Chat credits per 1k tokens',
+      type: 'number',
+      placeholder: '0.05',
+      defaultValue: '0.05',
+      min: 0,
+      group: 'credit',
+      tab: 'general',
+      tip: 'Per-token chat cost (credits per 1k tokens). Default 0.05 = 1 cr per 20k tokens.',
+    },
+    {
+      name: 'chat_credit_min_per_call',
+      title: 'Chat credits min per call',
+      type: 'number',
+      placeholder: '1',
+      defaultValue: '1',
+      min: 0,
+      group: 'credit',
+      tab: 'general',
+      tip: 'Minimum credits charged per chat, even when the per-token math rounds below this.',
+    },
 
     // ─── Auth / Email ────────────────────────────────────────────────
     {

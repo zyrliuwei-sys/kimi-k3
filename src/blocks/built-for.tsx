@@ -19,8 +19,8 @@ export function BuiltFor() {
   return (
     <section className="px-4 py-20 sm:py-28">
       <div className="mx-auto max-w-6xl">
-        <Reveal className="mx-auto max-w-2xl text-center">
-          <h2 className="text-[clamp(1.5rem,3.6vw,2.75rem)] leading-[1.08] font-medium tracking-[-0.02em] whitespace-nowrap">
+        <Reveal className="mx-auto max-w-3xl">
+          <h2 className="text-left text-[clamp(1.5rem,3.6vw,2.75rem)] leading-[1.08] font-medium tracking-[-0.02em] whitespace-nowrap">
             {m['landing.builtfor.title']()}
           </h2>
           <p className="text-foreground/60 mt-5 text-left text-lg leading-relaxed">

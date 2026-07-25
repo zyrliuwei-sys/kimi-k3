@@ -558,16 +558,22 @@ async function* _streamAskImpl(
   // 6. Stream.
   let full = '';
   try {
-    for await (const delta of openaiChatCompletionStream({
+    for await (const chunk of openaiChatCompletionStream({
       apiKey: cfg.apiKey,
       baseUrl: cfg.baseUrl,
       model: cfg.model,
       messages,
       signal,
     })) {
-      if (!delta) continue;
-      full += delta;
-      yield { type: 'delta', text: delta };
+      // Doc-library has its own fixed-cost charge (consumeMessage above);
+      // we just discard the terminal usage frame so the type signature is
+      // satisfied. If we ever switch to per-token doc-library billing, the
+      // captured `chunk.usage` is right here.
+      if (typeof chunk === 'string') {
+        if (!chunk) continue;
+        full += chunk;
+        yield { type: 'delta', text: chunk };
+      }
     }
   } catch (err: any) {
     if (signal?.aborted) return;

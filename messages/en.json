@@ -927,6 +927,8 @@
   "playground.auth.sign_up": "Create free account",
   "playground.auth.sign_in": "Sign in",
   "playground.auth.or": "or",
+  "playground.auth.gift_badge": "Sign up & get 10 free credits",
+  "playground.auth.gift_description": "New accounts get 10 free credits to try Kimi K3 in the playground — no card required.",
   "playground.disclaimer": "UI preview — not yet wired to a live model. kimik3 can make mistakes; verify important info.",
   "playground.model.title": "Model",
   "playground.model.k3": "K3",

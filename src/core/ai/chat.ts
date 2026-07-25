@@ -10,6 +10,11 @@
  * (`openaiChatCompletionStream`) variant. `content` may be a plain string or an
  * array of typed parts — the array form enables multimodal turns (e.g. sending
  * an image to a vision-capable model via `image_url`).
+ *
+ * The streaming variant asks the provider to emit a final usage frame
+ * (`stream_options.include_usage`). Providers that ignore the flag just never
+ * send `usage` — callers must treat the absence as "estimate only, no
+ * refund possible" rather than an error.
  */
 
 /** A single piece of multimodal message content (OpenAI chat-completions shape). */
@@ -33,6 +38,19 @@ export interface ChatCompletionParams {
   temperature?: number;
   signal?: AbortSignal;
 }
+
+/** Token-usage totals, sent as a terminal frame by the streaming variant when
+ *  the provider supports `stream_options.include_usage`. */
+export interface ChatCompletionUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
+/** One yield from the streaming generator. Either an incremental text delta
+ *  (concatenated across multiple `data:` lines in the same SSE frame) or a
+ *  single terminal usage frame — never both in the same yield. */
+export type ChatCompletionChunk = string | { usage: ChatCompletionUsage };
 
 export async function openaiChatCompletion(
   params: ChatCompletionParams
@@ -74,13 +92,14 @@ export async function openaiChatCompletion(
 
 /**
  * Streaming chat completion. Yields incremental text deltas as the model
- * generates them (SSE `stream: true`); the caller concatenates. Throws on a
- * non-2xx response (same error shape as the one-shot variant) or if the stream
- * aborts via `signal`.
+ * generates them (SSE `stream: true`); the caller concatenates. When the
+ * provider honors `stream_options.include_usage`, a final `{ usage }` chunk
+ * is yielded after the last text delta. Throws on a non-2xx response (same
+ * error shape as the one-shot variant) or if the stream aborts via `signal`.
  */
 export async function* openaiChatCompletionStream(
   params: ChatCompletionParams
-): AsyncGenerator<string, void, unknown> {
+): AsyncGenerator<ChatCompletionChunk, void, unknown> {
   const { apiKey, baseUrl, model, messages, temperature = 1, signal } = params;
 
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
@@ -90,7 +109,17 @@ export async function* openaiChatCompletionStream(
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model, messages, temperature, stream: true }),
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature,
+      stream: true,
+      // Ask the provider to emit a final frame with `usage`. Not all
+      // OpenAI-compatible gateways honor this — when missing, the parser
+      // just never yields a usage chunk and the caller's pre-flight
+      // estimate stands.
+      stream_options: { include_usage: true },
+    }),
     signal,
   });
 
@@ -117,25 +146,25 @@ export async function* openaiChatCompletionStream(
       while ((sep = buffer.indexOf('\n\n')) !== -1) {
         const frame = buffer.slice(0, sep);
         buffer = buffer.slice(sep + 2);
-        const delta = parseFrame(frame);
-        if (delta) yield delta;
+        for (const chunk of parseFrame(frame)) yield chunk;
       }
     }
     // Flush any trailing frame.
     if (buffer.trim()) {
-      const delta = parseFrame(buffer);
-      if (delta) yield delta;
+      for (const chunk of parseFrame(buffer)) yield chunk;
     }
   } finally {
     reader.releaseLock();
   }
 }
 
-/** Parse one SSE frame, returning any text delta it carries (or ''). */
-function parseFrame(frame: string): string {
-  // A frame may contain comment/keepalive lines and multiple `data:` lines;
-  // OpenAI sends one JSON object per `data:` line. Concatenate text deltas.
-  let out = '';
+/** Parse one SSE frame. A frame may contain comment/keepalive lines and
+ *  multiple `data:` lines; OpenAI sends one JSON object per `data:` line. The
+ *  text delta and the usage object (when present) are emitted as separate
+ *  chunks so the caller's text concatenation loop stays simple. */
+function parseFrame(frame: string): ChatCompletionChunk[] {
+  let text = '';
+  let usage: ChatCompletionUsage | undefined;
   for (const line of frame.split('\n')) {
     const trimmed = line.trim();
     if (!trimmed.startsWith('data:')) continue;
@@ -144,11 +173,21 @@ function parseFrame(frame: string): string {
     try {
       const json = JSON.parse(payload);
       const piece: string | undefined = json?.choices?.[0]?.delta?.content;
-      if (piece) out += piece;
+      if (piece) text += piece;
+      if (json?.usage) {
+        usage = {
+          prompt_tokens: Number(json.usage.prompt_tokens) || 0,
+          completion_tokens: Number(json.usage.completion_tokens) || 0,
+          total_tokens: Number(json.usage.total_tokens) || 0,
+        };
+      }
     } catch {
       // Ignore malformed keepalive / partial chunks — SSE is line-oriented and
       // resilient to the occasional non-JSON event.
     }
   }
+  const out: ChatCompletionChunk[] = [];
+  if (text) out.push(text);
+  if (usage) out.push({ usage });
   return out;
 }

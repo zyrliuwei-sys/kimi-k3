@@ -4,15 +4,18 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import {
   openaiChatCompletionStream,
+  type ChatCompletionUsage,
   type ChatContentPart,
   type ChatTurn,
 } from '@/core/ai/chat';
 import { checkLongContextAllowed } from '@/core/ai/tier-pricing';
+import { estimateMessagesTokens } from '@/core/ai/token-estimate';
 import { getAuth } from '@/core/auth';
 import { getConfig } from '@/modules/config/service';
 import { getBalance } from '@/modules/credits/service';
 import { parseDocument } from '@/modules/doc-library/parser';
 import { getStorage } from '@/modules/storage/service';
+import { refundConsume } from '@/modules/subscription-quota/refund';
 import {
   consumeMessage,
   getRemainingQuota,
@@ -550,28 +553,15 @@ async function POST({ request }: { request: Request }) {
   return sseResponse(
     async (emit) => {
       try {
-        // ── Debit the credit here, after the gate has already passed ──
-        // We split this from the gate check above on purpose: if the user
-        // had access (subscription OR credit balance) when we decided to
-        // stream, and then the balance drained between gate and now, we
-        // surface a `gate` event here so the client can show the upgrade
-        // prompt — but we've consumed nothing yet for THIS request.
-        // (Race: the prior design could charge 1 cr AND still emit a
-        // payment_required gate if the consume function returned false
-        // for any non-balance reason.)
-        if (session?.user) {
-          const debit = await consumeMessage(session.user.id, {
-            tier: 'short',
-            scene: 'playground_chat',
-            description: 'Playground chat · Kimi K3',
-          });
-          if (!debit.success) {
-            emit({ t: 'gate', status: 'payment_required' });
-            emit({ t: 'done' });
-            return;
-          }
-        }
-
+        // ── Per-token billing ──
+        // Two-phase: pre-flight estimate (charge upfront so a race with
+        // another tab doesn't accidentally stream a request the user can't
+        // pay for), post-flight actual (refund the difference if the model
+        // returned fewer tokens than estimated).
+        //
+        // The debit intentionally happens AFTER buildMessages + the
+        // long-context guard so we don't charge for requests that get
+        // rejected downstream (doc parse failures, 200k+ token past grace).
         const trustedHosts = await getTrustedStorageHosts();
         const { messages, model } = await buildMessages(
           turns,
@@ -603,15 +593,108 @@ async function POST({ request }: { request: Request }) {
           }
         }
 
-        for await (const delta of openaiChatCompletionStream({
-          apiKey: cfg.apiKey,
-          baseUrl: cfg.baseUrl,
-          model,
-          messages: fullMessages,
-        })) {
-          if (delta) emit({ t: 'delta', text: delta });
+        // Pre-flight estimate → upfront debit. Subscription quota path
+        // ignores cost (1 quota slot per call, by design — see consumeMessage).
+        // Credit path uses per-token math from admin-configurable rate/min.
+        let chargeCtx:
+          | { via: 'quota' }
+          | { via: 'credits'; consumeId: string; originalCost: number }
+          | null = null;
+        if (session?.user) {
+          const rateRaw = await getConfig('chat_credit_per_1k_tokens');
+          const rate = Number.parseFloat(rateRaw || '0.05');
+          const minRaw = await getConfig('chat_credit_min_per_call');
+          const minCost = Number.parseInt(minRaw || '1', 10) || 1;
+
+          const estimatedTokens = estimateMessagesTokens(fullMessages);
+          const estimatedCost = Math.max(
+            minCost,
+            Math.ceil(
+              (estimatedTokens / 1000) *
+                (Number.isFinite(rate) && rate > 0 ? rate : 0.05)
+            )
+          );
+
+          const debit = await consumeMessage(session.user.id, {
+            cost: estimatedCost,
+            scene: 'playground_chat',
+            description: `Playground chat · ${estimatedTokens} tok (est.)`,
+          });
+          if (!debit.success) {
+            emit({ t: 'gate', status: 'payment_required' });
+            emit({ t: 'done' });
+            return;
+          }
+          if (debit.via === 'credits' && debit.result?.consumedCredit?.id) {
+            chargeCtx = {
+              via: 'credits',
+              consumeId: debit.result.consumedCredit.id,
+              originalCost: estimatedCost,
+            };
+          } else {
+            chargeCtx = { via: 'quota' };
+          }
         }
+
+        // Stream + collect actual usage for the refund pass.
+        let actualUsage: ChatCompletionUsage | undefined;
+        try {
+          for await (const chunk of openaiChatCompletionStream({
+            apiKey: cfg.apiKey,
+            baseUrl: cfg.baseUrl,
+            model,
+            messages: fullMessages,
+          })) {
+            if (typeof chunk === 'string') {
+              if (chunk) emit({ t: 'delta', text: chunk });
+            } else {
+              actualUsage = chunk.usage;
+            }
+          }
+        } catch (streamErr) {
+          // Stream failed mid-flight — keep the charge (user got partial
+          // output) and surface the error.
+          emit({
+            t: 'error',
+            message: (streamErr as Error)?.message || 'Stream interrupted',
+          });
+          emit({ t: 'done' });
+          return;
+        }
+
         emit({ t: 'done', model, provider: cfg.provider });
+
+        // Post-flight refund: only when we (a) charged via credits (not
+        // subscription quota), (b) the provider returned real usage, and
+        // (c) actual cost < estimated cost. We never surcharge post-flight.
+        if (
+          chargeCtx?.via === 'credits' &&
+          actualUsage &&
+          actualUsage.total_tokens > 0
+        ) {
+          const rateRaw = await getConfig('chat_credit_per_1k_tokens');
+          const rate = Number.parseFloat(rateRaw || '0.05');
+          const minRaw = await getConfig('chat_credit_min_per_call');
+          const minCost = Number.parseInt(minRaw || '1', 10) || 1;
+
+          const actualCost = Math.max(
+            minCost,
+            Math.ceil(
+              (actualUsage.total_tokens / 1000) *
+                (Number.isFinite(rate) && rate > 0 ? rate : 0.05)
+            )
+          );
+
+          if (actualCost < chargeCtx.originalCost) {
+            // Fire and forget — failures are logged inside refundConsume.
+            void refundConsume({
+              consumeId: chargeCtx.consumeId,
+              userId: session.user.id,
+              originalCost: chargeCtx.originalCost,
+              keepAmount: actualCost,
+            });
+          }
+        }
       } catch (e: any) {
         emit({ t: 'error', message: e?.message || 'Generation failed' });
         emit({ t: 'done' });

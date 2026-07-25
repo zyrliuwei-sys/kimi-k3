@@ -126,7 +126,7 @@ export default defineConfig({
               // Scripts: 'unsafe-inline' covers TanStack Start hydration,
               // 'unsafe-eval' covers React Query devtools in dev (prod tree-
               // shakes them out, so these are mostly inert there).
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.googletagmanager.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.googletagmanager.com https://accounts.google.com",
               // Workers: Vite's HMR client runs from a `blob:` URL in dev,
               // and PptWorkspace uses a worker for pdf.js. Without an explicit
               // `worker-src`, browsers fall back to `script-src` and block the

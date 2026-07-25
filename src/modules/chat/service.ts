@@ -1,7 +1,12 @@
 import { and, asc, eq } from 'drizzle-orm';
 
-import { openaiChatCompletionStream, type ChatTurn } from '@/core/ai/chat';
+import {
+  openaiChatCompletionStream,
+  type ChatCompletionUsage,
+  type ChatTurn,
+} from '@/core/ai/chat';
 import { checkLongContextAllowed } from '@/core/ai/tier-pricing';
+import { estimateMessagesTokens } from '@/core/ai/token-estimate';
 import { db } from '@/core/db';
 import {
   chat,
@@ -10,6 +15,8 @@ import {
   type ChatMessage,
 } from '@/config/db/schema';
 import { getConfig } from '@/modules/config/service';
+import { refundConsume } from '@/modules/subscription-quota/refund';
+import { consumeMessage } from '@/modules/subscription-quota/service';
 import { getUuid } from '@/lib/hash';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -255,6 +262,38 @@ export async function* streamMessage(params: {
     return;
   }
 
+  // 1c. Per-token billing — pre-flight estimate, post-flight refund.
+  //     Mirrors /api/playground/chat. Pre-charge so a drained balance
+  //     between build and stream can't leak free responses.
+  const rateRaw = await getConfig('chat_credit_per_1k_tokens');
+  const rate = Number.parseFloat(rateRaw || '0.05');
+  const minRaw = await getConfig('chat_credit_min_per_call');
+  const minCost = Number.parseInt(minRaw || '1', 10) || 1;
+  const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 0.05;
+  const estimatedTokens = estimateMessagesTokens(turns);
+  const estimatedCost = Math.max(
+    minCost,
+    Math.ceil((estimatedTokens / 1000) * safeRate)
+  );
+
+  const debit = await consumeMessage(userId, {
+    cost: estimatedCost,
+    scene: 'persistent_chat',
+    description: `Persistent chat · ${estimatedTokens} tok (est.)`,
+  });
+  if (!debit.success) {
+    yield { type: 'error', message: 'payment_required' };
+    return;
+  }
+  const chargeCtx =
+    debit.via === 'credits' && debit.result?.consumedCredit?.id
+      ? {
+          via: 'credits' as const,
+          consumeId: debit.result.consumedCredit.id,
+          originalCost: estimatedCost,
+        }
+      : { via: 'quota' as const };
+
   // 2. resolve model config
   const cfg = await getChatModelConfig();
   const model = cfg.model || owned.model;
@@ -262,18 +301,23 @@ export async function* streamMessage(params: {
 
   // 3. generate the assistant text — streaming when a live model is configured
   let assistantText = '';
+  let actualUsage: ChatCompletionUsage | undefined;
   if (cfg.hasKey) {
     try {
-      for await (const delta of openaiChatCompletionStream({
+      for await (const chunk of openaiChatCompletionStream({
         apiKey: cfg.apiKey,
         baseUrl: cfg.baseUrl,
         model,
         messages: turns,
         signal,
       })) {
-        if (!delta) continue;
-        assistantText += delta;
-        yield { type: 'delta', text: delta };
+        if (typeof chunk === 'string') {
+          if (!chunk) continue;
+          assistantText += chunk;
+          yield { type: 'delta', text: chunk };
+        } else {
+          actualUsage = chunk.usage;
+        }
       }
     } catch (err: any) {
       if (signal?.aborted) return; // client stopped — discard, persist nothing
@@ -283,6 +327,27 @@ export async function* streamMessage(params: {
   } else {
     assistantText = NOT_CONFIGURED_REPLY;
     yield { type: 'delta', text: assistantText };
+  }
+
+  // 3b. Post-flight refund — same rules as the playground endpoint.
+  if (
+    chargeCtx.via === 'credits' &&
+    actualUsage &&
+    actualUsage.total_tokens > 0
+  ) {
+    const actualCost = Math.max(
+      minCost,
+      Math.ceil((actualUsage.total_tokens / 1000) * safeRate)
+    );
+    if (actualCost < chargeCtx.originalCost) {
+      // Fire and forget — refundConsume logs its own failures.
+      void refundConsume({
+        consumeId: chargeCtx.consumeId,
+        userId,
+        originalCost: chargeCtx.originalCost,
+        keepAmount: actualCost,
+      });
+    }
   }
 
   // 4. persist the user + assistant turns together, then emit the canonical pair
