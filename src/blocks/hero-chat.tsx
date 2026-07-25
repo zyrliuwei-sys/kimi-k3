@@ -299,7 +299,7 @@ function GateCard({ kind }: { kind: 'login' | 'pay' }) {
           ? m['landing.hero_chat.gate_login_title']()
           : m['landing.hero_chat.gate_pay_title']()}
       </p>
-      <p className="text-foreground/55 mx-auto mt-1 max-w-sm text-left text-[13px] leading-relaxed">
+      <p className="text-foreground/55 mx-auto mt-1 max-w-sm text-center text-[13px] leading-relaxed">
         {isLogin
           ? m['landing.hero_chat.gate_login_desc']()
           : m['landing.hero_chat.gate_pay_desc']()}
@@ -337,7 +337,7 @@ function EmptyState({
       <h3 className="text-base font-semibold tracking-tight">
         {m['landing.hero_chat.greeting']()}
       </h3>
-      <p className="text-foreground/55 mt-1 max-w-sm text-center text-[13px] leading-relaxed">
+      <p className="text-foreground/55 mt-1 max-w-sm text-left text-[13px] leading-relaxed whitespace-nowrap">
         {m['landing.hero_chat.greeting_sub']()}
       </p>
       {examples.length > 0 && (

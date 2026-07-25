@@ -660,7 +660,7 @@ export function ApiPlayground() {
             ref={scrollRef}
             className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
           >
-            <ThreadHeader onReset={resetThread} modelName={selected.name} />
+            <ThreadHeader onReset={resetThread} />
             <div className="mx-auto w-full max-w-3xl flex-1 px-4">
               <div className="space-y-6 py-6">
                 {messages.map((msg) => (
@@ -1125,17 +1125,11 @@ function CapabilityBadge({
 /*  Thread                                                             */
 /* ------------------------------------------------------------------ */
 
-function ThreadHeader({
-  onReset,
-  modelName,
-}: {
-  onReset: () => void;
-  modelName: string;
-}) {
+function ThreadHeader({ onReset }: { onReset: () => void }) {
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 pt-5">
       <span className="text-foreground/45 flex items-center gap-2 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
-        {m['playground.welcome.eyebrow']()} · {modelName}
+        {m['playground.welcome.eyebrow']()}
       </span>
       <div className="flex items-center gap-1.5">
         <button
@@ -1306,11 +1300,6 @@ function ModelMenu({
         <span className="font-mono font-semibold tracking-tight">
           {selected.name}
         </span>
-        {selected.effort && (
-          <span className="text-foreground/55 font-mono text-xs">
-            {selected.effortLabel}
-          </span>
-        )}
         <ChevronDown
           className={cn(
             'text-foreground/45 size-3.5 transition-transform',
