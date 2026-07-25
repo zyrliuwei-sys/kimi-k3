@@ -911,6 +911,7 @@
   "playground.attachment.err_upload_failed": "\"{name}\" 上传失败,请重试。",
   "playground.attachment.err_anon_limit": "匿名上传次数已达上限——登录后即可继续上传。",
   "playground.attachment.err_rate_limited": "上传太快了——等一下再上传 \"{name}\"。",
+  "playground.attachment.status_error": "失败",
   "playground.documents.err_no_source": "请上传文档、粘贴至少 1,000 个字符，或先加载示例文档。",
   "playground.documents.err_wrong_attachment": "文档模式需要 PDF、Word、Excel、PPT、Markdown、TXT 或 CSV 文件。",
   "playground.documents.preparing": "正在准备文档…",

@@ -24,6 +24,9 @@ export interface ChatStreamBody {
   attachments?: {
     type: 'image' | 'video' | 'document';
     url: string;
+    // Storage key from the upload response. Lets the server re-download
+    // via a signed request — required for private R2 buckets.
+    key?: string;
     filename?: string;
   }[];
 }

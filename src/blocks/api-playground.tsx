@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ArrowRight,
   ArrowUp,
-  BookOpen,
   Check,
   ChevronDown,
   Files,
@@ -10,9 +8,7 @@ import {
   Film,
   FolderGit2,
   Loader2,
-  MessageSquare,
   Plus,
-  Presentation,
   RefreshCw,
   ScanLine,
   Sparkles,
@@ -27,7 +23,6 @@ import { signIn, useSession } from '@/core/auth/client';
 import { Link } from '@/core/i18n/navigation';
 import { ApiError, apiPost } from '@/lib/api-client';
 import { streamChat } from '@/lib/chat-stream';
-import { streamDocAsk, type DocSource } from '@/lib/doc-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
@@ -37,7 +32,6 @@ import {
   PaymentProviderModal,
   type PaymentProvider,
 } from '@/components/payment-provider-modal';
-import { PptWorkspace } from '@/components/ppt-workspace';
 
 /* ------------------------------------------------------------------ */
 /*  Types & config                                                     */
@@ -55,9 +49,32 @@ interface ModelOption {
 }
 
 interface Attachment {
+  // Stable id used as the React key + removal handle. Generated client-side
+  // the moment the file is picked, so it survives the optimistic→real-URL
+  // swap (otherwise the `key={a.url}` would change mid-flight and remount
+  // the chip, dropping the upload-progress animation).
+  id: string;
   type: 'image' | 'video' | 'document';
+  // Public storage URL once the upload finishes; while uploading this is the
+  // local blob: URL so <img src> can render even before the round-trip.
   url: string;
+  // Storage key from the upload response — lets the server re-download via a
+  // signed request. Private R2 buckets 401 on unauthenticated GET, so we can't
+  // rely on the public URL alone.
+  key?: string;
   filename?: string;
+  // Browser-local `blob:` URL created from the picked File so <img> in the
+  // composer chip and message bubble can preview the image without hitting
+  // the (possibly private) storage URL. Never sent over the wire — the
+  // server doesn't need it (it uses `key` for signed downloads).
+  previewUrl?: string;
+  // Optimistic-UI status: 'uploading' = shown immediately, blob preview only;
+  // 'done' = storage URL is live; 'error' = upload failed, chip is dimmed
+  // and shows an inline retry affordance.
+  uploadStatus: 'uploading' | 'done' | 'error';
+  // Client-side dedup keys (filename + size + mtime) — not sent to the server.
+  _size?: number;
+  _mtime?: number;
 }
 
 interface Message {
@@ -68,17 +85,20 @@ interface Message {
   // Assistant-only flags for the screenshot-clone flow:
   clone?: boolean; // this reply recreates a webpage → offer a live preview
   streaming?: boolean; // still receiving deltas → show code, not the preview
-  // Document-library mode:
-  citations?: DocSource[]; // sources the model cited inline
 }
 
 /* ------------------------------------------------------------------ */
 /*  Upload helper                                                      */
 /* ------------------------------------------------------------------ */
 
-async function uploadMediaFile(file: File): Promise<Attachment> {
+// One batched POST instead of N parallel requests. The server already accepts
+// up to MAX_FILES per call and returns one `results[]` entry per file; firing
+// them in parallel tripped the endpoint's 1-second per-IP rate limit on the
+// 2nd/3rd/Nth file. Batching also saves a round-trip per extra file.
+async function uploadMediaFiles(files: File[]): Promise<Attachment[]> {
+  if (!files.length) return [];
   const formData = new FormData();
-  formData.append('files', file);
+  for (const f of files) formData.append('files', f);
 
   const res = await fetch('/api/storage/upload-media', {
     method: 'POST',
@@ -88,12 +108,22 @@ async function uploadMediaFile(file: File): Promise<Attachment> {
   if (result?.code !== 0 || !result?.data?.results?.length) {
     throw new Error(result?.message || 'Upload failed');
   }
-  const r = result.data.results[0];
-  return {
-    type: r.type as 'image' | 'video' | 'document',
+  return (
+    result.data.results as Array<{
+      url: string;
+      key: string;
+      filename: string;
+      type: 'image' | 'video' | 'document';
+    }>
+  ).map((r) => ({
+    type: r.type,
     url: r.url,
+    // Storage key is forwarded so the server can re-download via a signed
+    // request — private R2 buckets return 401 on unauthenticated GET, so
+    // we can't just hand back the public URL and trust it works server-side.
+    key: r.key,
     filename: r.filename,
-  };
+  }));
 }
 
 // Client-side pre-flight — mirrors the server allowlist
@@ -101,10 +131,6 @@ async function uploadMediaFile(file: File): Promise<Attachment> {
 // the round-trip + server-side rejection for the obvious bad inputs.
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
 const MAX_FILES = 50;
-// Long pasted text in Documents mode is auto-promoted into a temporary
-// Markdown document once it crosses this character count. 1000 is high
-// enough to ignore ordinary short questions but accepts any pasted article.
-const PASTED_DOCUMENT_MIN_CHARS = 1000;
 const ALLOWED_MIME_PREFIXES = ['image/', 'video/'];
 const ALLOWED_MIME_EXACT = new Set([
   'application/pdf',
@@ -143,19 +169,36 @@ function isSupportedMime(mime: string): boolean {
   return ALLOWED_MIME_EXACT.has(mime);
 }
 
+// Best-effort client-side type for the chip before the server tells us the
+// truth. MIME wins; we fall back to extension so `.md` (no MIME in many
+// browsers) and friends still render the right icon before upload completes.
+const IMAGE_EXTS = new Set([
+  'jpg',
+  'jpeg',
+  'png',
+  'gif',
+  'webp',
+  'avif',
+  'bmp',
+  'svg',
+  'heic',
+  'heif',
+]);
+const VIDEO_EXTS = new Set(['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v']);
+function inferAttachmentType(file: File): 'image' | 'video' | 'document' {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('video/')) return 'video';
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  if (IMAGE_EXTS.has(ext)) return 'image';
+  if (VIDEO_EXTS.has(ext)) return 'video';
+  return 'document';
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
-type PlaygroundMode = 'chat' | 'documents' | 'ppt';
-
 export function ApiPlayground() {
-  const [mode, setMode] = useState<PlaygroundMode>('chat');
-  const [docCollectionId, setDocCollectionId] = useState<string | null>(null);
-  const [docCollectionName, setDocCollectionName] = useState<string>('');
-  const [docCount, setDocCount] = useState(0);
-  const [pageCount, setPageCount] = useState(0);
-  const [loadingSamples, setLoadingSamples] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -172,6 +215,9 @@ export function ApiPlayground() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const idRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  // Tracks every blob: preview URL we've created so we can revoke them
+  // on removal / unmount instead of leaking memory across the session.
+  const previewUrlsRef = useRef<Set<string>>(new Set());
 
   const models = useModels();
 
@@ -214,7 +260,13 @@ export function ApiPlayground() {
   }, [messages.length, isThinking, lastLen]);
 
   useEffect(() => {
-    return () => abortRef.current?.abort();
+    return () => {
+      abortRef.current?.abort();
+      // Revoke any pending blob: previews so we don't leak memory on
+      // navigation away from the playground.
+      for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
+      previewUrlsRef.current.clear();
+    };
   }, []);
 
   function openFilePicker() {
@@ -253,87 +305,115 @@ export function ApiPlayground() {
       return;
     }
 
-    setUploading(true);
-    try {
-      // Skip files that are already attached (same name + size + mtime) —
-      // the storage key is the md5 so re-uploading returns the same URL,
-      // and rapid re-selects otherwise spam the 1-second rate limit.
-      const existingKey = new Set(
-        attachments.map(
-          (a) => `${a.filename ?? ''}|${a.url.split('/').pop() ?? ''}`
-        )
+    // Skip files that are already attached (same name + size + mtime) —
+    // the storage key is the md5 so re-uploading returns the same URL,
+    // and rapid re-selects otherwise spam the 1-second rate limit.
+    const fresh = list.filter((f) => {
+      const key = `${f.name}|${f.size}|${f.lastModified}`;
+      return !Array.from(attachments).some(
+        (a) =>
+          a.filename === f.name &&
+          a._size === f.size &&
+          a._mtime === f.lastModified
       );
-      const listToUpload = list.filter((f) => {
-        // We can only match by filename + size here — the storage md5
-        // isn't known until after upload. Same name + size + mtime is a
-        // strong-enough signal for the common "user re-picks the same
-        // file" case.
-        const key = `${f.name}|${f.size}|${f.lastModified}`;
-        return !Array.from(attachments).some(
-          (a) =>
-            a.filename === f.name &&
-            (a as any)._size === f.size &&
-            (a as any)._mtime === f.lastModified
-        );
-      });
-      // (Note: `existingKey` is reserved for a future URL-based check
-      // when the server includes size/mtime in the response.)
-      void existingKey;
-      if (listToUpload.length === 0) {
-        // Nothing new to upload — silently no-op (no toast spam).
-        return;
-      }
-      // Upload in parallel — independent files don't need to wait for each
-      // other. allSettled so one rejection doesn't abort the rest.
-      const results = await Promise.allSettled(
-        listToUpload.map(uploadMediaFile)
-      );
-      const added: Attachment[] = [];
-      for (let i = 0; i < results.length; i++) {
-        const r = results[i];
-        if (r.status === 'fulfilled') {
-          // Dedupe by URL — the storage key is the file's md5, so the same
-          // file uploaded twice (or the deduped path the server already
-          // takes) returns the same public URL. Without this filter the
-          // attachment chips render with duplicate React keys.
-          if (!added.some((a) => a.url === r.value.url)) {
-            added.push(r.value);
-          }
-        } else {
-          const msg = (r.reason as Error)?.message || '';
-          // Server's rate limiter returns { error, message } (not the
-          // standard { code, message } envelope) and surfaces phrases like
-          // "Please retry after 1s." Match that explicitly so the user
-          // sees a rate-limit-specific toast instead of a generic
-          // "upload failed".
-          const key = /Anonymous upload limit/i.test(msg)
-            ? 'playground.attachment.err_anon_limit'
-            : /Please retry after/i.test(msg)
-              ? 'playground.attachment.err_rate_limited'
-              : 'playground.attachment.err_upload_failed';
-          toast.error(m[key]({ name: list[i].name }));
-        }
-      }
-      if (added.length) {
-        setAttachments((prev) => {
-          // Dedupe against the existing list too — the storage key is the
-          // file's md5, so re-uploading the same file (or picking it from
-          // a previously-attached state) returns the same public URL.
-          // Without this filter the attachment chips render with duplicate
-          // React keys.
-          const existing = new Set(prev.map((a) => a.url));
-          const fresh = added.filter((a) => !existing.has(a.url));
-          return fresh.length ? [...prev, ...fresh] : prev;
-        });
-      }
-    } finally {
-      setUploading(false);
+    });
+    if (fresh.length === 0) {
+      // Nothing new — silently no-op (no toast spam).
       if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
     }
+
+    // Optimistic insert: build a placeholder for every file and push them
+    // into `attachments` immediately. The chip renders right away using the
+    // local `blob:` preview; the network upload runs in the background and
+    // swaps in the real URL when it returns. This is what makes the picker
+    // feel instant — no "Uploading..." spinner before the chip even appears.
+    const placeholders: Attachment[] = fresh.map((file) => {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrlsRef.current.add(previewUrl);
+      return {
+        id: crypto.randomUUID(),
+        type: inferAttachmentType(file),
+        // Use the blob URL as `url` so <img src> works pre-upload. After the
+        // upload finishes we replace this with the public storage URL.
+        url: previewUrl,
+        previewUrl,
+        filename: file.name,
+        uploadStatus: 'uploading',
+        _size: file.size,
+        _mtime: file.lastModified,
+      };
+    });
+    setAttachments((prev) => [...prev, ...placeholders]);
+    setUploading(true);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    // Background upload — does NOT block the picker. The chip is already
+    // on screen; this just upgrades the URL when the storage round-trip
+    // completes.
+    void (async () => {
+      try {
+        const uploaded = await uploadMediaFiles(fresh);
+        // One batched POST returns one result per input file, in order.
+        // `uploaded[i]` corresponds to `placeholders[i]`.
+        setAttachments((prev) => {
+          const placeholderIds = new Set(placeholders.map((p) => p.id));
+          const seen = new Set<string>();
+          return prev.map((a) => {
+            if (!placeholderIds.has(a.id)) return a;
+            const idx = placeholders.findIndex((p) => p.id === a.id);
+            const result = uploaded[idx];
+            if (!result) return { ...a, uploadStatus: 'error' };
+            // Server's md5-based dedup may return the same URL for two
+            // different placeholders (e.g. the user picked the same file
+            // twice from different folders). Collapse duplicates so the
+            // chip doesn't render with conflicting ids.
+            if (seen.has(result.url)) return { ...a, uploadStatus: 'error' };
+            seen.add(result.url);
+            return {
+              ...a,
+              type: result.type,
+              url: result.url,
+              key: result.key,
+              uploadStatus: 'done',
+            };
+          });
+        });
+      } catch (err) {
+        const msg = (err as Error)?.message || '';
+        const key = /Anonymous upload limit/i.test(msg)
+          ? 'playground.attachment.err_anon_limit'
+          : /Please retry after/i.test(msg)
+            ? 'playground.attachment.err_rate_limited'
+            : 'playground.attachment.err_upload_failed';
+        toast.error(
+          m[key]({
+            name: fresh.length > 1 ? `${fresh.length} files` : fresh[0].name,
+          })
+        );
+        // Flip the placeholders to 'error' so the chip dims and shows a
+        // retry affordance; the user can hit ✕ to drop them entirely.
+        const placeholderIds = new Set(placeholders.map((p) => p.id));
+        setAttachments((prev) =>
+          prev.map((a) =>
+            placeholderIds.has(a.id) ? { ...a, uploadStatus: 'error' } : a
+          )
+        );
+      } finally {
+        setUploading(false);
+      }
+    })();
   }
 
-  function removeAttachment(url: string) {
-    setAttachments((prev) => prev.filter((a) => a.url !== url));
+  function removeAttachment(id: string) {
+    setAttachments((prev) => {
+      const dropped = prev.find((a) => a.id === id);
+      if (dropped?.previewUrl) {
+        URL.revokeObjectURL(dropped.previewUrl);
+        previewUrlsRef.current.delete(dropped.previewUrl);
+      }
+      return prev.filter((a) => a.id !== id);
+    });
   }
 
   async function handleSend(opts?: {
@@ -343,187 +423,6 @@ export function ApiPlayground() {
   }) {
     if (!requireAuth()) return;
     const text = (opts?.text ?? input).trim();
-
-    // ── Document-library mode: bypass chat attachments and stream via the
-    //    doc-library SSE endpoint, which stitches parsed docs into the prompt.
-    if (mode === 'documents') {
-      // Empty / already-streaming guard sits before any collection work so an
-      // accidental empty send never produces a half-baked collection.
-      if (!text || isThinking) return;
-
-      const docAtts = attachments.filter((a) => a.type === 'document');
-      // If the user uploaded files via the + button but never loaded the
-      // sample collection, auto-promote those uploads into a fresh doc
-      // collection so they can ask questions right away. Long pasted text
-      // (>= PASTED_DOCUMENT_MIN_CHARS) is also promoted as a temporary
-      // Markdown document so the same Q&A pipeline can answer against it.
-      const shouldCreatePastedDocument =
-        text.length >= PASTED_DOCUMENT_MIN_CHARS;
-      // Tracks the collection id to ask against. Defaults to the existing
-      // state; gets overwritten with the freshly created id below.
-      let collectionIdForAsk = docCollectionId;
-
-      if (!docCollectionId) {
-        if (docAtts.length === 0 && !shouldCreatePastedDocument) {
-          toast.error(
-            attachments.length > 0
-              ? m['playground.documents.err_wrong_attachment']()
-              : m['playground.documents.err_no_source']()
-          );
-          return;
-        }
-        const tId = toast.loading(m['playground.documents.preparing']());
-        try {
-          // Reused for both uploaded attachments and the synthetic pasted
-          // text — keeps error handling identical and the request shape
-          // single-sourced.
-          const uploadFileToCollection = async (
-            collectionId: string,
-            file: File
-          ) => {
-            const fd = new FormData();
-            fd.set('collectionId', collectionId);
-            fd.set('files', file);
-            const res = await fetch('/api/doc-library/document', {
-              method: 'POST',
-              body: fd,
-            });
-            const json = await res
-              .json()
-              .catch(() => ({ code: -1, message: 'Upload failed' }));
-            if (json.code !== 0) {
-              throw new Error(json.message || 'Upload failed');
-            }
-          };
-
-          const coll = await apiPost<{ id: string }>(
-            '/api/doc-library/collection',
-            { name: 'My Documents' }
-          );
-          for (const att of docAtts) {
-            const blob = await fetch(att.url).then((r) => r.blob());
-            const file = new File([blob], att.filename || 'document', {
-              type: blob.type || 'application/octet-stream',
-            });
-            await uploadFileToCollection(coll.id, file);
-          }
-          if (shouldCreatePastedDocument) {
-            // Timestamp-based filename — never embed a content snippet, to
-            // avoid leaking user text into storage keys, logs, or download
-            // names. The doc body still contains the user's text verbatim.
-            const pastedFile = new File(
-              [`# Pasted text\n\n${text}\n`],
-              `pasted-text-${Date.now()}.md`,
-              { type: 'text/markdown' }
-            );
-            await uploadFileToCollection(coll.id, pastedFile);
-          }
-          setDocCollectionId(coll.id);
-          // Also capture locally — setDocCollectionId is async, so the
-          // state-bound `docCollectionId` still reads null in this same
-          // closure. The streamDocAsk call below needs the new id now.
-          collectionIdForAsk = coll.id;
-          toast.dismiss(tId);
-        } catch (err: any) {
-          toast.dismiss(tId);
-          toast.error(
-            err?.message || m['playground.documents.prepare_failed']()
-          );
-          return;
-        }
-      }
-      const userMsg: Message = {
-        id: ++idRef.current,
-        role: 'user',
-        content: text,
-      };
-      const assistantId = ++idRef.current;
-      setMessages((prev) => [
-        ...prev,
-        userMsg,
-        {
-          id: assistantId,
-          role: 'assistant',
-          content: '',
-          streaming: true,
-        },
-      ]);
-      setInput('');
-      if (taRef.current) taRef.current.style.height = 'auto';
-      setIsThinking(true);
-
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      // When the user's input was long enough to be promoted into a
-      // temporary document, sending the same text as the question would
-      // (a) re-paste the entire document into the prompt and (b) trip the
-      // server's 4000-char question limit. Ask a short default question
-      // instead — the user can still type a real follow-up after.
-      const questionForAsk = shouldCreatePastedDocument
-        ? m['playground.documents.default_question']()
-        : text;
-
-      await streamDocAsk(
-        { collectionId: collectionIdForAsk, question: questionForAsk },
-        {
-          signal: controller.signal,
-          onDelta: (chunk) => {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, content: m.content + chunk } : m
-              )
-            );
-          },
-          onSources: (sources) => {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, citations: sources } : m
-              )
-            );
-          },
-          onError: (msg) => {
-            if (msg === 'login_required') {
-              setAuthOpen(true);
-            } else if (msg === 'payment_required') {
-              setBillingOpen(true);
-            } else {
-              toast.error(msg || 'Generation failed');
-            }
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId
-                  ? {
-                      ...m,
-                      // Surface the actual stream error inside the assistant
-                      // bubble so users (and we) can see what went wrong
-                      // instead of a generic "Something went wrong".
-                      content:
-                        m.content ||
-                        (msg
-                          ? `⚠️ ${msg}`
-                          : '⚠️ Something went wrong. Please try again.'),
-                    }
-                  : m
-              )
-            );
-          },
-          onDone: () => {
-            setIsThinking(false);
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === assistantId ? { ...m, streaming: false } : m
-              )
-            );
-          },
-        }
-      ).finally(() => {
-        setIsThinking(false);
-      });
-      return;
-    }
-
     const pendingAttachments = opts?.attachments ?? attachments;
     // Image-only messages get a default prompt so the backend has a valid user
     // turn and the model knows what to do with the attachment.
@@ -595,7 +494,12 @@ export function ApiPlayground() {
             role: msg.role,
             content: msg.content,
           })),
-          attachments: pendingAttachments,
+          // Strip browser-local previewUrl before sending — it's a blob:
+          // URL scoped to this tab and has no meaning on the server.
+          attachments: pendingAttachments.map((a) => {
+            const { previewUrl: _drop, ...rest } = a;
+            return rest;
+          }),
         },
         {
           signal: controller.signal,
@@ -665,53 +569,7 @@ export function ApiPlayground() {
   }
 
   // ── Document-library mode helpers ────────────────────────────────────────
-
-  async function handleLoadSamples() {
-    if (loadingSamples) return;
-    if (!requireAuth()) return;
-    setLoadingSamples(true);
-    try {
-      const result = await apiPost<{
-        collectionsCreated: number;
-        documentsCreated: number;
-      }>('/api/doc-library/samples', {});
-      const cols = await fetch('/api/doc-library/collection')
-        .then((r) => r.json())
-        .then((d) => (Array.isArray(d?.data) ? d.data : []))
-        .catch(() => []);
-      const sample = cols.find((c: any) =>
-        String(c.name || '').endsWith('Sample')
-      );
-      if (sample) {
-        setDocCollectionId(sample.id);
-        setDocCollectionName(sample.name);
-        setDocCount(sample.docCount ?? 0);
-        setPageCount(sample.totalPages ?? 0);
-        if (result.collectionsCreated === 0) {
-          toast.success('Samples already loaded');
-        } else {
-          toast.success(
-            `Loaded ${result.collectionsCreated} collections, ${result.documentsCreated} docs`
-          );
-        }
-      } else {
-        toast.error('Samples are present but could not be located');
-      }
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to load samples');
-    } finally {
-      setLoadingSamples(false);
-    }
-  }
-
-  function handleExitDocMode() {
-    setMode('chat');
-    setDocCollectionId(null);
-    setDocCollectionName('');
-    setDocCount(0);
-    setPageCount(0);
-    resetThread();
-  }
+  // (removed — Documents mode no longer accessible from this UI)
 
   const hasThread = messages.length > 0 || isThinking;
   const canSend = !!input.trim() || attachments.length > 0;
@@ -721,7 +579,7 @@ export function ApiPlayground() {
     setInput,
     onKeyDown: handleKeyDown,
     onSend: handleSend,
-    canSend: mode === 'documents' ? !!input.trim() : canSend,
+    canSend,
     isThinking: isThinking || uploading,
     models,
     selected,
@@ -733,11 +591,6 @@ export function ApiPlayground() {
     onFilesSelected: handleFilesSelected,
     onRemoveAttachment: removeAttachment,
     fileInputRef,
-    mode,
-    docCollectionName,
-    onLoadSamples: handleLoadSamples,
-    loadingSamples,
-    onExitDocMode: handleExitDocMode,
   };
 
   return (
@@ -753,40 +606,14 @@ export function ApiPlayground() {
         className="play-grid pointer-events-none absolute inset-0 opacity-70"
       />
 
-      {mode === 'ppt' ? (
-        // PPT mode owns its own UI (file dropzone, prompt, slide count, generate
-        // progress). The chat composer + thread view don't apply here — sending
-        // a plain text prompt through /api/playground/chat returned
-        // "A user message is required" because that endpoint is wired for chat,
-        // not deck generation. Delegating to <PptWorkspace/> routes the prompt
-        // through /api/ppt/generate and accepts .md/.txt source files too.
-        <ThreadHeader
-          onReset={resetThread}
-          modelName={selected.name}
-          mode={mode}
-          docCollectionName={docCollectionName}
-          onExitDocMode={handleExitDocMode}
-        />
-      ) : null}
-
-      {mode === 'ppt' ? (
-        <div className="relative mx-auto w-full max-w-2xl flex-1 overflow-y-auto px-4 py-8">
-          <PptWorkspace />
-        </div>
-      ) : hasThread ? (
+      {hasThread ? (
         // Active thread — messages scroll, composer pinned to the bottom.
         <>
           <div
             ref={scrollRef}
             className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
           >
-            <ThreadHeader
-              onReset={resetThread}
-              modelName={selected.name}
-              mode={mode}
-              docCollectionName={docCollectionName}
-              onExitDocMode={handleExitDocMode}
-            />
+            <ThreadHeader onReset={resetThread} modelName={selected.name} />
             <div className="mx-auto w-full max-w-3xl flex-1 px-4">
               <div className="space-y-6 py-6">
                 {messages.map((msg) => (
@@ -805,16 +632,7 @@ export function ApiPlayground() {
         // so the input sits right under the greeting instead of pinned low.
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
           <div className="flex w-full max-w-2xl flex-col items-center">
-            <WelcomeState
-              selected={selected}
-              mode={mode}
-              onModeChange={setMode}
-              docCollectionName={docCollectionName}
-              onLoadSamples={handleLoadSamples}
-              loadingSamples={loadingSamples}
-              docCount={docCount}
-              pageCount={pageCount}
-            />
+            <WelcomeState selected={selected} />
             <div className="mt-8 w-full">
               <Composer {...composerProps} />
             </div>
@@ -1005,7 +823,7 @@ function Composer({
   uploading: boolean;
   onPlusClick: () => void;
   onFilesSelected: (files: FileList | null) => void;
-  onRemoveAttachment: (url: string) => void;
+  onRemoveAttachment: (id: string) => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const capabilities = useCapabilities();
@@ -1028,53 +846,68 @@ function Composer({
           className="hidden"
         />
 
-        {/* Attachment chips row */}
-        {(attachments.length > 0 || uploading) && (
+        {/* Attachment chips row — shown immediately on pick, with a tiny
+            per-file status so the user sees the upload progress without a
+            blocking global spinner. */}
+        {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 px-2 pt-1 pb-2">
-            {attachments.map((a) => (
-              <div
-                key={a.url}
-                className="group bg-muted/60 border-foreground/10 relative flex items-center gap-2 overflow-hidden rounded-xl border py-1 pr-1.5 pl-1"
-              >
-                {a.type === 'image' ? (
-                  <img
-                    src={a.url}
-                    alt={a.filename || ''}
-                    className="size-10 shrink-0 rounded-lg object-cover"
-                  />
-                ) : (
-                  <span className="bg-foreground/5 text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-lg">
-                    {a.type === 'video' ? (
-                      <Film className="size-4" />
-                    ) : (
-                      <FileText className="size-4" />
-                    )}
-                  </span>
-                )}
-                <span className="text-foreground/60 max-w-[10rem] truncate text-xs">
-                  {a.filename ||
-                    (a.type === 'image'
-                      ? 'image'
-                      : a.type === 'video'
-                        ? 'video'
-                        : 'document')}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => onRemoveAttachment(a.url)}
-                  aria-label={m['playground.attachment.remove']()}
-                  className="text-foreground/45 hover:text-foreground hover:bg-foreground/10 -mr-0.5 rounded-full p-0.5 transition-colors"
+            {attachments.map((a) => {
+              const isUploading = a.uploadStatus === 'uploading';
+              const isError = a.uploadStatus === 'error';
+              return (
+                <div
+                  key={a.id}
+                  className={cn(
+                    'group bg-muted/60 border-foreground/10 relative flex items-center gap-2 overflow-hidden rounded-xl border py-1 pr-1.5 pl-1 transition-opacity',
+                    isUploading && 'opacity-80',
+                    isError && 'border-destructive/40 opacity-60'
+                  )}
                 >
-                  <X className="size-3.5" />
-                </button>
-              </div>
-            ))}
-            {uploading && (
-              <div className="text-foreground/55 flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-xs">
-                <Loader2 className="size-3.5 animate-spin" />
-                {m['playground.attachment.uploading']()}
-              </div>
-            )}
+                  {a.type === 'image' ? (
+                    <img
+                      src={a.previewUrl || a.url}
+                      alt={a.filename || ''}
+                      className="size-10 shrink-0 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <span className="bg-foreground/5 text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-lg">
+                      {a.type === 'video' ? (
+                        <Film className="size-4" />
+                      ) : (
+                        <FileText className="size-4" />
+                      )}
+                    </span>
+                  )}
+                  <span className="text-foreground/60 max-w-[10rem] truncate text-xs">
+                    {a.filename ||
+                      (a.type === 'image'
+                        ? 'image'
+                        : a.type === 'video'
+                          ? 'video'
+                          : 'document')}
+                  </span>
+                  {isUploading && (
+                    <Loader2 className="text-foreground/45 size-3 shrink-0 animate-spin" />
+                  )}
+                  {isError && (
+                    <span
+                      title={m['playground.attachment.err_upload_failed']()}
+                      className="text-destructive text-[10px] font-medium tracking-wide uppercase"
+                    >
+                      {m['playground.attachment.status_error']()}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => onRemoveAttachment(a.id)}
+                    aria-label={m['playground.attachment.remove']()}
+                    className="text-foreground/45 hover:text-foreground hover:bg-foreground/10 -mr-0.5 rounded-full p-0.5 transition-colors"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -1166,25 +999,7 @@ function Composer({
 /*  Welcome / empty state                                              */
 /* ------------------------------------------------------------------ */
 
-function WelcomeState({
-  selected,
-  mode,
-  onModeChange,
-  docCollectionName,
-  onLoadSamples,
-  loadingSamples,
-  docCount,
-  pageCount,
-}: {
-  selected: ModelOption;
-  mode: PlaygroundMode;
-  onModeChange: (m: PlaygroundMode) => void;
-  docCollectionName: string;
-  onLoadSamples: () => void;
-  loadingSamples: boolean;
-  docCount: number;
-  pageCount: number;
-}) {
+function WelcomeState({ selected }: { selected: ModelOption }) {
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -1192,127 +1007,32 @@ function WelcomeState({
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className="flex w-full flex-col items-center text-center"
     >
-      {/* Mode toggle */}
-      <div className="bg-card/60 border-foreground/10 mb-6 inline-flex items-center gap-1 rounded-full border p-1">
-        <button
-          type="button"
-          onClick={() => onModeChange('chat')}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors',
-            mode === 'chat'
-              ? 'bg-foreground text-background'
-              : 'text-foreground/55 hover:text-foreground'
-          )}
-        >
-          <MessageSquare className="size-3.5" />
-          Chat
-        </button>
-        <button
-          type="button"
-          onClick={() => onModeChange('documents')}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors',
-            mode === 'documents'
-              ? 'bg-foreground text-background'
-              : 'text-foreground/55 hover:text-foreground'
-          )}
-        >
-          <BookOpen className="size-3.5" />
-          Documents
-        </button>
-        <button
-          type="button"
-          onClick={() => onModeChange('ppt')}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors',
-            mode === 'ppt'
-              ? 'bg-foreground text-background'
-              : 'text-foreground/55 hover:text-foreground'
-          )}
-        >
-          <Presentation className="size-3.5" />
-          PPT
-        </button>
-      </div>
-
-      {mode === 'documents' ? (
-        <DocumentsEmpty
-          collectionName={docCollectionName}
-          loading={loadingSamples}
-          onLoadSamples={onLoadSamples}
-          onPickExample={(q) => {
-            setInput(q);
-            // Defer to next tick so the textarea has the new value before
-            // we trigger send.
-            requestAnimationFrame(() => handleSend(q));
-          }}
-          docCount={docCount}
-          pageCount={pageCount}
-        />
-      ) : mode === 'ppt' ? (
-        <PptTab />
-      ) : (
-        <>
-          <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
-            {m['playground.welcome.greeting']()}
-          </h1>
-          <p className="text-foreground/55 mt-5 max-w-md text-[15px] leading-relaxed">
-            {m['playground.welcome.subtitle']()}
-          </p>
-        </>
-      )}
+      <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
+        {(() => {
+          // Render the trailing question mark in Playfair Display — its
+          // roman "?" has a long graceful tail that sits much better at
+          // display sizes than Libre Baskerville's compact glyph.
+          const text = m['playground.welcome.greeting']();
+          const m1 = text.match(/[?？]\s*$/);
+          if (!m1) return text;
+          const idx = m1.index ?? 0;
+          return (
+            <>
+              {text.slice(0, idx)}
+              <span
+                className="font-['Playfair_Display',Georgia,serif] italic"
+                style={{ fontFeatureSettings: '"liga" 1' }}
+              >
+                {text.slice(idx)}
+              </span>
+            </>
+          );
+        })()}
+      </h1>
+      <p className="text-foreground/55 mt-5 max-w-md text-[15px] leading-relaxed">
+        {m['playground.welcome.subtitle']()}
+      </p>
     </motion.div>
-  );
-}
-
-function DocumentsEmpty({
-  collectionName,
-  loading,
-  onLoadSamples,
-  onPickExample,
-  docCount,
-  pageCount,
-}: {
-  collectionName: string;
-  loading: boolean;
-  onLoadSamples: () => void;
-  onPickExample: (q: string) => void;
-  docCount: number;
-  pageCount: number;
-}) {
-  const hasLoaded = !!collectionName;
-  const statsLabel = hasLoaded
-    ? m['doc_library.footer.stats']({
-        docs: docCount,
-        pages: pageCount,
-        tokens: Math.max(1, Math.round((pageCount * 500) / 1000)),
-      })
-    : m['doc_library.footer.stats_zero']();
-
-  return (
-    <div className="flex w-full max-w-2xl flex-col items-center">
-      {/* Hero */}
-      <h1 className="font-serif text-[clamp(1.75rem,4.4vw,3rem)] leading-[1.08] font-medium tracking-[-0.025em]">
-        {m['doc_library.hero.heading']()}
-      </h1>
-      <p className="text-foreground/60 mt-3 max-w-lg text-[14px] leading-relaxed">
-        {m['doc_library.hero.subheading']()}
-      </p>
-    </div>
-  );
-}
-
-function PptTab() {
-  return (
-    <div className="flex w-full max-w-md flex-col items-center text-center">
-      <h1 className="font-serif text-2xl font-medium tracking-tight md:text-3xl">
-        Turn any source into a deck
-      </h1>
-      <p className="text-foreground/55 mt-3 text-sm">
-        One-click PPT generation — outline, slides, and download in under a
-        minute.
-      </p>
-    </div>
   );
 }
 
@@ -1345,44 +1065,16 @@ function CapabilityBadge({
 function ThreadHeader({
   onReset,
   modelName,
-  mode,
-  docCollectionName,
-  onExitDocMode,
 }: {
   onReset: () => void;
   modelName: string;
-  mode?: PlaygroundMode;
-  docCollectionName?: string;
-  onExitDocMode?: () => void;
 }) {
-  const inDocs = mode === 'documents';
   return (
     <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 pt-5">
       <span className="text-foreground/45 flex items-center gap-2 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
-        {inDocs ? (
-          <>
-            <BookOpen className="size-3" />
-            <span className="truncate">{docCollectionName || 'Documents'}</span>
-            <span className="text-foreground/25">·</span>
-            <span>{modelName}</span>
-          </>
-        ) : (
-          <>
-            {m['playground.welcome.eyebrow']()} · {modelName}
-          </>
-        )}
+        {m['playground.welcome.eyebrow']()} · {modelName}
       </span>
       <div className="flex items-center gap-1.5">
-        {inDocs && (
-          <button
-            type="button"
-            onClick={onExitDocMode}
-            className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
-          >
-            <X className="size-3.5" />
-            Exit docs
-          </button>
-        )}
         <button
           type="button"
           onClick={onReset}
@@ -1409,20 +1101,18 @@ function MessageBubble({ message }: { message: Message }) {
       transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
       className={cn('flex gap-3', isUser && 'flex-row-reverse')}
     >
-      <div
-        className={cn(
-          'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg',
-          isUser ? 'bg-foreground text-background' : 'brand-gradient text-white'
-        )}
-      >
-        {isUser ? (
+      {isUser && (
+        <div
+          className={cn(
+            'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg',
+            'bg-foreground text-background'
+          )}
+        >
           <span className="text-xs font-semibold">
             {m['settings.chat.you_initial']()}
           </span>
-        ) : (
-          <Sparkles className="size-3.5" />
-        )}
-      </div>
+        </div>
+      )}
       <div
         className={cn(
           'max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed',
@@ -1441,7 +1131,7 @@ function MessageBubble({ message }: { message: Message }) {
             {images.map((img) => (
               <a key={img.url} href={img.url} target="_blank" rel="noreferrer">
                 <img
-                  src={img.url}
+                  src={img.previewUrl || img.url}
                   alt={img.filename || ''}
                   className="h-32 w-32 rounded-lg object-cover"
                 />
@@ -1489,29 +1179,6 @@ function MessageBubble({ message }: { message: Message }) {
           ) : (
             <MarkdownContent content={message.content} />
           ))}
-        {!isUser && message.citations && message.citations.length > 0 && (
-          <div className="border-foreground/10 mt-3 flex flex-col gap-1.5 border-t pt-2.5">
-            <div className="text-foreground/45 text-[10px] font-medium tracking-wide uppercase">
-              Sources
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {message.citations.map((s, i) => (
-                <a
-                  key={`${s.docId}-${i}`}
-                  href="#"
-                  onClick={(e) => e.preventDefault()}
-                  className="inline-flex max-w-full items-center gap-1 rounded-md border border-amber-300/60 bg-amber-50/60 px-2 py-0.5 text-[11px] font-medium text-amber-900 hover:bg-amber-100/60 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-200 dark:hover:bg-amber-900/30"
-                >
-                  <FileText className="size-3 shrink-0" />
-                  <span className="truncate">{s.filename}</span>
-                  {s.page && (
-                    <span className="shrink-0 opacity-60">p.{s.page}</span>
-                  )}
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </motion.div>
   );

@@ -11,6 +11,8 @@ import { checkLongContextAllowed } from '@/core/ai/tier-pricing';
 import { getAuth } from '@/core/auth';
 import { getConfig } from '@/modules/config/service';
 import { getBalance } from '@/modules/credits/service';
+import { parseDocument } from '@/modules/doc-library/parser';
+import { getStorage } from '@/modules/storage/service';
 import {
   consumeMessage,
   getRemainingQuota,
@@ -44,8 +46,10 @@ import { respErr } from '@/lib/resp';
  * Early validation/rate-limit failures still return a normal JSON envelope
  * (`respErr` / 429) — the client treats any non-event-stream response as an
  * error. Image attachments (`attachments[].type === 'image'`) are embedded as
- * `image_url` parts so a vision-capable model can actually see them; videos are
- * display-only and surfaced to the model as a text note.
+ * `image_url` parts so a vision-capable model can actually see them; document
+ * attachments (PDF / DOCX / XLSX / PPTX / MD / TXT / CSV) are fetched, parsed
+ * into plain text, and inlined into the user turn so the model can read them;
+ * videos are display-only and surfaced to the model as a text note.
  */
 
 const MAX_TURNS = 20;
@@ -55,7 +59,7 @@ const RATE_LIMIT_INTERVAL_MS = 6000;
 // No free tier — 0 subscription quota + 0 credits = paywall.
 
 const SYSTEM_PROMPT =
-  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity. When the user attaches images, look at them and respond to what you see.';
+  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity. When the user attaches images, look at them and respond to what you see. When the user attaches documents (PDF, Word, Markdown, plain text, CSV, etc.), their parsed text is inlined in the user message — read the document contents and answer from them directly.';
 
 const NOT_CONFIGURED_REPLY = `👋 I'm kimik3 — but no live model is reachable yet.
 
@@ -76,6 +80,11 @@ interface PlaygroundConfig {
 interface Attachment {
   type: 'image' | 'video' | 'document';
   url: string;
+  // Storage key from the upload endpoint. When storage is configured, the
+  // playground re-downloads via the storage provider's signed GET (private
+  // R2 buckets 401 on unauthenticated fetches). Optional so legacy clients
+  // / data still work via the URL fallback.
+  key?: string;
   filename?: string;
 }
 
@@ -156,6 +165,29 @@ const MIME_FROM_EXT: Record<string, string> = {
   heif: 'image/heif',
 };
 
+// Mirrors upload-media.ts so we can derive a sensible MIME for a local
+// document when the upstream Content-Type header is missing (e.g. `/uploads/`
+// files served by Vite's static handler).
+const MIME_FROM_EXT_DOC: Record<string, string> = {
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  md: 'text/markdown',
+  markdown: 'text/markdown',
+  txt: 'text/plain',
+  csv: 'text/csv',
+};
+
+// Per-document char budget before we truncate a single attachment's text.
+// Keeps a stack of large docs from blowing out the model context window.
+// ~500k chars ≈ 125k tokens — leaves room for the system prompt + history
+// + the user's question.
+const MAX_DOC_CHARS = 500_000;
+
 /**
  * Trusted URL prefixes the playground is allowed to inline. Anything else
  * (arbitrary internal IPs, cloud metadata endpoints, attacker-controlled
@@ -182,26 +214,54 @@ async function getTrustedStorageHosts(): Promise<Set<string>> {
 }
 
 /**
- * Convert an attachment URL into an inline base64 data URL the model can read
- * without a public fetch. Vision providers download a remote `image_url` to
- * count tokens, so a `/uploads/...` path on localhost (or a private bucket in
- * prod) makes them fail with `count_token_failed`. Inlining the bytes removes
- * that dependency entirely — works in dev and prod.
+ * Read the raw bytes of an attachment. Three resolution paths, in order:
  *
- * SECURITY: rejects anything that isn't an uploaded file (local `/uploads/...`)
- * or a URL on an explicitly-trusted storage host. Both blocks are protected
- * against path traversal / SSRF — `path.join` normalizes `..`, so the result
- * is re-anchored under `public/uploads/` before any read.
+ *   1. `attachment.key` set + storage configured → signed GET via the
+ *      storage provider (works against private R2 buckets where the
+ *      unauthenticated public URL would 401).
+ *   2. URL is a local `/uploads/...` path → read straight from disk. Path
+ *      stays anchored under `public/uploads/` (blocks `/uploads/../etc/...`).
+ *   3. URL is on a trusted storage host → unauthenticated GET. Works only
+ *      when the bucket is public; private buckets fall back to (1) via the
+ *      upload key.
+ *
+ * Returns `{ bytes, mime }`. Callers pick how to consume it (vision → base64
+ * data URL, document → text parser).
  */
-async function toDataUrl(
-  url: string,
-  trustedHosts: Set<string>
-): Promise<string> {
-  if (url.startsWith('data:')) return url;
+async function readAttachmentBytes(
+  attachment: { url: string; key?: string },
+  trustedHosts: Set<string>,
+  opts: { fallbackMime?: string } = {}
+): Promise<{ bytes: Buffer; mime: string }> {
+  const { url, key } = attachment;
 
-  // Local upload (no storage configured) — read straight from public/uploads.
-  // Allow ONLY paths under /uploads/ and verify the resolved file stays inside
-  // the uploads directory after normalization (blocks `/uploads/../../etc/...`).
+  // 1) Signed download via the storage provider — the only path that works
+  //    against a private R2 bucket.
+  if (key) {
+    const storage = await getStorage();
+    if (storage) {
+      const result = await storage.downloadFile({ key });
+      if (result) {
+        return {
+          bytes: result.bytes,
+          mime: result.mime || opts.fallbackMime || 'application/octet-stream',
+        };
+      }
+    }
+    // Storage was wiped/unconfigured after upload — the key is useless now.
+    // Fall through to the URL path so the user still gets a clear error
+    // instead of a generic "no key found".
+  }
+
+  if (url.startsWith('data:')) {
+    const match = url.match(/^data:([^;,]+)/);
+    return {
+      bytes: Buffer.from(url.split(',', 2)[1] || '', 'base64'),
+      mime: match?.[1] || opts.fallbackMime || 'application/octet-stream',
+    };
+  }
+
+  // 2) Local upload (no storage configured).
   if (url.startsWith('/')) {
     if (!url.startsWith('/uploads/')) {
       throw new Error('Refusing to read files outside /uploads/');
@@ -216,11 +276,17 @@ async function toDataUrl(
     }
     const buf = await readFile(resolved);
     const ext = (resolved.split('.').pop() || '').toLowerCase();
-    const mime = MIME_FROM_EXT[ext] || 'image/png';
-    return `data:${mime};base64,${buf.toString('base64')}`;
+    return {
+      bytes: buf,
+      mime:
+        MIME_FROM_EXT[ext] ||
+        MIME_FROM_EXT_DOC[ext] ||
+        opts.fallbackMime ||
+        'application/octet-stream',
+    };
   }
 
-  // Remote URL (storage configured) — only fetch from trusted storage hosts.
+  // 3) Remote URL on a trusted storage host — only works for public buckets.
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -234,21 +300,77 @@ async function toDataUrl(
     throw new Error(`Refusing to fetch from non-trusted host: ${parsed.host}`);
   }
   const res = await fetch(url, { redirect: 'manual' });
-  // Follow no redirects — a redirect from a "trusted" host to a metadata IP
-  // would re-introduce SSRF. The trusted host must serve the bytes directly.
   if (res.status >= 300 && res.status < 400) {
     throw new Error('Redirects are not allowed on attachment URLs');
   }
-  if (!res.ok) throw new Error(`Failed to fetch image (${res.status})`);
+  if (!res.ok) throw new Error(`Failed to fetch attachment (${res.status})`);
   const buf = Buffer.from(await res.arrayBuffer());
-  const mime = res.headers.get('content-type')?.split(';')[0] || 'image/png';
-  return `data:${mime};base64,${buf.toString('base64')}`;
+  const mime =
+    res.headers.get('content-type')?.split(';')[0] ||
+    opts.fallbackMime ||
+    'application/octet-stream';
+  return { bytes: buf, mime };
+}
+
+/**
+ * Convert an image attachment into an inline base64 data URL the model can
+ * read without a public fetch. Vision providers download a remote `image_url`
+ * to count tokens, so a `/uploads/...` path on localhost (or a private bucket
+ * in prod) makes them fail with `count_token_failed`. Inlining the bytes
+ * removes that dependency entirely — works in dev and prod.
+ */
+async function toDataUrl(
+  attachment: { url: string; key?: string },
+  trustedHosts: Set<string>
+): Promise<string> {
+  const { bytes, mime } = await readAttachmentBytes(attachment, trustedHosts, {
+    fallbackMime: 'image/png',
+  });
+  return `data:${mime};base64,${bytes.toString('base64')}`;
+}
+
+/**
+ * Read a document attachment, parse it into plain text via the doc-library
+ * parser (PDF / DOCX / XLSX / PPTX / MD / TXT / CSV), and return the text
+ * trimmed to `MAX_DOC_CHARS`. Errors are swallowed and surfaced as a short
+ * "[Could not read …]" note so the model still gets the user's question and
+ * the filename, rather than the whole request blowing up.
+ */
+async function loadDocumentText(
+  doc: Attachment,
+  trustedHosts: Set<string>
+): Promise<string> {
+  const label = doc.filename || 'document';
+  try {
+    const { bytes, mime } = await readAttachmentBytes(doc, trustedHosts, {
+      fallbackMime:
+        MIME_FROM_EXT_DOC[(label.split('.').pop() || '').toLowerCase()] ||
+        'application/octet-stream',
+    });
+    const parsed = await parseDocument({
+      buffer: bytes,
+      mimeType: mime,
+      filename: label,
+    });
+    const text =
+      parsed.text.length > MAX_DOC_CHARS
+        ? `${parsed.text.slice(0, MAX_DOC_CHARS)}\n\n[...truncated — document exceeds the per-attachment ${MAX_DOC_CHARS.toLocaleString()}-character limit...]`
+        : parsed.text;
+    const notice = parsed.truncated
+      ? `\n\n[Note: original document was truncated by the parser as well.]`
+      : '';
+    return `--- Begin document: ${label} ---\n${text}\n--- End document: ${label} ---${notice}`;
+  } catch (e: any) {
+    return `[Could not read attached document "${label}": ${e?.message || 'parse failed'}]`;
+  }
 }
 
 /**
  * Compose the message list. The last user turn becomes multimodal when images
- * are attached; videos are noted in text (the model can't ingest video).
- * Returns the model to use — a configured vision model when images are present.
+ * are attached; videos are noted in text (the model can't ingest video);
+ * documents are parsed and their text is inlined so the model can actually
+ * read them. Returns the model to use — a configured vision model when
+ * images are present.
  */
 async function buildMessages(
   turns: ChatTurn[],
@@ -294,16 +416,19 @@ async function buildMessages(
   for (const v of videos) {
     textBits.push(`[Attached video${v.filename ? `: ${v.filename}` : ''}]`);
   }
-  for (const d of documents) {
-    textBits.push(
-      `[Attached document${d.filename ? `: ${d.filename}` : ''} — ${d.url}]`
+  // Parse and inline every document's text in parallel so a stack of large
+  // attachments doesn't serialize the request.
+  if (documents.length > 0) {
+    const docTexts = await Promise.all(
+      documents.map((d) => loadDocumentText(d, trustedHosts))
     );
+    for (const t of docTexts) textBits.push(t);
   }
   parts.push({ type: 'text', text: textBits.join('\n\n') || ' ' });
   for (const img of images) {
     parts.push({
       type: 'image_url',
-      image_url: { url: await toDataUrl(img.url, trustedHosts) },
+      image_url: { url: await toDataUrl(img, trustedHosts) },
     });
   }
 
@@ -357,7 +482,7 @@ async function POST({ request }: { request: Request }) {
     ? body.attachments.filter(
         (a: any) =>
           a &&
-          (a.type === 'image' || a.type === 'video') &&
+          (a.type === 'image' || a.type === 'video' || a.type === 'document') &&
           typeof a.url === 'string'
       )
     : [];

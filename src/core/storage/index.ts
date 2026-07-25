@@ -66,6 +66,13 @@ export interface StorageProvider {
   downloadAndUpload(
     options: StorageDownloadUploadOptions
   ): Promise<StorageUploadResult>;
+
+  // download file bytes (signed GET); optional — providers without this
+  // capability fall back to public-URL fetching by the caller.
+  downloadFile?: (options: {
+    key: string;
+    bucket?: string;
+  }) => Promise<{ bytes: Buffer; mime: string }>;
 }
 
 /**
@@ -126,6 +133,16 @@ export class StorageManager {
     options: StorageDownloadUploadOptions
   ): Promise<StorageUploadResult> {
     return this.ensureDefaultProvider().downloadAndUpload(options);
+  }
+
+  // download file bytes using default provider (signed; optional)
+  async downloadFile(options: {
+    key: string;
+    bucket?: string;
+  }): Promise<{ bytes: Buffer; mime: string } | null> {
+    const provider = this.ensureDefaultProvider();
+    if (!provider.downloadFile) return null;
+    return provider.downloadFile(options);
   }
 
   // check if object exists using default provider (if supported)

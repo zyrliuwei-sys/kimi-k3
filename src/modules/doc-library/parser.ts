@@ -63,6 +63,8 @@ export async function parseDocument(args: ParseArgs): Promise<ParsedDocument> {
     ext === 'pptx'
   )
     return parsePptx(buffer);
+  if (type === 'application/vnd.ms-powerpoint' || ext === 'ppt')
+    return parsePpt(buffer);
   if (
     type === 'text/plain' ||
     ext === 'txt' ||
@@ -79,36 +81,59 @@ export async function parseDocument(args: ParseArgs): Promise<ParsedDocument> {
 // ─── PDF ─────────────────────────────────────────────────────────────────────
 
 async function parsePdf(buffer: Buffer): Promise<ParsedDocument> {
-  // Lazy import so the parser module loads even on cold paths without
-  // pulling pdf-parse into the bundle when only text is uploaded.
-  const pdfParse = (await import('pdf-parse')).default;
-  const data = await pdfParse(buffer);
-  const raw = data.text || '';
-  // pdf-parse joins pages with a literal form-feed char (\f). Treat each
-  // page block as a single "page" for citation mapping.
-  const parts = raw.split('\f');
-  const pageMap: Array<{ page: number; charStart: number; charEnd: number }> =
-    [];
-  let cursor = 0;
-  const rebuilt: string[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    rebuilt.push(part);
-    cursor += part.length;
-    pageMap.push({
-      page: i + 1,
-      charStart: cursor - part.length,
-      charEnd: cursor,
-    });
+  // pdf-parse v2.x ships an entirely different API from v1: a `PDFParse`
+  // class you `new` with `{ data }`, then call `.getText()` on, then
+  // `.destroy()` to free the worker. The old `(await import('pdf-parse'))
+  // .default(buffer)` signature throws at runtime ("pdfParse is not a
+  // function" or similar), which was the source of every PDF parse failure
+  // in the playground chat.
+  const { PDFParse } = await import('pdf-parse');
+  const parser = new PDFParse({ data: buffer });
+  let text = '';
+  let pageCount = 0;
+  let meta: { title?: string; author?: string } = {};
+  try {
+    const result = await parser.getText();
+    text = result?.text || '';
+    pageCount = result?.total || result?.pages?.length || 0;
+
+    // Best-effort metadata — swallow failures so a missing info block
+    // doesn't tank the parse.
+    try {
+      const info = await parser.getInfo();
+      meta = {
+        title: info?.info?.Title || undefined,
+        author: info?.info?.Author || undefined,
+      };
+    } catch {
+      /* ignore */
+    }
+
+    // Build a per-page char map by walking the page array — gives the
+    // doc-library citations a stable `page → char range` lookup.
+    const pageMap: Array<{
+      page: number;
+      charStart: number;
+      charEnd: number;
+    }> = [];
+    let cursor = 0;
+    for (const p of result?.pages || []) {
+      const pageText = p?.text || '';
+      pageMap.push({
+        page: p?.num ?? pageMap.length + 1,
+        charStart: cursor,
+        charEnd: cursor + pageText.length,
+      });
+      cursor += pageText.length;
+    }
+    meta = { ...meta, pageMap };
+  } finally {
+    await parser.destroy();
   }
-  const merged = rebuilt.join('\n\n');
-  return finalize(merged, {
-    pageCount: data.numpages || pageMap.length,
-    meta: {
-      title: data.info?.Title || undefined,
-      author: data.info?.Author || undefined,
-      pageMap,
-    },
+
+  return finalize(text, {
+    pageCount,
+    meta,
   });
 }
 
@@ -126,6 +151,15 @@ async function parseDoc(buffer: Buffer): Promise<ParsedDocument> {
   // user to re-save as .docx instead of silently returning empty text.
   throw new Error(
     'Legacy .doc files are not supported — please re-save as .docx or .pdf'
+  );
+}
+
+async function parsePpt(buffer: Buffer): Promise<ParsedDocument> {
+  // Same story as .doc — legacy .ppt is OLE Compound File, needs a dedicated
+  // reader (e.g. `node-pptx-parser`) that's flaky on modern files. Better to
+  // ask the user to re-save as .pptx than silently swallow the file.
+  throw new Error(
+    'Legacy .ppt files are not supported — please re-save as .pptx or .pdf'
   );
 }
 

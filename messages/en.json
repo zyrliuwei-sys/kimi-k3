@@ -911,6 +911,7 @@
   "playground.attachment.err_upload_failed": "\"{name}\" upload failed. Please try again.",
   "playground.attachment.err_anon_limit": "Anonymous upload limit reached — sign in to upload more.",
   "playground.attachment.err_rate_limited": "Uploading too fast — wait a second and try again with \"{name}\".",
+  "playground.attachment.status_error": "Failed",
   "playground.documents.err_no_source": "Upload a document, paste at least 1,000 characters, or load sample documents first.",
   "playground.documents.err_wrong_attachment": "Document mode needs PDF, Word, Excel, PPT, Markdown, text, or CSV files.",
   "playground.documents.preparing": "Preparing your documents…",

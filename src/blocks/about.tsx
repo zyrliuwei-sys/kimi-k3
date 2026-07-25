@@ -30,7 +30,7 @@ export function About() {
         </Reveal>
 
         <Reveal delay={80}>
-          <div className="text-foreground/75 mx-auto mt-12 max-w-2xl space-y-6 text-left text-[15.5px] leading-[1.75]">
+          <div className="text-foreground/75 mt-12 space-y-6 text-left text-[15.5px] leading-[1.75]">
             {paragraphs.map((p, i) => (
               <p key={i}>{p}</p>
             ))}

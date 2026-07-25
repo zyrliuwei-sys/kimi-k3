@@ -32,6 +32,9 @@ importers:
       '@fontsource/libre-baskerville':
         specifier: ^5.2.10
         version: 5.3.0
+      '@fontsource/playfair-display':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@libsql/client':
         specifier: ^0.14.0
         version: 0.14.0
@@ -1203,6 +1206,9 @@ packages:
 
   '@fontsource/libre-baskerville@5.3.0':
     resolution: {integrity: sha512-IA6OLq36/JWMX70Fha15sri2qWsijFh7hgdDXCRZHjKUHtWarLQoiGilvm7iMqm7HiYFEv9acF3+IuRHO9kUiA==}
+
+  '@fontsource/playfair-display@5.3.0':
+    resolution: {integrity: sha512-uJSABalvdWc10fEPppQjQocamT21LEyRfzzWfRfqbkPz+sRv+kKpYDKyluBUskvJREkJTos9epj1WjQROGu99Q==}
 
   '@hono/node-server@1.19.13':
     resolution: {integrity: sha512-TsQLe4i2gvoTtrHje625ngThGBySOgSK3Xo2XRYOdqGN1teR8+I7vchQC46uLJi8OF62YTYA3AhSpumtkhsaKQ==}
@@ -6654,6 +6660,8 @@ snapshots:
   '@fontsource-variable/inter@5.3.0': {}
 
   '@fontsource/libre-baskerville@5.3.0': {}
+
+  '@fontsource/playfair-display@5.3.0': {}
 
   '@hono/node-server@1.19.13(hono@4.12.12)':
     dependencies:

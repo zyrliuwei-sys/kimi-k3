@@ -163,6 +163,41 @@ export class R2Provider implements StorageProvider {
     }
   }
 
+  /**
+   * Authenticated download — signs a GET against the R2 S3 endpoint with the
+   * provider's credentials. Returns the bytes (and best-effort MIME from the
+   * response Content-Type header) so callers can hand them straight to a
+   * parser without exposing the raw URL.
+   *
+   * Required because private R2 buckets return 401 on unauthenticated GET,
+   * which is the normal case for user-uploaded attachments.
+   */
+  downloadFile = async (options: {
+    key: string;
+    bucket?: string;
+  }): Promise<{ bytes: Buffer; mime: string }> => {
+    const uploadBucket = options.bucket || this.configs.bucket;
+    const uploadPath = this.getUploadPath();
+    const url = `${this.getEndpoint()}/${uploadBucket}/${uploadPath}/${options.key}`;
+
+    const { AwsClient } = await import('aws4fetch');
+    const client = new AwsClient({
+      accessKeyId: this.configs.accessKeyId,
+      secretAccessKey: this.configs.secretAccessKey,
+      region: this.configs.region || 'auto',
+    });
+
+    const res = await client.fetch(new Request(url, { method: 'GET' }));
+    if (!res.ok) {
+      throw new Error(`R2 GET failed: ${res.status} ${res.statusText}`);
+    }
+    const bytes = Buffer.from(await res.arrayBuffer());
+    const mime =
+      res.headers.get('content-type')?.split(';')[0] ||
+      'application/octet-stream';
+    return { bytes, mime };
+  };
+
   async downloadAndUpload(
     options: StorageDownloadUploadOptions
   ): Promise<StorageUploadResult> {
