@@ -13,9 +13,9 @@ import { respData, respErr } from '@/lib/resp';
  *                             collection itself are preserved.
  */
 
-async function requireUser() {
+async function requireUser(request: Request) {
   const auth = getAuth();
-  const session = await auth.api.getSession({ headers: new Headers() });
+  const session = await auth.api.getSession({ headers: request.headers });
   if (!session?.user?.id) {
     return { error: respErr('Unauthorized', { status: 401 }) } as const;
   }
@@ -26,7 +26,7 @@ export const Route = createFileRoute('/api/doc-library/messages')({
   server: {
     handlers: {
       GET: async ({ request }) => {
-        const r = await requireUser();
+        const r = await requireUser(request);
         if ('error' in r) return r.error;
         const url = new URL(request.url);
         const collectionId = url.searchParams.get('collectionId') || '';
@@ -43,7 +43,7 @@ export const Route = createFileRoute('/api/doc-library/messages')({
       },
 
       DELETE: async ({ request }) => {
-        const r = await requireUser();
+        const r = await requireUser(request);
         if ('error' in r) return r.error;
         const url = new URL(request.url);
         const collectionId = url.searchParams.get('collectionId') || '';

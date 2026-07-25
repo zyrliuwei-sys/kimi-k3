@@ -66,6 +66,11 @@ const extFromMime = (mimeType: string) => {
     'application/vnd.ms-powerpoint': 'ppt',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation':
       'pptx',
+    // Plain text / markdown / csv — mirrors what /api/doc-library/document
+    // accepts so the playground can ingest long-form text the same way.
+    'text/plain': 'txt',
+    'text/markdown': 'md',
+    'text/csv': 'csv',
   };
   return map[mimeType] || '';
 };
@@ -80,8 +85,29 @@ const DOCUMENT_MIMES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
 ]);
 const isDocument = (t: string) => DOCUMENT_MIMES.has(t);
+// Extension fallback — browsers (especially for .md) often leave File.type
+// empty, so we also accept by extension. Mirrors /api/doc-library/document.
+const DOCUMENT_EXTENSIONS = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'md',
+  'txt',
+  'csv',
+]);
+const hasDocumentExtension = (filename: string) => {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return DOCUMENT_EXTENSIONS.has(ext);
+};
 
 // Cap for the no-storage local-disk fallback (dev). Configurable via
 // INLINE_IMAGE_MAX_KB (shared with upload-image so the dev ceiling is uniform).
@@ -142,7 +168,8 @@ async function POST({ request }: { request: Request }) {
       if (
         !isImage(file.type) &&
         !isVideo(file.type) &&
-        !isDocument(file.type)
+        !isDocument(file.type) &&
+        !hasDocumentExtension(file.name)
       ) {
         return respErr(
           `File ${file.name} is not a supported image, video, or document (got ${file.type || 'unknown'})`

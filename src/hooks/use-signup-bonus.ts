@@ -22,9 +22,10 @@ export interface SignupBonus {
 
 const DEFAULT_BONUS: SignupBonus = {
   enabled: true,
-  credits: 20,
+  credits: 10,
   validDays: 30,
-  description: 'Welcome to kimik3 — 20 free credits to try it out 🎉',
+  description:
+    'Welcome to kimik3 — 10 free credits (≈ 2 PPT decks) to try it out 🎉',
 };
 
 export function useSignupBonus(): SignupBonus {

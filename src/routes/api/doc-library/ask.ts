@@ -60,14 +60,21 @@ export const Route = createFileRoute('/api/doc-library/ask')({
                 encoder.encode(`data: ${JSON.stringify(obj)}\n\n`)
               );
             try {
-              for await (const evt of streamAsk(
+              // streamAsk returns a Promise<AsyncGenerator>; explicitly
+              // awaiting it first avoids relying on `for await` to unwrap
+              // a promise of an async iterable — Vite's SSR transform
+              // doesn't always handle that combination, and the run-time
+              // error surfaces as "is not a function or its return value
+              // is not async iterable".
+              const events = await streamAsk(
                 {
                   userId: session.user.id,
                   collectionId,
                   question,
                 },
                 request.signal
-              )) {
+              );
+              for await (const evt of events) {
                 if (
                   evt.type === 'error' &&
                   evt.message === 'payment_required'

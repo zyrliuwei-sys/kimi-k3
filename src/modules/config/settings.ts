@@ -263,10 +263,10 @@ export function getSettings(): Setting[] {
 
     // ─── General / Credits ───────────────────────────────────────────
     // Defaults are tuned for an overseas B2C AI product where Kimi K3 is
-    // the model. 1 credit ≈ $0.0148 of API cost, so 20 credits ≈ $0.30
-    // CAC — safe under industry freemium norms ($3-15) while still
-    // giving the user one full experience (1 long-context doc + ~5
-    // short follow-ups) before paywall.
+    // the model. 1 credit ≈ $0.0148 of API cost, so 10 credits ≈ $0.15
+    // CAC — well under industry freemium norms ($3-15). At 5 cr per PPT
+    // deck, 10 credits ≈ 2 decks — a tight demo that nudges toward
+    // paywall without starving the first-run experience.
     {
       name: 'initial_credits_enabled',
       title: 'Grant credits on signup',
@@ -280,7 +280,7 @@ export function getSettings(): Setting[] {
       title: 'Credits amount',
       type: 'number',
       placeholder: '100',
-      defaultValue: '20',
+      defaultValue: '10',
       group: 'credit',
       tab: 'general',
     },
@@ -298,6 +298,20 @@ export function getSettings(): Setting[] {
       title: 'Description',
       type: 'text',
       placeholder: 'Welcome bonus',
+      group: 'credit',
+      tab: 'general',
+    },
+    {
+      // Per-deck credit cost — applied at generateDeck() in
+      // src/modules/ppt/service.ts. Lets the admin tune the PPT-to-credit
+      // ratio without a redeploy. Defaults to 5 (≈ 2 decks from the
+      // 10-credit signup bonus).
+      name: 'ppt_credit_cost',
+      title: 'Credits per PPT deck',
+      type: 'number',
+      placeholder: '5',
+      defaultValue: '5',
+      min: 1,
       group: 'credit',
       tab: 'general',
     },

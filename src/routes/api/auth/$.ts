@@ -30,7 +30,9 @@ async function handle(request: Request) {
   const url = new URL(request.url);
   const isSignUp = url.pathname.endsWith('/sign-up/email');
 
-  const configs = await getDbConfigs();
+  // Force-refresh the config cache — signup bonus decisions must reflect
+  // the latest admin-set values, not whatever was cached up to 1h ago.
+  const configs = await getDbConfigs(true);
   const auth = getAuth(configs);
   const response = await auth.handler(request);
 

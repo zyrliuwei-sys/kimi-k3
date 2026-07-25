@@ -286,7 +286,8 @@ export function getAuth(configs?: Record<string, string>) {
           create: {
             after: async (user) => {
               try {
-                const all = await getAllConfigs();
+                // Force-refresh — signup bonus must reflect latest admin config.
+                const all = await getAllConfigs(true);
                 await grantForNewUser({
                   userId: user.id,
                   userEmail: user.email,

@@ -37,6 +37,7 @@ import {
   PaymentProviderModal,
   type PaymentProvider,
 } from '@/components/payment-provider-modal';
+import { PptWorkspace } from '@/components/ppt-workspace';
 
 /* ------------------------------------------------------------------ */
 /*  Types & config                                                     */
@@ -100,6 +101,10 @@ async function uploadMediaFile(file: File): Promise<Attachment> {
 // the round-trip + server-side rejection for the obvious bad inputs.
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
 const MAX_FILES = 50;
+// Long pasted text in Documents mode is auto-promoted into a temporary
+// Markdown document once it crosses this character count. 1000 is high
+// enough to ignore ordinary short questions but accepts any pasted article.
+const PASTED_DOCUMENT_MIN_CHARS = 1000;
 const ALLOWED_MIME_PREFIXES = ['image/', 'video/'];
 const ALLOWED_MIME_EXACT = new Set([
   'application/pdf',
@@ -109,7 +114,28 @@ const ALLOWED_MIME_EXACT = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/markdown',
+  'text/csv',
 ]);
+// Extension fallback — browsers (especially for .md) often leave File.type
+// empty, so we also accept by extension. Matches the doc-library endpoint.
+const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
+  'pdf',
+  'doc',
+  'docx',
+  'xls',
+  'xlsx',
+  'ppt',
+  'pptx',
+  'md',
+  'txt',
+  'csv',
+]);
+function hasSupportedDocumentExtension(filename: string): boolean {
+  const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+  return ALLOWED_DOCUMENT_EXTENSIONS.has(ext);
+}
 
 function isSupportedMime(mime: string): boolean {
   if (!mime) return false;
@@ -209,7 +235,10 @@ export function ApiPlayground() {
     const offenders: Array<{ file: File; reason: 'size' | 'mime' }> = [];
     for (const file of list) {
       if (file.size > MAX_FILE_BYTES) offenders.push({ file, reason: 'size' });
-      else if (!isSupportedMime(file.type))
+      else if (
+        !isSupportedMime(file.type) &&
+        !hasSupportedDocumentExtension(file.name)
+      )
         offenders.push({ file, reason: 'mime' });
     }
     if (offenders.length) {
@@ -226,23 +255,77 @@ export function ApiPlayground() {
 
     setUploading(true);
     try {
+      // Skip files that are already attached (same name + size + mtime) —
+      // the storage key is the md5 so re-uploading returns the same URL,
+      // and rapid re-selects otherwise spam the 1-second rate limit.
+      const existingKey = new Set(
+        attachments.map(
+          (a) => `${a.filename ?? ''}|${a.url.split('/').pop() ?? ''}`
+        )
+      );
+      const listToUpload = list.filter((f) => {
+        // We can only match by filename + size here — the storage md5
+        // isn't known until after upload. Same name + size + mtime is a
+        // strong-enough signal for the common "user re-picks the same
+        // file" case.
+        const key = `${f.name}|${f.size}|${f.lastModified}`;
+        return !Array.from(attachments).some(
+          (a) =>
+            a.filename === f.name &&
+            (a as any)._size === f.size &&
+            (a as any)._mtime === f.lastModified
+        );
+      });
+      // (Note: `existingKey` is reserved for a future URL-based check
+      // when the server includes size/mtime in the response.)
+      void existingKey;
+      if (listToUpload.length === 0) {
+        // Nothing new to upload — silently no-op (no toast spam).
+        return;
+      }
       // Upload in parallel — independent files don't need to wait for each
       // other. allSettled so one rejection doesn't abort the rest.
-      const results = await Promise.allSettled(list.map(uploadMediaFile));
+      const results = await Promise.allSettled(
+        listToUpload.map(uploadMediaFile)
+      );
       const added: Attachment[] = [];
       for (let i = 0; i < results.length; i++) {
         const r = results[i];
         if (r.status === 'fulfilled') {
-          added.push(r.value);
+          // Dedupe by URL — the storage key is the file's md5, so the same
+          // file uploaded twice (or the deduped path the server already
+          // takes) returns the same public URL. Without this filter the
+          // attachment chips render with duplicate React keys.
+          if (!added.some((a) => a.url === r.value.url)) {
+            added.push(r.value);
+          }
         } else {
           const msg = (r.reason as Error)?.message || '';
+          // Server's rate limiter returns { error, message } (not the
+          // standard { code, message } envelope) and surfaces phrases like
+          // "Please retry after 1s." Match that explicitly so the user
+          // sees a rate-limit-specific toast instead of a generic
+          // "upload failed".
           const key = /Anonymous upload limit/i.test(msg)
             ? 'playground.attachment.err_anon_limit'
-            : 'playground.attachment.err_upload_failed';
+            : /Please retry after/i.test(msg)
+              ? 'playground.attachment.err_rate_limited'
+              : 'playground.attachment.err_upload_failed';
           toast.error(m[key]({ name: list[i].name }));
         }
       }
-      if (added.length) setAttachments((prev) => [...prev, ...added]);
+      if (added.length) {
+        setAttachments((prev) => {
+          // Dedupe against the existing list too — the storage key is the
+          // file's md5, so re-uploading the same file (or picking it from
+          // a previously-attached state) returns the same public URL.
+          // Without this filter the attachment chips render with duplicate
+          // React keys.
+          const existing = new Set(prev.map((a) => a.url));
+          const fresh = added.filter((a) => !existing.has(a.url));
+          return fresh.length ? [...prev, ...fresh] : prev;
+        });
+      }
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -264,32 +347,42 @@ export function ApiPlayground() {
     // ── Document-library mode: bypass chat attachments and stream via the
     //    doc-library SSE endpoint, which stitches parsed docs into the prompt.
     if (mode === 'documents') {
+      // Empty / already-streaming guard sits before any collection work so an
+      // accidental empty send never produces a half-baked collection.
+      if (!text || isThinking) return;
+
+      const docAtts = attachments.filter((a) => a.type === 'document');
       // If the user uploaded files via the + button but never loaded the
       // sample collection, auto-promote those uploads into a fresh doc
-      // collection so they can ask questions right away.
+      // collection so they can ask questions right away. Long pasted text
+      // (>= PASTED_DOCUMENT_MIN_CHARS) is also promoted as a temporary
+      // Markdown document so the same Q&A pipeline can answer against it.
+      const shouldCreatePastedDocument =
+        text.length >= PASTED_DOCUMENT_MIN_CHARS;
+      // Tracks the collection id to ask against. Defaults to the existing
+      // state; gets overwritten with the freshly created id below.
+      let collectionIdForAsk = docCollectionId;
+
       if (!docCollectionId) {
-        const docAtts = attachments.filter((a) => a.type === 'document');
-        if (docAtts.length === 0) {
+        if (docAtts.length === 0 && !shouldCreatePastedDocument) {
           toast.error(
             attachments.length > 0
-              ? 'Document mode needs PDF / Word / Excel / PPT files'
-              : 'Load sample documents first'
+              ? m['playground.documents.err_wrong_attachment']()
+              : m['playground.documents.err_no_source']()
           );
           return;
         }
-        const tId = toast.loading('Preparing your documents…');
+        const tId = toast.loading(m['playground.documents.preparing']());
         try {
-          const coll = await apiPost<{ id: string }>(
-            '/api/doc-library/collection',
-            { name: 'My Documents' }
-          );
-          for (const att of docAtts) {
-            const blob = await fetch(att.url).then((r) => r.blob());
-            const file = new File([blob], att.filename || 'document', {
-              type: blob.type || 'application/octet-stream',
-            });
+          // Reused for both uploaded attachments and the synthetic pasted
+          // text — keeps error handling identical and the request shape
+          // single-sourced.
+          const uploadFileToCollection = async (
+            collectionId: string,
+            file: File
+          ) => {
             const fd = new FormData();
-            fd.set('collectionId', coll.id);
+            fd.set('collectionId', collectionId);
             fd.set('files', file);
             const res = await fetch('/api/doc-library/document', {
               method: 'POST',
@@ -301,16 +394,44 @@ export function ApiPlayground() {
             if (json.code !== 0) {
               throw new Error(json.message || 'Upload failed');
             }
+          };
+
+          const coll = await apiPost<{ id: string }>(
+            '/api/doc-library/collection',
+            { name: 'My Documents' }
+          );
+          for (const att of docAtts) {
+            const blob = await fetch(att.url).then((r) => r.blob());
+            const file = new File([blob], att.filename || 'document', {
+              type: blob.type || 'application/octet-stream',
+            });
+            await uploadFileToCollection(coll.id, file);
+          }
+          if (shouldCreatePastedDocument) {
+            // Timestamp-based filename — never embed a content snippet, to
+            // avoid leaking user text into storage keys, logs, or download
+            // names. The doc body still contains the user's text verbatim.
+            const pastedFile = new File(
+              [`# Pasted text\n\n${text}\n`],
+              `pasted-text-${Date.now()}.md`,
+              { type: 'text/markdown' }
+            );
+            await uploadFileToCollection(coll.id, pastedFile);
           }
           setDocCollectionId(coll.id);
+          // Also capture locally — setDocCollectionId is async, so the
+          // state-bound `docCollectionId` still reads null in this same
+          // closure. The streamDocAsk call below needs the new id now.
+          collectionIdForAsk = coll.id;
           toast.dismiss(tId);
         } catch (err: any) {
           toast.dismiss(tId);
-          toast.error(err?.message || 'Failed to prepare documents');
+          toast.error(
+            err?.message || m['playground.documents.prepare_failed']()
+          );
           return;
         }
       }
-      if (!text || isThinking) return;
       const userMsg: Message = {
         id: ++idRef.current,
         role: 'user',
@@ -335,8 +456,17 @@ export function ApiPlayground() {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      // When the user's input was long enough to be promoted into a
+      // temporary document, sending the same text as the question would
+      // (a) re-paste the entire document into the prompt and (b) trip the
+      // server's 4000-char question limit. Ask a short default question
+      // instead — the user can still type a real follow-up after.
+      const questionForAsk = shouldCreatePastedDocument
+        ? m['playground.documents.default_question']()
+        : text;
+
       await streamDocAsk(
-        { collectionId: docCollectionId, question: text },
+        { collectionId: collectionIdForAsk, question: questionForAsk },
         {
           signal: controller.signal,
           onDelta: (chunk) => {
@@ -366,9 +496,14 @@ export function ApiPlayground() {
                 m.id === assistantId
                   ? {
                       ...m,
+                      // Surface the actual stream error inside the assistant
+                      // bubble so users (and we) can see what went wrong
+                      // instead of a generic "Something went wrong".
                       content:
                         m.content ||
-                        '⚠️ Something went wrong. Please try again.',
+                        (msg
+                          ? `⚠️ ${msg}`
+                          : '⚠️ Something went wrong. Please try again.'),
                     }
                   : m
               )
@@ -618,7 +753,27 @@ export function ApiPlayground() {
         className="play-grid pointer-events-none absolute inset-0 opacity-70"
       />
 
-      {hasThread ? (
+      {mode === 'ppt' ? (
+        // PPT mode owns its own UI (file dropzone, prompt, slide count, generate
+        // progress). The chat composer + thread view don't apply here — sending
+        // a plain text prompt through /api/playground/chat returned
+        // "A user message is required" because that endpoint is wired for chat,
+        // not deck generation. Delegating to <PptWorkspace/> routes the prompt
+        // through /api/ppt/generate and accepts .md/.txt source files too.
+        <ThreadHeader
+          onReset={resetThread}
+          modelName={selected.name}
+          mode={mode}
+          docCollectionName={docCollectionName}
+          onExitDocMode={handleExitDocMode}
+        />
+      ) : null}
+
+      {mode === 'ppt' ? (
+        <div className="relative mx-auto w-full max-w-2xl flex-1 overflow-y-auto px-4 py-8">
+          <PptWorkspace />
+        </div>
+      ) : hasThread ? (
         // Active thread — messages scroll, composer pinned to the bottom.
         <>
           <div
@@ -867,7 +1022,7 @@ function Composer({
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.md,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/markdown,text/plain,text/csv"
           multiple
           onChange={(e) => onFilesSelected(e.target.files)}
           className="hidden"

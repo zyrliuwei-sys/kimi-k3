@@ -264,18 +264,19 @@ export async function grantForNewUser(params: {
   const { userId, userEmail, configs } = params;
 
   // Defaults (must mirror src/modules/config/settings.ts for fresh installs
-  // that never opened Admin → Settings): 20 credits expiring in 30 days.
-  // Tuned for Kimi K3 economics — see the comment block in settings.ts.
+  // that never opened Admin → Settings): 10 credits expiring in 30 days.
+  // Tuned for Kimi K3 economics — at 5 cr per PPT, 10 credits ≈ 2 decks.
+  // See the comment block in settings.ts.
   if (configs.initial_credits_enabled === 'false') return;
 
   const parsed = parseInt(configs.initial_credits_amount);
-  const credits = Number.isNaN(parsed) ? 20 : parsed;
+  const credits = Number.isNaN(parsed) ? 10 : parsed;
   if (credits <= 0) return;
 
   const validDays = parseInt(configs.initial_credits_valid_days) || 30;
   const description =
     configs.initial_credits_description ||
-    'Welcome to kimik3 — 20 free credits to try it out 🎉';
+    'Welcome to kimik3 — 10 free credits (≈ 2 PPT decks) to try it out 🎉';
 
   const expiresAt = calculateCreditExpirationTime({
     creditsValidDays: validDays,

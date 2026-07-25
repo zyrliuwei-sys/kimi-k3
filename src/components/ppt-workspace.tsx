@@ -1,9 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, FileText, Loader2, Plus, Sparkles, X } from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
+import {
+  CATEGORIES,
+  TEMPLATES,
+  type Template,
+  type TemplateCategory,
+} from '@/modules/ppt/templates';
 import { ApiError, apiPost } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
@@ -53,6 +59,12 @@ export function PptWorkspace() {
   const [files, setFiles] = useState<UploadedFile[]>([]);
   const [prompt, setPrompt] = useState('');
   const [slideCount, setSlideCount] = useState(15);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
+    TEMPLATES[0].id
+  );
+  const [activeCategory, setActiveCategory] = useState<
+    TemplateCategory | 'all'
+  >('all');
   const [task, setTask] = useState<TaskRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -131,13 +143,16 @@ export function PptWorkspace() {
     abortRef.current = controller;
 
     try {
-      // No templateId sent — backend picks the best fit.
+      // Send the user-picked templateId. The backend uses it directly
+      // (skips its own K3 template-pick step), so what the user clicks
+      // is what gets generated.
       const row = await apiPost<TaskRow>(
         '/api/ppt/generate',
         {
           title: prompt.trim().slice(0, 80) || 'Untitled presentation',
           topic: prompt.trim(),
           prompt: prompt.trim(),
+          templateId: selectedTemplateId,
           slideCount,
           sourceType: 'empty',
         },
@@ -153,8 +168,22 @@ export function PptWorkspace() {
       } else if (e?.status === 503) {
         msg =
           'No AI provider is configured yet. Ask an admin to set evolink_api_key in Settings.';
+      } else if (e?.status === 524 || e?.status === 504 || e?.status === 522) {
+        // 524 = Cloudflare "origin timeout" — the upstream AI provider
+        // didn't respond in time. 504/522 are similar gateway timeouts.
+        // Common when the provider is overloaded. Plain English so the
+        // user doesn't see Cloudflare's HTML error page.
+        msg =
+          'The AI provider took too long to respond. Try again, or use fewer slides.';
       } else if (e instanceof ApiError) {
-        msg = e.message;
+        // Strip any HTML payload — the server sometimes returns a Cloudflare
+        // error page instead of a JSON envelope. Show just the status.
+        const raw = e.message || '';
+        if (raw.startsWith('<!')) {
+          msg = `Server error (${e.status}). Please try again.`;
+        } else {
+          msg = raw;
+        }
       } else {
         msg = e?.message || 'Something went wrong.';
       }
@@ -217,6 +246,14 @@ export function PptWorkspace() {
         </div>
       )}
 
+      <TemplatePicker
+        selectedId={selectedTemplateId}
+        onSelect={setSelectedTemplateId}
+        activeCategory={activeCategory}
+        onCategoryChange={setActiveCategory}
+        disabled={submitting || isGenerating}
+      />
+
       <FileDropzone
         files={files}
         dragOver={dragOver}
@@ -278,23 +315,24 @@ export function PptWorkspace() {
       </Field>
 
       <div className="flex items-center justify-end gap-2">
-        {isGenerating && (
-          <Button variant="ghost" onClick={handleCancel}>
-            {m['ppt.workspace.cancel']()}
+        {task && isGenerating ? (
+          <div className="w-full">
+            <ProgressCta task={task} onCancel={handleCancel} />
+          </div>
+        ) : (
+          <Button
+            onClick={handleGenerate}
+            disabled={submitting || !prompt.trim()}
+            className="min-w-[200px]"
+          >
+            {submitting ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )}
+            {m['ppt.workspace.generate']()}
           </Button>
         )}
-        <Button
-          onClick={handleGenerate}
-          disabled={submitting || isGenerating || !prompt.trim()}
-          className="min-w-[200px]"
-        >
-          {submitting || isGenerating ? (
-            <Loader2 className="size-4 animate-spin" />
-          ) : (
-            <Sparkles className="size-4" />
-          )}
-          {m['ppt.workspace.generate']()}
-        </Button>
       </div>
 
       {task && task.status !== 'done' && (
@@ -423,6 +461,242 @@ function Field({
       </label>
       {children}
       {help && <p className="text-foreground/45 mt-1 text-[11px]">{help}</p>}
+    </div>
+  );
+}
+
+/**
+ * Visual style picker — 6 templates, each rendered as a small card with
+ * three mini SVG previews (cover / content / closing) drawn from the
+ * template's color palette. Click a card to select it; the selected id
+ * is passed straight to /api/ppt/generate as `templateId`.
+ *
+ * Category tabs (Business / Creative / Minimal / Education) filter the
+ * visible templates. The All tab shows everything.
+ */
+function TemplatePicker({
+  selectedId,
+  onSelect,
+  activeCategory,
+  onCategoryChange,
+  disabled,
+}: {
+  selectedId: string;
+  onSelect: (id: string) => void;
+  activeCategory: TemplateCategory | 'all';
+  onCategoryChange: (c: TemplateCategory | 'all') => void;
+  disabled: boolean;
+}) {
+  const visible = useMemo(
+    () =>
+      activeCategory === 'all'
+        ? TEMPLATES
+        : TEMPLATES.filter((t) => t.category.includes(activeCategory)),
+    [activeCategory]
+  );
+
+  return (
+    <div>
+      <div className="mb-2 flex items-baseline justify-between">
+        <div>
+          <div className="text-foreground/75 text-xs font-medium">
+            {m['ppt.workspace.styles.title']()}
+          </div>
+          <div className="text-foreground/45 mt-0.5 text-[11px]">
+            {m['ppt.workspace.styles.subtitle']()}
+          </div>
+        </div>
+      </div>
+
+      {/* Category tabs */}
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <CategoryChip
+          active={activeCategory === 'all'}
+          onClick={() => onCategoryChange('all')}
+          label={m['ppt.workspace.styles.tab.all']()}
+          disabled={disabled}
+        />
+        {CATEGORIES.map((c) => (
+          <CategoryChip
+            key={c.id}
+            active={activeCategory === c.id}
+            onClick={() => onCategoryChange(c.id)}
+            label={m[`ppt.workspace.styles.tab.${c.id}` as const]()}
+            disabled={disabled}
+          />
+        ))}
+      </div>
+
+      {/* Template cards grid */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {visible.map((t) => (
+          <TemplateCard
+            key={t.id}
+            template={t}
+            selected={t.id === selectedId}
+            disabled={disabled}
+            onSelect={() => onSelect(t.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CategoryChip({
+  active,
+  onClick,
+  label,
+  disabled,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'rounded-full border px-3 py-1 text-[11px] transition-colors',
+        active
+          ? 'bg-foreground text-background border-foreground'
+          : 'bg-card text-foreground/65 hover:text-foreground border-foreground/10 hover:border-foreground/25',
+        disabled && 'opacity-50'
+      )}
+    >
+      {label}
+    </button>
+  );
+}
+
+function TemplateCard({
+  template,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  template: Template;
+  selected: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  const nameKey = `ppt.workspace.templates.${template.id}` as const;
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={disabled}
+      aria-pressed={selected}
+      className={cn(
+        'group relative overflow-hidden rounded-xl border text-left transition-all',
+        selected
+          ? 'border-foreground ring-foreground/30 ring-2 ring-offset-1'
+          : 'border-foreground/10 hover:border-foreground/30',
+        disabled && 'cursor-not-allowed opacity-60'
+      )}
+    >
+      {/* Selected checkmark badge */}
+      {selected && (
+        <div className="bg-foreground absolute top-1.5 right-1.5 z-10 grid size-5 place-items-center rounded-full">
+          <Check className="text-background size-3" strokeWidth={3} />
+        </div>
+      )}
+
+      {/* Three mini slide previews stacked vertically — cover, content,
+          closing. The SVGs come pre-rendered from the template palette. */}
+      <div className="bg-foreground/[0.02] space-y-0.5 p-1.5">
+        <PreviewFrame
+          svg={template.previews.cover}
+          ariaLabel={`${template.name} cover`}
+        />
+        <PreviewFrame
+          svg={template.previews.content}
+          ariaLabel={`${template.name} content`}
+        />
+        <PreviewFrame
+          svg={template.previews.closing}
+          ariaLabel={`${template.name} closing`}
+        />
+      </div>
+
+      {/* Footer with swatch + name + blurb */}
+      <div className="px-2 py-1.5">
+        <div className="flex items-center gap-1.5">
+          <span
+            className="inline-block size-2.5 shrink-0 rounded-sm"
+            style={{ background: template.swatch }}
+          />
+          <div className="text-[12px] font-medium">{m[nameKey]()}</div>
+        </div>
+        <div className="text-foreground/55 mt-0.5 line-clamp-2 text-[10px] leading-tight">
+          {template.blurb}
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function PreviewFrame({ svg, ariaLabel }: { svg: string; ariaLabel: string }) {
+  return (
+    <div
+      className="border-foreground/10 overflow-hidden rounded-md border bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04)]"
+      aria-label={ariaLabel}
+      role="img"
+    >
+      <div
+        className="aspect-[16/9] w-full"
+        // The SVGs are pre-rendered with the template's color palette
+        // baked in — see `previewCover` / `previewContent` /
+        // `previewClosing` in templates.ts. They're static markup with
+        // no user data, so injecting as innerHTML is safe.
+        dangerouslySetInnerHTML={{ __html: svg }}
+      />
+    </div>
+  );
+}
+
+/**
+ * Progress CTA — replaces the Generate button while a deck is being
+ * built. Shows the current step, a filled bar with the percentage, and
+ * a Cancel button. Pulls double-duty as both an indicator and the
+ * affordance to abort.
+ */
+function ProgressCta({
+  task,
+  onCancel,
+}: {
+  task: TaskRow;
+  onCancel: () => void;
+}) {
+  const pct = Math.max(0, Math.min(100, task.progress));
+  const labelKey = `ppt.workspace.progress.${task.status}` as
+    | 'ppt.workspace.progress.queued'
+    | 'ppt.workspace.progress.outlining'
+    | 'ppt.workspace.progress.writing'
+    | 'ppt.workspace.progress.rendering';
+  const label = m[labelKey]();
+  return (
+    <div className="bg-card border-foreground/10 flex w-full items-center gap-3 rounded-xl border px-3 py-2">
+      <div className="flex-1">
+        <div className="mb-1 flex items-center justify-between text-[11px]">
+          <span className="text-foreground/75 font-medium">{label}</span>
+          <span className="text-foreground/55 font-mono tabular-nums">
+            {pct}%
+          </span>
+        </div>
+        <div className="bg-foreground/10 relative h-1.5 w-full overflow-hidden rounded-full">
+          <div
+            className="brand-gradient absolute inset-y-0 left-0 rounded-full transition-all duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      </div>
+      <Button variant="ghost" size="sm" onClick={onCancel}>
+        {m['ppt.workspace.cancel']()}
+      </Button>
     </div>
   );
 }
