@@ -1309,7 +1309,7 @@ function MessageBubble({ message }: { message: Message }) {
         <div
           className={cn(
             'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg',
-            'bg-foreground text-background'
+            'bg-violet-200 text-violet-950 dark:bg-violet-900/40 dark:text-violet-100'
           )}
         >
           <span className="text-xs font-semibold">
@@ -1321,7 +1321,7 @@ function MessageBubble({ message }: { message: Message }) {
         className={cn(
           'max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed',
           isUser
-            ? 'bg-foreground text-background rounded-tr-md'
+            ? 'rounded-tr-md bg-violet-200 text-violet-950 dark:bg-violet-900/40 dark:text-violet-100'
             : 'bg-card text-foreground border-foreground/10 rounded-tl-md border shadow-sm'
         )}
       >
