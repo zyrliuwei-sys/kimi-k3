@@ -22,6 +22,7 @@ import { apiPost } from '@/lib/api-client';
 import { streamChat } from '@/lib/chat-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
+import { getLocale } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
 import { ClonePreview } from '@/components/clone-preview';
 import { MarkdownContent } from '@/components/markdown-content';
@@ -1026,6 +1027,44 @@ function AuthPromptDialog({
 /*  Composer (textarea + toolbar + disclaimer)                         */
 /* ------------------------------------------------------------------ */
 
+// Quick-action starter prompts shown beneath the composer. Each entry has a
+// localized label and prompt for both supported locales; the active one is
+// picked at render time with getLocale(). Tapping a button drops its prompt
+// into the input and focuses it.
+const QUICK_ACTIONS = [
+  {
+    id: 'screenshot',
+    zh: '截图还原网页',
+    en: 'Screenshot to Web',
+    promptZh: '把这个截图还原成一个完整、可运行的网页。',
+    promptEn: 'Turn this screenshot into a complete, working webpage.',
+  },
+  {
+    id: 'animation',
+    zh: '复刻动画原型',
+    en: 'Animation Prototype',
+    promptZh: '复刻这个动画原型，还原所有的交互与动效。',
+    promptEn:
+      'Replicate this animation prototype with all interactions and motion.',
+  },
+  {
+    id: 'docs',
+    zh: '超多文档分析',
+    en: 'Multi-doc Analysis',
+    promptZh: '分析这批文档并提取关键信息与结论。',
+    promptEn:
+      'Analyze these documents and extract the key insights and conclusions.',
+  },
+  {
+    id: 'code',
+    zh: '大型代码开发',
+    en: 'Large Codebase',
+    promptZh: '开发一个大型代码项目，结构清晰、可维护。',
+    promptEn:
+      'Build a large-scale code project with a clean, maintainable structure.',
+  },
+] as const;
+
 function Composer({
   input,
   setInput,
@@ -1065,6 +1104,10 @@ function Composer({
   // right of the + button. New users need a permanent reminder of which
   // file types are supported; this is the playground, not a polished app.
   const [showHint] = useState(true);
+
+  // Quick-action labels/prompts follow the active locale: zh shows Chinese,
+  // en shows English.
+  const isZh = getLocale() === 'zh';
 
   return (
     <div className="w-full">
@@ -1207,6 +1250,32 @@ function Composer({
           </div>
         </div>
       </motion.div>
+
+      {/* Quick actions — 4 starter prompts beneath the composer, in the
+          reference layout (equal-width outlined rectangles, single row; 2
+          cols on mobile, 4 cols on sm+). Label and prompt follow the active
+          locale: Chinese in zh, English in en. */}
+      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {QUICK_ACTIONS.map((action) => {
+          const label = isZh ? action.zh : action.en;
+          const prompt = isZh ? action.promptZh : action.promptEn;
+          return (
+            <button
+              key={action.id}
+              type="button"
+              onClick={() => {
+                setInput(prompt);
+                taRef.current?.focus();
+              }}
+              className="border-foreground/15 hover:border-foreground/30 hover:bg-foreground/[0.03] dark:bg-foreground/5 flex items-center justify-center rounded-2xl border bg-white px-3 py-2.5 text-center transition-colors"
+            >
+              <span className="text-foreground text-[13px] leading-tight font-medium">
+                {label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
