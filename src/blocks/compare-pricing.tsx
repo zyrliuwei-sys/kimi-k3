@@ -16,6 +16,7 @@ interface Plan {
 }
 
 // Verified July 2026 — see sources at the bottom of the section.
+// Only the two strongest frontier models are compared.
 const PLANS: Plan[] = [
   {
     model: 'Kimi K3',
@@ -37,20 +38,10 @@ const PLANS: Plan[] = [
     openWeight: false,
   },
   {
-    model: 'Claude Sonnet 5',
-    vendor: 'Anthropic',
-    input: '$2.00*',
-    cached: '$0.20*',
-    output: '$10.00*',
-    context: '1M',
-    openWeight: false,
-    footnote: true,
-  },
-  {
     model: 'GPT-5.5',
     vendor: 'OpenAI',
-    input: '$5.00',
-    cached: '$0.50',
+    input: '$3.75',
+    cached: '$0.75',
     output: '$30.00',
     context: '1M',
     openWeight: false,
@@ -63,7 +54,7 @@ const SOURCES = [
     href: 'https://openrouter.ai/moonshotai/kimi-k3',
   },
   {
-    label: 'Claude — platform.claude.com',
+    label: 'Claude Opus — platform.claude.com',
     href: 'https://platform.claude.com/docs/en/about-claude/pricing',
   },
   { label: 'GPT-5.5 — openai.com', href: 'https://openai.com/api/pricing/' },
@@ -199,11 +190,6 @@ export function ComparePricing() {
             </tbody>
           </table>
         </div>
-
-        {/* footnote */}
-        <p className="text-foreground/45 mt-4 text-xs leading-relaxed">
-          *{m['landing.compare.sonnet_note']()}
-        </p>
 
         {/* sources + disclaimer */}
         <div className="mt-10 grid gap-6 sm:grid-cols-2">

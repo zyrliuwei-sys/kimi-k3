@@ -126,7 +126,7 @@ async function uploadMediaFiles(files: File[]): Promise<Attachment[]> {
 // Client-side pre-flight — mirrors the server allowlist
 // (`src/routes/api/storage/upload-media.ts`). Rejecting here saves the user
 // the round-trip + server-side rejection for the obvious bad inputs.
-const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
+const MAX_FILE_BYTES = 200 * 1024 * 1024; // 200 MB
 // Hard cap on a single batch. Real ceiling is the model's context window
 // (per-doc text is capped at MAX_DOC_CHARS server-side and truncated), not
 // the file count, so we let the API take whatever the user throws at it.
@@ -193,144 +193,87 @@ function inferAttachmentType(file: File): 'image' | 'video' | 'document' {
   if (VIDEO_EXTS.has(ext)) return 'video';
   return 'document';
 }
+/* ------------------------------------------------------------------ */
+/*  Video frame extraction                                             */
+/* ------------------------------------------------------------------ */
 
-// Maximum frames extracted per video. The original video file is kept as a
-// `video` attachment (display only — the model can't read video), and each
-// frame is uploaded alongside it as an `image` attachment. 4 frames per
-// video is a good default: enough to describe motion / text-on-screen
-// without blowing past the 50-file batch cap when the user picks several
-// videos. Cap is enforced both here and in the message text we hand the
-// model ("extracted N frames covering the first ~Xs").
-const FRAMES_PER_VIDEO = 4;
-// Don't bother extracting frames beyond this duration — the model's vision
-// input window can't really use minutes of densely-packed frames anyway,
-// and loading a 30-min file's metadata just to seek around costs latency.
-const MAX_FRAME_SPAN_SECONDS = 60;
-
-// Extract evenly-spaced JPEG frames from a video File via an off-screen
-// `<video>` element + canvas. Returns synthetic `File` objects so the
-// frames slot into the same upload pipeline as user-picked images.
-//
-// Promise rejects on:
-//   - the browser refusing to decode the file (unsupported codec)
-//   - duration not being finite (live streams, malformed headers)
-//   - canvas extraction returning a null blob
-//
-// On failure we let the caller decide: usually "fall back to uploading the
-// video as-is, the user can try another file".
+// Extract still frames from a video File in the browser. Returns the JPEG
+// blobs + the timestamps they came from, plus the original duration so the
+// caller can label the chips and brief the model. Falls back to `null` on
+// any failure (codec unsupported, metadata missing, seek timeout) — the
+// caller leaves the video attachment alone and the user just sees a video
+// chip like before.
 async function extractVideoFrames(
   file: File,
-  count = FRAMES_PER_VIDEO
-): Promise<File[]> {
-  return new Promise<File[]>((resolve, reject) => {
+  count: number = FRAMES_PER_VIDEO
+): Promise<{ frames: { blob: Blob; t: number }[]; duration: number } | null> {
+  const url = URL.createObjectURL(file);
+  try {
     const video = document.createElement('video');
+    video.preload = 'auto';
+    // muted + playsInline are required for autoplay/seek on iOS Safari; we
+    // don't autoplay here but seeking on iOS still needs `muted=true`.
     video.muted = true;
     video.playsInline = true;
-    video.preload = 'metadata';
-    video.crossOrigin = 'anonymous';
-
-    const url = URL.createObjectURL(file);
     video.src = url;
 
-    const frames: File[] = [];
-    let duration = 0;
-    let canvas: HTMLCanvasElement | null = null;
-    let ctx: CanvasRenderingContext2D | null = null;
-    let aborted = false;
-
-    const cleanup = () => {
-      URL.revokeObjectURL(url);
-    };
-
-    const seekTo = (i: number) => {
-      if (aborted) return;
-      if (i >= count) {
-        cleanup();
-        resolve(frames);
-        return;
-      }
-      // Spread frames evenly across the first MAX_FRAME_SPAN_SECONDS (or
-      // the full duration if shorter). Single-frame edge case: anchor at
-      // t=0 instead of dividing by zero.
-      const span = Math.min(duration, MAX_FRAME_SPAN_SECONDS);
-      const t = count <= 1 ? 0 : (i / (count - 1)) * Math.max(span - 0.1, 0);
-      video.currentTime = t;
-    };
-
-    const finishError = (msg: string) => {
-      if (aborted) return;
-      aborted = true;
-      cleanup();
-      reject(new Error(msg));
-    };
-
-    video.addEventListener('loadedmetadata', () => {
-      duration = video.duration;
-      if (!isFinite(duration) || duration <= 0) {
-        finishError('Could not determine video duration');
-        return;
-      }
-      canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      if (!canvas.width || !canvas.height) {
-        finishError('Video has no intrinsic dimensions');
-        return;
-      }
-      ctx = canvas.getContext('2d');
-      if (!ctx) {
-        finishError('Canvas 2D context unavailable');
-        return;
-      }
-      seekTo(0);
+    const duration = await new Promise<number>((resolve, reject) => {
+      const ok = () => resolve(video.duration);
+      const err = () => reject(new Error('metadata failed'));
+      video.addEventListener('loadedmetadata', ok, { once: true });
+      video.addEventListener('error', err, { once: true });
+      // Safety net: some browsers hang on `loadedmetadata` for unusual
+      // codecs and never fire either event.
+      setTimeout(() => reject(new Error('metadata timeout')), 10_000);
     });
 
-    video.addEventListener('seeked', () => {
-      if (aborted || !canvas || !ctx) return;
-      ctx.drawImage(video, 0, 0);
-      canvas.toBlob(
-        (blob) => {
-          if (aborted) return;
-          if (!blob) {
-            finishError('Frame encoding failed');
-            return;
-          }
-          const idx = frames.length + 1;
-          const frameFile = new File([blob], `${file.name}-frame-${idx}.jpg`, {
-            type: 'image/jpeg',
-          });
-          // Tag the synthetic file with the same _mtime / size keys the
-          // dedup check looks at, so re-selecting the same video doesn't
-          // re-upload the same frames.
-          Object.defineProperty(frameFile, 'lastModified', {
-            value: file.lastModified + idx,
-            configurable: true,
-          });
-          frames.push(frameFile);
-          seekTo(idx);
-        },
-        'image/jpeg',
-        0.8
-      );
-    });
+    if (!Number.isFinite(duration) || duration <= 0) return null;
 
-    video.addEventListener('error', () => {
-      finishError('Failed to decode video');
-    });
+    // Sample evenly across the video. Offset by half a bucket so we don't
+    // grab the same opening frame multiple times on very short clips.
+    const timestamps: number[] = [];
+    const step = duration / count;
+    for (let i = 0; i < count; i++) {
+      timestamps.push(Math.min(duration, step * (i + 0.5)));
+    }
 
-    // Safety net: 30s total budget for metadata + 4 seeks. A stalled
-    // decoder otherwise hangs the upload forever.
-    setTimeout(() => {
-      if (frames.length > 0) {
-        // We got something — resolve with what we have rather than fail.
-        cleanup();
-        if (!aborted) resolve(frames);
-        aborted = true;
-      } else {
-        finishError('Video frame extraction timed out');
+    const seekTo = (t: number): Promise<void> =>
+      new Promise<void>((resolve) => {
+        const onSeeked = () => {
+          video.removeEventListener('seeked', onSeeked);
+          resolve();
+        };
+        video.addEventListener('seeked', onSeeked);
+        video.currentTime = t;
+      });
+
+    const canvas = document.createElement('canvas');
+    const frames: { blob: Blob; t: number }[] = [];
+    for (const t of timestamps) {
+      try {
+        await seekTo(t);
+        if (video.videoWidth === 0 || video.videoHeight === 0) continue;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) continue;
+        ctx.drawImage(video, 0, 0);
+        const blob = await new Promise<Blob | null>((res) =>
+          canvas.toBlob((b) => res(b), 'image/jpeg', 0.85)
+        );
+        if (blob) frames.push({ blob, t });
+      } catch {
+        // One bad seek — skip this frame and keep going rather than
+        // abandoning the whole extract.
       }
-    }, 30_000);
-  });
+    }
+
+    return frames.length ? { frames, duration } : null;
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -344,7 +287,7 @@ export function ApiPlayground() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const [modelId, setModelId] = useState('k3-extreme');
+  const [modelId, setModelId] = useState('k3-standard');
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [loadingProvider, setLoadingProvider] =
@@ -417,44 +360,9 @@ export function ApiPlayground() {
     if (!files || !files.length) return;
     let list = Array.from(files);
 
-    // Video → frame expansion. Vision models can't ingest video natively,
-    // so we extract a handful of evenly-spaced frames client-side and
-    // upload them alongside the original (which is kept as a `video`
-    // attachment for display). The frames become `image` attachments the
-    // server inlines as image_url parts and the model can actually see.
-    //
-    // Failures are non-fatal — a video whose codec the browser can't
-    // decode still uploads as-is; the user gets the same "AI can't view
-    // this" message they would have seen without the feature.
-    const expanded: File[] = [];
-    const failedVideos: string[] = [];
-    for (const f of list) {
-      expanded.push(f);
-      if (!f.type.startsWith('video/')) continue;
-      try {
-        const frames = await extractVideoFrames(f, FRAMES_PER_VIDEO);
-        expanded.push(...frames);
-      } catch (e: any) {
-        console.warn(`Frame extraction failed for ${f.name}:`, e);
-        failedVideos.push(f.name);
-      }
-    }
-    if (failedVideos.length) {
-      toast(
-        `Could not extract frames from ${failedVideos.length} video${
-          failedVideos.length === 1 ? '' : 's'
-        } (${failedVideos.join(', ')}). The AI will only see the original.`,
-        { description: 'Codec may not be browser-supported.' }
-      );
-    }
-    list = expanded;
-
-    // Pre-flight checks — surface obvious errors before we burn bandwidth.
-    if (list.length > MAX_FILES) {
-      toast.error(m['playground.attachment.err_too_many']());
-      if (fileInputRef.current) fileInputRef.current.value = '';
-      return;
-    }
+    // Size / MIME allowlist first — running against the user's original picks
+    // so a single oversized video fails fast with a clear error, without
+    // spending CPU on frame extraction we'll throw away.
     const offenders: Array<{ file: File; reason: 'size' | 'mime' }> = [];
     for (const file of list) {
       if (file.size > MAX_FILE_BYTES) offenders.push({ file, reason: 'size' });
@@ -474,6 +382,47 @@ export function ApiPlayground() {
       }
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
+    }
+
+    // Video → frame expansion. We keep the original video as a chip (so the
+    // bubble still plays) AND add N JPEGs so the vision model can actually see
+    // what's in the video. Frame extraction is a best-effort step — if it
+    // fails (codec unsupported, metadata missing) we keep the video alone
+    // and fall back to today's "model gets a filename note" behavior.
+    let framesAdded = 0;
+    const expanded: File[] = [];
+    for (const file of list) {
+      expanded.push(file);
+      if (inferAttachmentType(file) !== 'video') continue;
+      try {
+        const result = await extractVideoFrames(file);
+        if (!result) continue;
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        for (let i = 0; i < result.frames.length; i++) {
+          const { blob, t } = result.frames[i];
+          const frameName = `${baseName}-frame-${i + 1}-${(t * 10).toFixed(0)}.jpg`;
+          expanded.push(new File([blob], frameName, { type: 'image/jpeg' }));
+          framesAdded++;
+        }
+      } catch {
+        // Swallow — the video chip is still useful on its own.
+      }
+    }
+    list = expanded;
+
+    // Now that we know the real upload size (videos + frames), enforce the
+    // per-batch file cap.
+    if (list.length > MAX_FILES) {
+      toast.error(m['playground.attachment.err_too_many']());
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (framesAdded > 0) {
+      const s = framesAdded === 1 ? '' : 's';
+      toast.success(
+        m['playground.attachment.frames_extracted']({ count: framesAdded, s })
+      );
     }
 
     // Skip files that are already attached (same name + size + mtime) —
@@ -626,6 +575,49 @@ export function ApiPlayground() {
     }
     const pendingAttachments = merged;
 
+    // Video → frame preamble. For every video in this turn we look up the
+    // matching extracted-frame filenames (created client-side as
+    // `<videoBaseName>-frame-N-<t*10>.jpg`) and emit a single note per video
+    // telling the model what's in the attached images. Goes only into the
+    // payload sent to the model — the user bubble just renders their text
+    // (the chips already telegraph what was attached).
+    const videoNotes: string[] = [];
+    const framesByVideo = new Map<string, number[]>();
+    for (const a of pendingAttachments) {
+      const m = a.filename?.match(/^(.+)-frame-\d+-(\d+)\.jpg$/);
+      if (!m) continue;
+      const videoBase = m[1];
+      const tenthSec = Number(m[2]);
+      const arr = framesByVideo.get(videoBase) ?? [];
+      arr.push(tenthSec);
+      framesByVideo.set(videoBase, arr);
+    }
+    // Pair each video back with its frames, in timestamp order. If a video
+    // has no frames attached (extraction failed) we skip the note entirely —
+    // the server still emits its own "[Attached video: ...]" fallback.
+    const seenVideoBase = new Set<string>();
+    for (const a of pendingAttachments) {
+      if (a.type !== 'video') continue;
+      const base = a.filename?.replace(/\.[^.]+$/, '') ?? a.filename ?? '';
+      if (!base || seenVideoBase.has(base)) continue;
+      const frames = framesByVideo.get(base);
+      if (!frames || frames.length === 0) continue;
+      seenVideoBase.add(base);
+      frames.sort((x, y) => x - y);
+      const timestamps = frames
+        .map((t) => `${(t / 10).toFixed(1)}s`)
+        .join(', ');
+      videoNotes.push(
+        m['playground.attachment.video_frames_note']({
+          name: a.filename || base,
+          count: frames.length,
+          s: frames.length === 1 ? '' : 's',
+          timestamps,
+        })
+      );
+    }
+    const framePreamble = videoNotes.join('\n\n');
+
     // Image-only messages get a default prompt so the backend has a valid user
     // turn and the model knows what to do with the attachment.
     const effective =
@@ -634,6 +626,10 @@ export function ApiPlayground() {
         ? m['playground.attachment.default_prompt']()
         : '');
     if (!effective || isThinking) return;
+
+    const effectiveForModel = framePreamble
+      ? `${framePreamble}\n\n${effective}`
+      : effective;
 
     // A screenshot-clone turn (auto-sent after upload, or manually sent while
     // the task chip is active) flags its assistant reply for live preview.
@@ -696,9 +692,15 @@ export function ApiPlayground() {
     try {
       await streamChat(
         {
-          messages: turns.map((msg) => ({
+          // The last user turn needs the video-frame preamble so the model
+          // knows the attached images are frames of a video; history turns
+          // pass through unchanged.
+          messages: turns.map((msg, i) => ({
             role: msg.role,
-            content: msg.content,
+            content:
+              i === turns.length - 1 && msg.role === 'user'
+                ? effectiveForModel
+                : msg.content,
           })),
           // Strip browser-local fields before sending — they're React /
           // optimistic-UI state (id, uploadStatus, blob URL, dedup keys)
@@ -1178,10 +1180,10 @@ function Composer({
               <Plus className="size-[22px]" />
             </button>
             {showHint && (
-              <span className="text-foreground/55 flex items-center gap-1.5 text-[11.5px] leading-snug">
+              <span className="text-foreground/55 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-snug">
                 <FileText className="size-3 shrink-0" />
-                <span className="whitespace-nowrap">
-                  {m['playground.attachment.hint']()}
+                <span className="truncate">
+                  {m['playground.attachment.hint_short']()}
                 </span>
               </span>
             )}
@@ -1221,15 +1223,19 @@ function WelcomeState({ selected }: { selected: ModelOption }) {
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className="flex w-full flex-col items-center text-center"
     >
-      {/* Feature pill — sits at the top of the welcome state so it doesn't
-          fight the greeting for attention. */}
-      <button
-        type="button"
-        className="border-foreground/15 bg-background hover:bg-foreground/5 mb-6 inline-flex max-w-full items-center justify-center rounded-full border px-6 py-2 text-center text-[13px] leading-snug font-medium transition-colors"
-      >
-        Deep Document Analysis — Summarize, Extract Key Insights, Compare
-        Versions &amp; Answer Questions About Any File
-      </button>
+      {/* Single feature pill — sits at the top of the welcome state so it
+          doesn't fight the greeting for attention. */}
+      <div className="mb-6 inline-flex">
+        <button
+          type="button"
+          className="border-foreground/15 bg-background hover:bg-foreground/5 inline-flex items-center rounded-full border px-5 py-1.5 text-sm font-medium transition-colors"
+        >
+          <span aria-hidden className="mr-1.5">
+            📄
+          </span>
+          Document Analysis
+        </button>
+      </div>
       <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
         {m['playground.welcome.greeting']()}
       </h1>

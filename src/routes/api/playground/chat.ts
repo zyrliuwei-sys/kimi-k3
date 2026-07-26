@@ -66,7 +66,7 @@ const RATE_LIMIT_INTERVAL_MS = 2000;
 // No free tier — 0 subscription quota + 0 credits = paywall.
 
 const SYSTEM_PROMPT =
-  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity. When the user attaches images, look at them and respond to what you see. When the user attaches documents (PDF, Word, Markdown, plain text, CSV, etc.), their parsed text is inlined in the user message — read the document contents and answer from them directly. When the user attaches a video, the client has extracted several still frames and uploaded them as images covering the first ~60s of the video; treat those frames as a sampling of the video content and describe / answer based on what you can see in them.';
+  'You are kimik3, a friendly assistant powered by Kimi K3. Be concise, warm, and practical. Use Markdown when it improves clarity. Attached images: respond to what you see. Attached documents (PDF, Word, Excel, PPT, MD, TXT, CSV): their parsed text is inlined in the user message — answer from it directly. Excel tables include a Formula column — use the formulas, not just the values. PPT slides include "Speaker notes:" — read those for intent.';
 
 const NOT_CONFIGURED_REPLY = `👋 I'm kimik3 — but no live model is reachable yet.
 
@@ -432,11 +432,13 @@ async function buildMessages(
     for (const t of docTexts) textBits.push(t);
   }
   parts.push({ type: 'text', text: textBits.join('\n\n') || ' ' });
-  for (const img of images) {
-    parts.push({
-      type: 'image_url',
-      image_url: { url: await toDataUrl(img, trustedHosts) },
-    });
+  // Convert images to data URLs in parallel — sequential awaits here would
+  // stack up the request's TTFT by N × (network + base64) latency.
+  const imageUrls = await Promise.all(
+    images.map((img) => toDataUrl(img, trustedHosts))
+  );
+  for (const url of imageUrls) {
+    parts.push({ type: 'image_url', image_url: { url } });
   }
 
   const messages = turns.slice();

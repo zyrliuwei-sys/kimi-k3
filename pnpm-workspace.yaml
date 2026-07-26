@@ -1,4 +1,5 @@
 allowBuilds:
+  canvas: set this to true or false
   esbuild: false
   msw: false
   sharp: false

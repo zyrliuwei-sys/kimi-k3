@@ -84,7 +84,7 @@ const DEFAULT_IMAGES = [
   '/imgs/generated/showcase-v3c-case-3-plan-1784855150186.png',
   '/imgs/generated/url-clone.jpg',
   '/imgs/generated/web-motion.jpg',
-  '/uploads/b57674b7e8dde7ae6fc45826074ab5dd.png',
+  '/showcase/case-3.png',
 ];
 
 interface CardItem {

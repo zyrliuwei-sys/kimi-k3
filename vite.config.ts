@@ -122,11 +122,16 @@ export default defineConfig({
             'Permissions-Policy':
               'camera=(), microphone=(), geolocation=(), interest-cohort=()',
             'Content-Security-Policy': [
-              "default-src 'self'",
+              "default-src 'self' blob:",
               // Scripts: 'unsafe-inline' covers TanStack Start hydration,
               // 'unsafe-eval' covers React Query devtools in dev (prod tree-
               // shakes them out, so these are mostly inert there).
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.googletagmanager.com https://accounts.google.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.googletagmanager.com https://accounts.google.com https://static.cloudflareinsights.com",
+              // Media: blob: URLs are needed for the playground's local
+              // attachment previews (object URLs for images/videos while the
+              // upload is in flight). Without an explicit allow, browsers
+              // fall back to default-src and block the preview.
+              "media-src 'self' blob:",
               // Workers: Vite's HMR client runs from a `blob:` URL in dev,
               // and PptWorkspace uses a worker for pdf.js. Without an explicit
               // `worker-src`, browsers fall back to `script-src` and block the

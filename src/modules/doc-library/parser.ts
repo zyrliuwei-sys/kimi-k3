@@ -17,6 +17,119 @@
  * the user.
  */
 
+// ─── DOMMatrix polyfill ──────────────────────────────────────────────────────
+// pdf-parse v2 bundles pdfjs-dist v5, whose legacy build does:
+//   if (!globalThis.DOMMatrix) {
+//     if (canvas?.DOMMatrix) globalThis.DOMMatrix = canvas.DOMMatrix;
+//     else warn("Cannot polyfill `DOMMatrix`, rendering may be broken.");
+//   }
+//   ...
+//   const domMatrix = new DOMMatrix(inverse); // <-- explodes on Cloudflare Workers
+//
+// Workers has no browser globals and no `canvas` native module, so `globalThis.DOMMatrix`
+// stays undefined and the `new DOMMatrix(...)` calls inside pdfjs throw.
+// We install a minimal affine-transform matrix class before pdf-parse loads.
+// It implements the surface area pdfjs-dist actually calls during text
+// extraction (`new DOMMatrix(arr)`, `.multiplySelf`, `.translateSelf`,
+// `.scaleSelf`, `.rotateSelf`, `.inverseSelf`, `.toFloat32Array`). Anything
+// outside that surface is for renderer-only paths we never hit.
+class DOMMatrixPolyfill {
+  a = 1;
+  b = 0;
+  c = 0;
+  d = 1;
+  e = 0;
+  f = 0;
+  constructor(init?: ArrayLike<number> | DOMMatrixPolyfill) {
+    if (init instanceof DOMMatrixPolyfill) {
+      this.a = init.a;
+      this.b = init.b;
+      this.c = init.c;
+      this.d = init.d;
+      this.e = init.e;
+      this.f = init.f;
+    } else if (init && init.length === 6) {
+      this.a = init[0];
+      this.b = init[1];
+      this.c = init[2];
+      this.d = init[3];
+      this.e = init[4];
+      this.f = init[5];
+    }
+  }
+  multiplySelf(o: DOMMatrixPolyfill): this {
+    const a = this.a,
+      b = this.b,
+      c = this.c,
+      d = this.d,
+      e = this.e,
+      f = this.f;
+    this.a = a * o.a + c * o.b;
+    this.b = b * o.a + d * o.b;
+    this.c = a * o.c + c * o.d;
+    this.d = b * o.c + d * o.d;
+    this.e = a * o.e + c * o.f + e;
+    this.f = b * o.e + d * o.f + f;
+    return this;
+  }
+  multiply(o: DOMMatrixPolyfill): DOMMatrixPolyfill {
+    return new DOMMatrixPolyfill(this).multiplySelf(o);
+  }
+  translateSelf(tx: number, ty: number): this {
+    this.e += this.a * tx + this.c * ty;
+    this.f += this.b * tx + this.d * ty;
+    return this;
+  }
+  scaleSelf(sx: number, sy: number = sx): this {
+    this.a *= sx;
+    this.b *= sx;
+    this.c *= sy;
+    this.d *= sy;
+    return this;
+  }
+  rotateSelf(angle: number): this {
+    const r = (angle * Math.PI) / 180;
+    return this.multiplySelf(
+      new DOMMatrixPolyfill([
+        Math.cos(r),
+        Math.sin(r),
+        -Math.sin(r),
+        Math.cos(r),
+        0,
+        0,
+      ])
+    );
+  }
+  inverseSelf(): this {
+    const det = this.a * this.d - this.b * this.c;
+    if (det === 0) throw new Error('Matrix is not invertible');
+    const inv = 1 / det;
+    const a = this.a,
+      b = this.b,
+      c = this.c,
+      d = this.d,
+      e = this.e,
+      f = this.f;
+    this.a = d * inv;
+    this.b = -b * inv;
+    this.c = -c * inv;
+    this.d = a * inv;
+    this.e = (c * f - d * e) * inv;
+    this.f = -(a * f - b * e) * inv;
+    return this;
+  }
+  toFloat32Array(): Float32Array {
+    return new Float32Array([this.a, this.b, this.c, this.d, this.e, this.f]);
+  }
+  toJSON() {
+    return { a: this.a, b: this.b, c: this.c, d: this.d, e: this.e, f: this.f };
+  }
+}
+
+if (typeof (globalThis as { DOMMatrix?: unknown }).DOMMatrix === 'undefined') {
+  (globalThis as { DOMMatrix?: unknown }).DOMMatrix = DOMMatrixPolyfill;
+}
+
 export const HARD_CHAR_LIMIT = 3_500_000; // ~875K tokens, headroom under 1M
 
 export interface ParsedDocument {
@@ -141,7 +254,11 @@ async function parsePdf(buffer: Buffer): Promise<ParsedDocument> {
 
 async function parseDocx(buffer: Buffer): Promise<ParsedDocument> {
   const mammoth = await import('mammoth');
-  const result = await mammoth.extractRawText({ buffer });
+  // convertToMarkdown preserves headings, lists, and tables — extractRawText
+  // flattens everything to whitespace-separated strings, which makes the
+  // model guess at structure (and lose table content). The downstream LLM
+  // understands markdown tables natively, so the upgrade is free.
+  const result = await mammoth.convertToMarkdown({ buffer });
   return finalize(result.value || '', {});
 }
 
@@ -172,8 +289,7 @@ async function parseXlsx(buffer: Buffer): Promise<ParsedDocument> {
   for (const sheetName of wb.SheetNames) {
     const sheet = wb.Sheets[sheetName];
     if (!sheet) continue;
-    const csv = XLSX.utils.sheet_to_csv(sheet);
-    blocks.push(`### Sheet: ${sheetName}\n\n${csv}`);
+    blocks.push(renderSheetAsMarkdown(sheet, sheetName, XLSX));
   }
   return finalize(blocks.join('\n\n'), { pageCount: wb.SheetNames.length });
 }
@@ -185,15 +301,98 @@ async function parseXls(buffer: Buffer): Promise<ParsedDocument> {
   for (const sheetName of wb.SheetNames) {
     const sheet = wb.Sheets[sheetName];
     if (!sheet) continue;
-    blocks.push(`### Sheet: ${sheetName}\n\n${XLSX.utils.sheet_to_csv(sheet)}`);
+    blocks.push(renderSheetAsMarkdown(sheet, sheetName, XLSX));
   }
   return finalize(blocks.join('\n\n'), { pageCount: wb.SheetNames.length });
+}
+
+// Render one sheet as a markdown table, preserving formulas + cell-format hints.
+//
+// Why not plain `sheet_to_csv`: it drops formulas entirely (only the computed
+// value ships), and number/date formats show as raw serial numbers — the model
+// has no way to tell that 45292 is "2024-01-15" or that 0.13 is a 13% tax
+// rate. We walk the cells by address so we can surface `cell.f` and `cell.z`.
+//
+// We keep the columns tight (Address | Value | Format) so the AI can both
+// quote the value and reason about the formula/format when relevant.
+function renderSheetAsMarkdown(
+  sheet: any,
+  sheetName: string,
+  XLSX: any
+): string {
+  const ref: string | undefined = sheet['!ref'];
+  const range: any = ref ? XLSX.utils.decode_range(ref) : null;
+  const lines: string[] = [`### Sheet: ${sheetName}`];
+
+  if (!range) {
+    lines.push('(empty sheet)');
+    return lines.join('\n\n');
+  }
+
+  const rows: Array<{
+    addr: string;
+    value: string;
+    formula: string;
+    format: string;
+  }> = [];
+
+  for (let r = range.s.r; r <= range.e.r; r++) {
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c });
+      const cell = sheet[addr];
+      if (!cell) continue;
+      // Skip cells that are completely empty in every dimension.
+      const v = cell.v;
+      const f = cell.f;
+      const z: string | undefined = cell.z;
+      if (v === undefined && v === null && !f) continue;
+
+      let displayValue: string;
+      if (cell.t === 'n' || cell.t === 'd') {
+        // Format-stripped preview via `format` (raw: false), so the model
+        // sees what the user sees (e.g. "2024-01-15" instead of 45292).
+        try {
+          displayValue = XLSX.SSF.format(z || 'General', v);
+        } catch {
+          displayValue = String(v);
+        }
+      } else if (cell.t === 'b') {
+        displayValue = v ? 'TRUE' : 'FALSE';
+      } else {
+        displayValue = String(v ?? '');
+      }
+
+      rows.push({
+        addr,
+        value: displayValue,
+        formula: f ? String(f) : '',
+        format: z || '',
+      });
+    }
+  }
+
+  if (rows.length === 0) {
+    lines.push('(empty sheet)');
+    return lines.join('\n\n');
+  }
+
+  lines.push(
+    '| Cell | Value | Format | Formula |',
+    '| --- | --- | --- | --- |',
+    ...rows.map(
+      (row) =>
+        `| ${row.addr} | ${row.value.replace(/\|/g, '\\|')} | ${row.format || '—'} | ${row.formula || '—'} |`
+    )
+  );
+
+  return lines.join('\n');
 }
 
 // ─── PPTX ────────────────────────────────────────────────────────────────────
 
 async function parsePptx(buffer: Buffer): Promise<ParsedDocument> {
-  // PPTX is a zip of XML files; we want slideN.xml in numeric order.
+  // PPTX is a zip of XML files; we want slideN.xml in numeric order, plus
+  // the matching notesSlideN.xml for speaker notes.
   const JSZip = (await import('jszip')).default;
   const zip = await JSZip.loadAsync(buffer);
   const slideNames = Object.keys(zip.files)
@@ -208,7 +407,26 @@ async function parsePptx(buffer: Buffer): Promise<ParsedDocument> {
     const xml = await zip.files[name].async('string');
     const text = xmlToPlainText(xml);
     const slideNum = name.match(/slide(\d+)\.xml/)?.[1] ?? '?';
-    blocks.push(`### Slide ${slideNum}\n\n${text}`);
+    const section: string[] = [`### Slide ${slideNum}`, '', text];
+
+    // Speaker notes — powerpoint stores these in ppt/notesSlides/notesSlideN.xml
+    // alongside each slide. Including them lets the model answer "what was
+    // the speaker actually trying to say" without us having to OCR audio.
+    const notesName = `ppt/notesSlides/notesSlide${slideNum}.xml`;
+    const notesEntry = zip.files[notesName];
+    if (notesEntry) {
+      try {
+        const notesXml = await notesEntry.async('string');
+        const notesText = xmlToPlainText(notesXml);
+        if (notesText) {
+          section.push('', `**Speaker notes:** ${notesText}`);
+        }
+      } catch {
+        /* notes are best-effort; a missing/malformed file shouldn't tank the parse */
+      }
+    }
+
+    blocks.push(section.join('\n'));
   }
   return finalize(blocks.join('\n\n'), { pageCount: slideNames.length });
 }
