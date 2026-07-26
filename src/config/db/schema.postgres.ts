@@ -778,3 +778,41 @@ export const pptTask = table(
 
 export type PptTask = typeof pptTask.$inferSelect;
 export type NewPptTask = typeof pptTask.$inferInsert;
+
+// ─── Website Audit ──────────────────────────────────────────────────────────
+// Same as the SQLite template: cache stores the latest report by URL hash
+// (cache hit = 0 credit deduction, no LLM call); share stores the nanoid
+// mapped to the underlying taskId + urlHash for HMAC validation.
+
+export const auditCache = table(
+  'audit_cache',
+  {
+    urlHash: text('url_hash').primaryKey(),
+    url: text('url').notNull(),
+    reportJson: text('report_json').notNull(),
+    fetchedAt: timestamp('fetched_at').defaultNow().notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+  },
+  (t) => [index('idx_audit_cache_expires').on(t.expiresAt)]
+);
+
+export const auditShare = table(
+  'audit_share',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id').notNull(),
+    url: text('url').notNull(),
+    urlHash: text('url_hash').notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_audit_share_expires').on(t.expiresAt),
+    index('idx_audit_share_urlhash').on(t.urlHash),
+  ]
+);
+
+export type AuditCache = typeof auditCache.$inferSelect;
+export type NewAuditCache = typeof auditCache.$inferInsert;
+export type AuditShare = typeof auditShare.$inferSelect;
+export type NewAuditShare = typeof auditShare.$inferInsert;

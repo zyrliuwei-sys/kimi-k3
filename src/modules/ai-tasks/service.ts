@@ -1,4 +1,4 @@
-import { and, count, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 
 import { AIMediaType } from '@/core/ai';
 import { db } from '@/core/db';
@@ -25,9 +25,20 @@ export async function createTask(params: {
   prompt: string;
   costCredits?: number;
   options?: any;
+  /** When true, only paid credits may be consumed (excludes the signup
+   *  trial grant). Used to gate premium features like video. */
+  paidOnly?: boolean;
 }): Promise<any> {
-  const { userId, mediaType, provider, model, prompt, costCredits, options } =
-    params;
+  const {
+    userId,
+    mediaType,
+    provider,
+    model,
+    prompt,
+    costCredits,
+    options,
+    paidOnly = false,
+  } = params;
 
   return db().transaction(async (tx: any) => {
     // 1. Insert task
@@ -52,11 +63,14 @@ export async function createTask(params: {
         scene: 'ai_task',
         description: `AI ${mediaType} generation`,
         metadata: JSON.stringify({ taskId: task.id }),
+        paidOnly,
         tx,
       });
 
       if (!result.success) {
-        throw new Error('Insufficient credits');
+        throw new Error(
+          paidOnly ? 'Insufficient paid credits' : 'Insufficient credits'
+        );
       }
 
       // Store consumed credit ID for potential revocation
@@ -176,4 +190,38 @@ export async function countUserActiveVideoTasks(
       )
     );
   return Number(row?.n ?? 0);
+}
+
+export async function countUserInFlightVideoTasks(
+  userId: string
+): Promise<number> {
+  const [row] = await db()
+    .select({ n: count() })
+    .from(aiTask)
+    .where(
+      and(
+        eq(aiTask.userId, userId),
+        eq(aiTask.mediaType, AIMediaType.VIDEO),
+        eq(aiTask.provider, 'evolink-video'),
+        inArray(aiTask.status, [AITaskStatus.PENDING, AITaskStatus.PROCESSING])
+      )
+    );
+  return Number(row?.n ?? 0);
+}
+
+export async function findUserInFlightVideoTask(userId: string) {
+  const [task] = await db()
+    .select()
+    .from(aiTask)
+    .where(
+      and(
+        eq(aiTask.userId, userId),
+        eq(aiTask.mediaType, AIMediaType.VIDEO),
+        eq(aiTask.provider, 'evolink-video'),
+        inArray(aiTask.status, [AITaskStatus.PENDING, AITaskStatus.PROCESSING])
+      )
+    )
+    .orderBy(desc(aiTask.createdAt))
+    .limit(1);
+  return task;
 }

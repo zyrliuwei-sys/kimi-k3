@@ -61,10 +61,19 @@ async function POST({ request }: { request: Request }) {
           model: 'passthrough',
           prompt: DEFAULT_PROMPT,
           costCredits,
+          // Video is premium — only paid credits may be used.
+          paidOnly: true,
         });
       } catch (e: any) {
-        if (String(e?.message || '').includes('Insufficient credits')) {
-          return respErr('Insufficient credits', { status: 402 });
+        const msg = String(e?.message || '');
+        if (
+          msg.includes('Insufficient paid credits') ||
+          msg.includes('Insufficient credits')
+        ) {
+          return respErr(
+            'Video generation requires a paid plan or top-up — please purchase credits first.',
+            { status: 402 }
+          );
         }
         throw e;
       }
@@ -94,10 +103,19 @@ async function POST({ request }: { request: Request }) {
         model,
         prompt: DEFAULT_PROMPT,
         costCredits,
+        // Video is premium — only paid credits may be used.
+        paidOnly: true,
       });
     } catch (e: any) {
-      if (String(e?.message || '').includes('Insufficient credits')) {
-        return respErr('Insufficient credits', { status: 402 });
+      const msg = String(e?.message || '');
+      if (
+        msg.includes('Insufficient paid credits') ||
+        msg.includes('Insufficient credits')
+      ) {
+        return respErr(
+          'Video generation requires a paid plan or top-up — please purchase credits first.',
+          { status: 402 }
+        );
       }
       throw e;
     }

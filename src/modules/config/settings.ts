@@ -165,6 +165,12 @@ export function getSettingGroups(): SettingGroup[] {
       tab: 'ai',
     },
     {
+      name: 'seedance_video',
+      title: 'Seedance 2.0 Video',
+      description: 'EvoLink Seedance 2.0 text-to-video generation and credits',
+      tab: 'ai',
+    },
+    {
       name: 'anthropic',
       title: 'Anthropic',
       description: 'Anthropic Claude API',
@@ -182,6 +188,13 @@ export function getSettingGroups(): SettingGroup[] {
       title: 'Screenshot',
       description:
         'URL → screenshot service (remote API) for the URL → clone playground task',
+      tab: 'ai',
+    },
+    {
+      name: 'audit',
+      title: 'Website Audit',
+      description:
+        'AI Website Auditor — paste a URL, get a 7-dimension audit + Cursor-ready fixes',
       tab: 'ai',
     },
 
@@ -302,6 +315,21 @@ export function getSettings(): Setting[] {
       tab: 'general',
     },
     {
+      // Per-image credit cost — applied at the start of
+      // /api/playground/generate-image. The signup trial grant (gift
+      // credits) may be used for image gen; only video requires paid
+      // credits. Default 2 — keeps the trial usable (10 credits ≈ 5
+      // images) while covering provider cost.
+      name: 'image_credit_cost',
+      title: 'Credits per image generation',
+      type: 'number',
+      placeholder: '2',
+      defaultValue: '2',
+      min: 1,
+      group: 'credit',
+      tab: 'general',
+    },
+    {
       // Per-deck credit cost — applied at generateDeck() in
       // src/modules/ppt/service.ts. Lets the admin tune the PPT-to-credit
       // ratio without a redeploy. Defaults to 5 (≈ 2 decks from the
@@ -311,7 +339,6 @@ export function getSettings(): Setting[] {
       type: 'number',
       placeholder: '5',
       defaultValue: '5',
-      min: 1,
       group: 'credit',
       tab: 'general',
     },
@@ -864,6 +891,61 @@ export function getSettings(): Setting[] {
       tab: 'ai',
     },
 
+    // ─── AI / Seedance 2.0 video via EvoLink ──────────────────────────
+    {
+      name: 'seedance_video_enabled',
+      title: 'Enable Seedance Video',
+      type: 'switch',
+      defaultValue: 'true',
+      group: 'seedance_video',
+      tab: 'ai',
+    },
+    {
+      name: 'seedance_video_credits_480p_per_second',
+      title: '480p Credits / Second',
+      type: 'number',
+      placeholder: '1',
+      defaultValue: '1',
+      group: 'seedance_video',
+      tab: 'ai',
+    },
+    {
+      name: 'seedance_video_credits_720p_per_second',
+      title: '720p Credits / Second',
+      type: 'number',
+      placeholder: '2',
+      defaultValue: '2',
+      group: 'seedance_video',
+      tab: 'ai',
+    },
+    {
+      name: 'seedance_video_credits_1080p_per_second',
+      title: '1080p Credits / Second',
+      type: 'number',
+      placeholder: '4',
+      defaultValue: '4',
+      group: 'seedance_video',
+      tab: 'ai',
+    },
+    {
+      name: 'seedance_video_credits_4k_per_second',
+      title: '4K Credits / Second',
+      type: 'number',
+      placeholder: '8',
+      defaultValue: '8',
+      group: 'seedance_video',
+      tab: 'ai',
+    },
+    {
+      name: 'seedance_video_max_concurrent',
+      title: 'Max Concurrent Tasks / User',
+      type: 'number',
+      placeholder: '1',
+      defaultValue: '1',
+      group: 'seedance_video',
+      tab: 'ai',
+    },
+
     // ─── AI / Anthropic ──────────────────────────────────────────────
     {
       name: 'anthropic_base_url',
@@ -1009,6 +1091,123 @@ export function getSettings(): Setting[] {
       placeholder: '1xxxxx/default',
       group: 'tawk',
       tab: 'customer_service',
+    },
+
+    // ─── AI / Website Audit ────────────────────────────────────────────────
+    // The audit feature is gated by `audit_enabled` so an admin can disable
+    // the entire flow without redeploying. Pricing + first-free + cache +
+    // share-link knobs follow the same admin-tunable pattern as the rest of
+    // this file (see credits pricing block above).
+    {
+      name: 'audit_enabled',
+      title: 'Enable Website Audit',
+      type: 'switch',
+      group: 'audit',
+      tab: 'ai',
+      defaultValue: 'true',
+    },
+    {
+      name: 'audit_first_free',
+      title: 'First audit free per user',
+      type: 'switch',
+      group: 'audit',
+      tab: 'ai',
+      defaultValue: 'true',
+      tip: "Skip the credit deduction for a user's first successful audit (acquisition funnel).",
+    },
+    {
+      name: 'audit_credit_cost',
+      title: 'Audit credit cost',
+      type: 'number',
+      placeholder: '5',
+      defaultValue: '5',
+      group: 'audit',
+      tab: 'ai',
+    },
+    {
+      name: 'audit_max_input_tokens',
+      title: 'Max input tokens per audit',
+      type: 'number',
+      placeholder: '80000',
+      defaultValue: '80000',
+      group: 'audit',
+      tab: 'ai',
+      tip: 'Hard cap on the prompt token count we send to the LLM; rejects pages bigger than this.',
+    },
+    {
+      name: 'audit_max_body_bytes',
+      title: 'Max page body size (bytes)',
+      type: 'number',
+      placeholder: '8388608',
+      defaultValue: '8388608',
+      group: 'audit',
+      tab: 'ai',
+    },
+    {
+      name: 'audit_timeout_ms',
+      title: 'Audit timeout (ms)',
+      type: 'number',
+      placeholder: '90000',
+      defaultValue: '90000',
+      group: 'audit',
+      tab: 'ai',
+    },
+    {
+      name: 'audit_llm_provider',
+      title: 'LLM provider',
+      type: 'select',
+      options: [
+        { label: 'Evolink (Kimi K3)', value: 'evolink' },
+        { label: 'OpenAI (chat-completions)', value: 'openai' },
+      ],
+      group: 'audit',
+      tab: 'ai',
+      defaultValue: 'evolink',
+    },
+    {
+      name: 'audit_llm_model',
+      title: 'LLM model',
+      type: 'text',
+      placeholder: 'kimi-k3',
+      defaultValue: 'kimi-k3',
+      group: 'audit',
+      tab: 'ai',
+      tip: 'Any OpenAI-compatible model id supported by the chosen provider.',
+    },
+    {
+      name: 'audit_public_share_enabled',
+      title: 'Enable public report sharing',
+      type: 'switch',
+      group: 'audit',
+      tab: 'ai',
+      defaultValue: 'true',
+    },
+    {
+      name: 'audit_share_token_ttl_days',
+      title: 'Share link TTL (days)',
+      type: 'number',
+      placeholder: '7',
+      defaultValue: '7',
+      group: 'audit',
+      tab: 'ai',
+    },
+    {
+      name: 'audit_cache_ttl_days',
+      title: 'Cache TTL (days)',
+      type: 'number',
+      placeholder: '7',
+      defaultValue: '7',
+      tip: 'Same-URL re-audit within this window returns the cached report (free).',
+      group: 'audit',
+      tab: 'ai',
+    },
+    {
+      name: 'audit_global_benchmark_enabled',
+      title: 'Show global benchmark percentiles',
+      type: 'switch',
+      group: 'audit',
+      tab: 'ai',
+      defaultValue: 'true',
     },
   ];
 }

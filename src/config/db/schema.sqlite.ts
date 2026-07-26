@@ -877,3 +877,50 @@ export const pptTask = table(
 
 export type PptTask = typeof pptTask.$inferSelect;
 export type NewPptTask = typeof pptTask.$inferInsert;
+
+// ─── Website Audit ──────────────────────────────────────────────────────────
+// Latest report per normalized URL hash. A cache hit (re-audit same URL
+// within `audit_cache_ttl_days`) short-circuits the LLM call and costs 0
+// credits — the service writes a passthrough aiTask row using the cached
+// report so the user's audit history still reflects the attempt.
+
+export const auditCache = table(
+  'audit_cache',
+  {
+    urlHash: text('url_hash').primaryKey(),
+    url: text('url').notNull(),
+    reportJson: text('report_json').notNull(),
+    fetchedAt: integer('fetched_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [index('idx_audit_cache_expires').on(t.expiresAt)]
+);
+
+// Public share link: nanoid → audit_share row keyed by taskId. The /audit/$id
+// public page looks up by id, validates the share token via `taskId + urlHash`
+// HMAC, and serves the cached report.
+
+export const auditShare = table(
+  'audit_share',
+  {
+    id: text('id').primaryKey(),
+    taskId: text('task_id').notNull(),
+    url: text('url').notNull(),
+    urlHash: text('url_hash').notNull(),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+  },
+  (t) => [
+    index('idx_audit_share_expires').on(t.expiresAt),
+    index('idx_audit_share_urlhash').on(t.urlHash),
+  ]
+);
+
+export type AuditCache = typeof auditCache.$inferSelect;
+export type NewAuditCache = typeof auditCache.$inferInsert;
+export type AuditShare = typeof auditShare.$inferSelect;
+export type NewAuditShare = typeof auditShare.$inferInsert;

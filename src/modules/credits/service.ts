@@ -48,15 +48,19 @@ export function calculateCreditExpirationTime(params: {
   return expiresAt;
 }
 
-function validCreditConditions(userId: string) {
+function validCreditConditions(userId: string, paidOnly = false) {
   const now = new Date();
-  return and(
+  const base = and(
     eq(credit.userId, userId),
     eq(credit.transactionType, CreditTransactionType.GRANT),
     eq(credit.status, CreditStatus.ACTIVE),
     gt(credit.remainingCredits, 0),
     or(isNull(credit.expiresAt), gt(credit.expiresAt, now))
   );
+  if (!paidOnly) return base;
+  // Exclude the signup trial grant — only "paid" credits (payment, subscription,
+  // renewal, admin reward) may be used for premium features like video.
+  return and(base, ne(credit.transactionScene, CreditTransactionScene.GIFT));
 }
 
 // --- Balance ---
@@ -66,6 +70,20 @@ export async function getBalance(userId: string): Promise<number> {
     .select({ total: sum(credit.remainingCredits) })
     .from(credit)
     .where(validCreditConditions(userId));
+
+  return parseInt(result?.total || '0');
+}
+
+/**
+ * Balance of paid credits only — excludes the signup trial grant
+ * (scene = 'gift'). Used to gate premium features (video gen) that
+ * require actual payment.
+ */
+export async function getPaidBalance(userId: string): Promise<number> {
+  const [result] = await db()
+    .select({ total: sum(credit.remainingCredits) })
+    .from(credit)
+    .where(validCreditConditions(userId, true));
 
   return parseInt(result?.total || '0');
 }
@@ -111,6 +129,9 @@ export async function consume(params: {
   scene?: string;
   description?: string;
   metadata?: string;
+  /** When true, only paid credits may be used (excludes the signup trial
+   *  grant). The check fails if the user has no paid balance. */
+  paidOnly?: boolean;
   tx?: any;
 }): Promise<{ success: boolean; consumedCredit?: any }> {
   const {
@@ -120,6 +141,7 @@ export async function consume(params: {
     scene,
     description,
     metadata,
+    paidOnly = false,
     tx,
   } = params;
   const now = new Date();
@@ -129,15 +151,7 @@ export async function consume(params: {
     const [balance] = await tx
       .select({ total: sum(credit.remainingCredits) })
       .from(credit)
-      .where(
-        and(
-          eq(credit.userId, userId),
-          eq(credit.transactionType, CreditTransactionType.GRANT),
-          eq(credit.status, CreditStatus.ACTIVE),
-          gt(credit.remainingCredits, 0),
-          or(isNull(credit.expiresAt), gt(credit.expiresAt, now))
-        )
-      );
+      .where(validCreditConditions(userId, paidOnly));
 
     if (!balance?.total || parseInt(balance.total) < amount) {
       return { success: false };
@@ -154,15 +168,7 @@ export async function consume(params: {
       const batchCredits = await tx
         .select()
         .from(credit)
-        .where(
-          and(
-            eq(credit.userId, userId),
-            eq(credit.transactionType, CreditTransactionType.GRANT),
-            eq(credit.status, CreditStatus.ACTIVE),
-            gt(credit.remainingCredits, 0),
-            or(isNull(credit.expiresAt), gt(credit.expiresAt, now))
-          )
-        )
+        .where(validCreditConditions(userId, paidOnly))
         .orderBy(asc(credit.expiresAt))
         .limit(batchSize)
         .for('update');

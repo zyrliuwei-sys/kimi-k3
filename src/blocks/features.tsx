@@ -79,7 +79,7 @@ export function Features() {
               <div className="mt-2 ml-6 h-full w-full rounded-lg border border-neutral-200 bg-neutral-100 p-4 dark:border-neutral-700 dark:bg-neutral-800">
                 <img
                   src="/imgs/generated/bento-code-1784863518772.png"
-                  alt="Kimi K3 API playground with copy-ready code examples"
+                  alt="Kimi K3 playground with copy-ready code examples"
                   width={500}
                   height={500}
                   className="w-full rounded-lg object-cover"

@@ -3,18 +3,14 @@ import {
   ArrowUp,
   Check,
   ChevronDown,
-  Files,
   FileText,
   Film,
-  FolderGit2,
   Gift,
   Loader2,
   Plus,
   RefreshCw,
-  ScanLine,
   Sparkles,
   Terminal,
-  Workflow,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -22,7 +18,7 @@ import { toast } from 'sonner';
 
 import { signIn, useSession } from '@/core/auth/client';
 import { Link } from '@/core/i18n/navigation';
-import { ApiError, apiPost } from '@/lib/api-client';
+import { apiPost } from '@/lib/api-client';
 import { streamChat } from '@/lib/chat-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
@@ -198,6 +194,145 @@ function inferAttachmentType(file: File): 'image' | 'video' | 'document' {
   return 'document';
 }
 
+// Maximum frames extracted per video. The original video file is kept as a
+// `video` attachment (display only — the model can't read video), and each
+// frame is uploaded alongside it as an `image` attachment. 4 frames per
+// video is a good default: enough to describe motion / text-on-screen
+// without blowing past the 50-file batch cap when the user picks several
+// videos. Cap is enforced both here and in the message text we hand the
+// model ("extracted N frames covering the first ~Xs").
+const FRAMES_PER_VIDEO = 4;
+// Don't bother extracting frames beyond this duration — the model's vision
+// input window can't really use minutes of densely-packed frames anyway,
+// and loading a 30-min file's metadata just to seek around costs latency.
+const MAX_FRAME_SPAN_SECONDS = 60;
+
+// Extract evenly-spaced JPEG frames from a video File via an off-screen
+// `<video>` element + canvas. Returns synthetic `File` objects so the
+// frames slot into the same upload pipeline as user-picked images.
+//
+// Promise rejects on:
+//   - the browser refusing to decode the file (unsupported codec)
+//   - duration not being finite (live streams, malformed headers)
+//   - canvas extraction returning a null blob
+//
+// On failure we let the caller decide: usually "fall back to uploading the
+// video as-is, the user can try another file".
+async function extractVideoFrames(
+  file: File,
+  count = FRAMES_PER_VIDEO
+): Promise<File[]> {
+  return new Promise<File[]>((resolve, reject) => {
+    const video = document.createElement('video');
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = 'metadata';
+    video.crossOrigin = 'anonymous';
+
+    const url = URL.createObjectURL(file);
+    video.src = url;
+
+    const frames: File[] = [];
+    let duration = 0;
+    let canvas: HTMLCanvasElement | null = null;
+    let ctx: CanvasRenderingContext2D | null = null;
+    let aborted = false;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+    };
+
+    const seekTo = (i: number) => {
+      if (aborted) return;
+      if (i >= count) {
+        cleanup();
+        resolve(frames);
+        return;
+      }
+      // Spread frames evenly across the first MAX_FRAME_SPAN_SECONDS (or
+      // the full duration if shorter). Single-frame edge case: anchor at
+      // t=0 instead of dividing by zero.
+      const span = Math.min(duration, MAX_FRAME_SPAN_SECONDS);
+      const t = count <= 1 ? 0 : (i / (count - 1)) * Math.max(span - 0.1, 0);
+      video.currentTime = t;
+    };
+
+    const finishError = (msg: string) => {
+      if (aborted) return;
+      aborted = true;
+      cleanup();
+      reject(new Error(msg));
+    };
+
+    video.addEventListener('loadedmetadata', () => {
+      duration = video.duration;
+      if (!isFinite(duration) || duration <= 0) {
+        finishError('Could not determine video duration');
+        return;
+      }
+      canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      if (!canvas.width || !canvas.height) {
+        finishError('Video has no intrinsic dimensions');
+        return;
+      }
+      ctx = canvas.getContext('2d');
+      if (!ctx) {
+        finishError('Canvas 2D context unavailable');
+        return;
+      }
+      seekTo(0);
+    });
+
+    video.addEventListener('seeked', () => {
+      if (aborted || !canvas || !ctx) return;
+      ctx.drawImage(video, 0, 0);
+      canvas.toBlob(
+        (blob) => {
+          if (aborted) return;
+          if (!blob) {
+            finishError('Frame encoding failed');
+            return;
+          }
+          const idx = frames.length + 1;
+          const frameFile = new File([blob], `${file.name}-frame-${idx}.jpg`, {
+            type: 'image/jpeg',
+          });
+          // Tag the synthetic file with the same _mtime / size keys the
+          // dedup check looks at, so re-selecting the same video doesn't
+          // re-upload the same frames.
+          Object.defineProperty(frameFile, 'lastModified', {
+            value: file.lastModified + idx,
+            configurable: true,
+          });
+          frames.push(frameFile);
+          seekTo(idx);
+        },
+        'image/jpeg',
+        0.8
+      );
+    });
+
+    video.addEventListener('error', () => {
+      finishError('Failed to decode video');
+    });
+
+    // Safety net: 30s total budget for metadata + 4 seeks. A stalled
+    // decoder otherwise hangs the upload forever.
+    setTimeout(() => {
+      if (frames.length > 0) {
+        // We got something — resolve with what we have rather than fail.
+        cleanup();
+        if (!aborted) resolve(frames);
+        aborted = true;
+      } else {
+        finishError('Video frame extraction timed out');
+      }
+    }, 30_000);
+  });
+}
+
 /* ------------------------------------------------------------------ */
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
@@ -280,7 +415,39 @@ export function ApiPlayground() {
 
   async function handleFilesSelected(files: FileList | null) {
     if (!files || !files.length) return;
-    const list = Array.from(files);
+    let list = Array.from(files);
+
+    // Video → frame expansion. Vision models can't ingest video natively,
+    // so we extract a handful of evenly-spaced frames client-side and
+    // upload them alongside the original (which is kept as a `video`
+    // attachment for display). The frames become `image` attachments the
+    // server inlines as image_url parts and the model can actually see.
+    //
+    // Failures are non-fatal — a video whose codec the browser can't
+    // decode still uploads as-is; the user gets the same "AI can't view
+    // this" message they would have seen without the feature.
+    const expanded: File[] = [];
+    const failedVideos: string[] = [];
+    for (const f of list) {
+      expanded.push(f);
+      if (!f.type.startsWith('video/')) continue;
+      try {
+        const frames = await extractVideoFrames(f, FRAMES_PER_VIDEO);
+        expanded.push(...frames);
+      } catch (e: any) {
+        console.warn(`Frame extraction failed for ${f.name}:`, e);
+        failedVideos.push(f.name);
+      }
+    }
+    if (failedVideos.length) {
+      toast(
+        `Could not extract frames from ${failedVideos.length} video${
+          failedVideos.length === 1 ? '' : 's'
+        } (${failedVideos.join(', ')}). The AI will only see the original.`,
+        { description: 'Codec may not be browser-supported.' }
+      );
+    }
+    list = expanded;
 
     // Pre-flight checks — surface obvious errors before we burn bandwidth.
     if (list.length > MAX_FILES) {
@@ -675,12 +842,11 @@ export function ApiPlayground() {
           </div>
         </>
       ) : (
-        // Empty state — greeting + composer grouped & vertically centered,
-        // so the input sits right under the greeting instead of pinned low.
+        // Empty state — greeting + composer grouped and vertically centered.
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
-          <div className="flex w-full max-w-2xl flex-col items-center">
+          <div className="flex w-full max-w-3xl flex-col items-center">
             <WelcomeState selected={selected} />
-            <div className="mt-8 w-full">
+            <div className="mt-10 w-full">
               <Composer {...composerProps} />
             </div>
           </div>
@@ -893,15 +1059,18 @@ function Composer({
   onRemoveAttachment: (id: string) => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
-  const capabilities = useCapabilities();
-  const [showHint, setShowHint] = useState(false);
+  // Always-on attachment hint pill — lives in the bottom toolbar to the
+  // right of the + button. New users need a permanent reminder of which
+  // file types are supported; this is the playground, not a polished app.
+  const [showHint] = useState(true);
+
   return (
     <div className="w-full">
       <motion.div
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="bg-card border-foreground/10 focus-within:border-foreground/25 rounded-[2rem] border p-3 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]"
+        className="border-foreground/20 focus-within:border-foreground/35 dark:bg-foreground/5 rounded-[2rem] border bg-white py-4 pr-7 pl-3 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]"
       >
         {/* Hidden media input — images + videos, multi-select. */}
         <input
@@ -936,13 +1105,22 @@ function Composer({
                       alt={a.filename || ''}
                       className="size-10 shrink-0 rounded-lg object-cover"
                     />
+                  ) : a.type === 'video' ? (
+                    // Video preview — prefers the local blob: preview so the
+                    // chip shows a real poster frame even when the storage
+                    // URL is private (R2). muted + playsInline are required
+                    // for the element to render without tripping autoplay
+                    // policies in some browsers.
+                    <video
+                      src={a.previewUrl || a.url}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="size-10 shrink-0 rounded-lg object-cover"
+                    />
                   ) : (
                     <span className="bg-foreground/5 text-foreground/60 flex size-10 shrink-0 items-center justify-center rounded-lg">
-                      {a.type === 'video' ? (
-                        <Film className="size-4" />
-                      ) : (
-                        <FileText className="size-4" />
-                      )}
+                      <FileText className="size-4" />
                     </span>
                   )}
                   <span className="text-foreground/60 max-w-[10rem] truncate text-xs">
@@ -985,29 +1163,29 @@ function Composer({
           onKeyDown={onKeyDown}
           rows={1}
           placeholder={m['playground.input.placeholder']()}
-          className="placeholder:text-foreground/40 block max-h-[280px] min-h-[4rem] w-full resize-none bg-transparent px-4 pt-3 font-mono text-[15px] leading-relaxed outline-none"
+          className="placeholder:text-foreground/40 block max-h-[280px] min-h-[2.5rem] w-full resize-none bg-transparent px-4 pt-2 font-mono text-[15px] leading-relaxed outline-none"
         />
 
-        {showHint && (
-          <div className="text-foreground/50 flex items-start gap-1.5 px-3 pt-1 text-[11px] leading-relaxed">
-            <FileText className="mt-0.5 size-3 shrink-0" />
-            <span>{m['playground.attachment.hint']()}</span>
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onPlusClick}
+              aria-label={m['playground.attachment.add']()}
+              title={m['playground.attachment.add']()}
+              className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 items-center justify-center rounded-full transition-colors"
+            >
+              <Plus className="size-[22px]" />
+            </button>
+            {showHint && (
+              <span className="text-foreground/55 flex items-center gap-1.5 text-[11.5px] leading-snug">
+                <FileText className="size-3 shrink-0" />
+                <span className="whitespace-nowrap">
+                  {m['playground.attachment.hint']()}
+                </span>
+              </span>
+            )}
           </div>
-        )}
-
-        <div className="flex items-center justify-between gap-2 pt-1.5">
-          <button
-            type="button"
-            onClick={() => {
-              setShowHint(true);
-              onPlusClick();
-            }}
-            aria-label={m['playground.attachment.add']()}
-            title={m['playground.attachment.add']()}
-            className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 items-center justify-center rounded-full transition-colors"
-          >
-            <Plus className="size-[22px]" />
-          </button>
 
           <div className="flex items-center gap-1.5">
             <ModelMenu
@@ -1015,9 +1193,6 @@ function Composer({
               selected={selected}
               onSelect={onSelectModel}
             />
-            <span className="border-foreground/10 bg-foreground/[0.03] text-foreground/45 mx-1 hidden items-center gap-1 rounded-md border px-1.5 py-1 font-mono text-[11px] tracking-tight sm:inline-flex">
-              ⌘<span className="text-foreground/35">↵</span>
-            </span>
             <button
               type="button"
               onClick={onSend}
@@ -1030,30 +1205,6 @@ function Composer({
           </div>
         </div>
       </motion.div>
-
-      {/* Capability showcase — display-only, informs visitors what Kimi K3
-          can do. Not task launchers: no click action. */}
-      <div className="mt-3">
-        <p className="text-foreground/40 mb-2 text-center font-mono text-[10px] tracking-[0.2em] uppercase">
-          {m['playground.capabilities.title']()}
-        </p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {capabilities.map((c) => {
-            const Icon = c.icon;
-            return (
-              <div
-                key={c.id}
-                className="border-foreground/10 bg-card/60 flex items-center gap-2 rounded-xl border px-3 py-2"
-              >
-                <Icon className="text-foreground/55 size-4 shrink-0" />
-                <span className="text-foreground/65 text-xs leading-tight font-medium">
-                  {c.label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </div>
   );
 }
@@ -1070,27 +1221,17 @@ function WelcomeState({ selected }: { selected: ModelOption }) {
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className="flex w-full flex-col items-center text-center"
     >
+      {/* Feature pill — sits at the top of the welcome state so it doesn't
+          fight the greeting for attention. */}
+      <button
+        type="button"
+        className="border-foreground/15 bg-background hover:bg-foreground/5 mb-6 inline-flex max-w-full items-center justify-center rounded-full border px-6 py-2 text-center text-[13px] leading-snug font-medium transition-colors"
+      >
+        Deep Document Analysis — Summarize, Extract Key Insights, Compare
+        Versions &amp; Answer Questions About Any File
+      </button>
       <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
-        {(() => {
-          // Render the trailing question mark in Playfair Display — its
-          // roman "?" has a long graceful tail that sits much better at
-          // display sizes than Libre Baskerville's compact glyph.
-          const text = m['playground.welcome.greeting']();
-          const m1 = text.match(/[?？]\s*$/);
-          if (!m1) return text;
-          const idx = m1.index ?? 0;
-          return (
-            <>
-              {text.slice(0, idx)}
-              <span
-                className="font-['Playfair_Display',Georgia,serif] italic"
-                style={{ fontFeatureSettings: '"liga" 1' }}
-              >
-                {text.slice(idx)}
-              </span>
-            </>
-          );
-        })()}
+        {m['playground.welcome.greeting']()}
       </h1>
       <p className="text-foreground/55 mt-5 max-w-md text-[15px] leading-relaxed">
         {m['playground.welcome.subtitle']()}
@@ -1199,15 +1340,26 @@ function MessageBubble({ message }: { message: Message }) {
         {videos.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2">
             {videos.map((v) => (
+              // Use a real <video> element for the bubble preview so the
+              // user can play/pause inline; clicking the element opens the
+              // raw storage URL in a new tab (the <a> wrapper).
               <a
                 key={v.url}
                 href={v.url}
                 target="_blank"
                 rel="noreferrer"
-                className="bg-background/15 inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs"
+                className="block overflow-hidden rounded-lg"
               >
-                <Film className="size-3.5" />
-                {v.filename || 'video'}
+                <video
+                  src={v.previewUrl || v.url}
+                  controls
+                  preload="metadata"
+                  className="max-h-64 w-full rounded-lg object-cover"
+                />
+                <div className="text-foreground/60 mt-1 flex items-center gap-1.5 px-1 text-xs">
+                  <Film className="size-3.5" />
+                  <span className="truncate">{v.filename || 'video'}</span>
+                </div>
               </a>
             ))}
           </div>
@@ -1228,6 +1380,7 @@ function MessageBubble({ message }: { message: Message }) {
             ))}
           </div>
         )}
+
         {message.content.trim() &&
           (isUser ? (
             <span className="whitespace-pre-wrap">{message.content}</span>
@@ -1402,39 +1555,6 @@ function useModels(): ModelOption[] {
       effort: 'standard',
       effortLabel: m['playground.model.k3_standard'](),
       desc: m['playground.model.k26_desc'](),
-    },
-  ];
-}
-
-/* Display-only capability showcase rendered under the composer — informs the
-   visitor what Kimi K3 can do, with no click action (not task launchers). */
-interface CapabilityDef {
-  id: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-function useCapabilities(): CapabilityDef[] {
-  return [
-    {
-      id: 'ui',
-      label: m['playground.capabilities.ui.label'](),
-      icon: ScanLine,
-    },
-    {
-      id: 'repo',
-      label: m['playground.capabilities.repo.label'](),
-      icon: FolderGit2,
-    },
-    {
-      id: 'docs',
-      label: m['playground.capabilities.docs.label'](),
-      icon: Files,
-    },
-    {
-      id: 'agents',
-      label: m['playground.capabilities.agents.label'](),
-      icon: Workflow,
     },
   ];
 }

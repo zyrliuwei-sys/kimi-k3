@@ -57,12 +57,16 @@ import { respErr } from '@/lib/resp';
 
 const MAX_TURNS = 20;
 const MAX_CONTENT_LEN = 4000;
-const RATE_LIMIT_INTERVAL_MS = 6000;
+// 2s between messages — feels like a real conversation without opening the
+// floodgates. The hard cost ceiling is the credit/quota gate downstream
+// (signed-in: consumeMessage debits; anon: 1 free chat per IP via cookie),
+// so this is just an anti-click-spam guard, not an anti-abuse wall.
+const RATE_LIMIT_INTERVAL_MS = 2000;
 // Signed-in users: subscription quota first, then credit balance fallback.
 // No free tier — 0 subscription quota + 0 credits = paywall.
 
 const SYSTEM_PROMPT =
-  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity. When the user attaches images, look at them and respond to what you see. When the user attaches documents (PDF, Word, Markdown, plain text, CSV, etc.), their parsed text is inlined in the user message — read the document contents and answer from them directly.';
+  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity. When the user attaches images, look at them and respond to what you see. When the user attaches documents (PDF, Word, Markdown, plain text, CSV, etc.), their parsed text is inlined in the user message — read the document contents and answer from them directly. When the user attaches a video, the client has extracted several still frames and uploaded them as images covering the first ~60s of the video; treat those frames as a sampling of the video content and describe / answer based on what you can see in them.';
 
 const NOT_CONFIGURED_REPLY = `👋 I'm kimik3 — but no live model is reachable yet.
 

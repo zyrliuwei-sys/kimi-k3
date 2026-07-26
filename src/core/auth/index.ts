@@ -7,6 +7,7 @@ import type { EmailProvider } from '@/core/email';
 import { CloudflareEmailProvider } from '@/core/email/cloudflare';
 import { ResendProvider } from '@/core/email/resend';
 import { VerifyEmail } from '@/core/email/templates/verify-email';
+import { WelcomeEmail } from '@/core/email/templates/welcome-email';
 import { AUTH_SECRET_PLACEHOLDER, envConfigs } from '@/config';
 import * as schema from '@/config/db/schema';
 import { getAllConfigs } from '@/modules/config/service';
@@ -133,6 +134,62 @@ function getEmailProvider(
 /** Check whether email sending is available for the selected provider */
 function isEmailConfigured(configs: Record<string, string>): boolean {
   return getEmailProvider(configs) !== null;
+}
+
+/**
+ * Send a welcome email to a freshly-registered user. Best-effort: any
+ * failure (no provider, network blip, invalid key) is logged and swallowed
+ * so it never breaks the sign-up flow itself.
+ *
+ * Reads `signup_bonus_credits` from the admin config so the bonus value
+ * shown in the email stays in sync with what `grantForNewUser` actually
+ * grants on the credit side.
+ */
+async function sendWelcomeEmail(user: {
+  id: string;
+  email: string;
+  name?: string | null;
+}) {
+  try {
+    const all = await getAllConfigs(true);
+    const emailCtx = getEmailProvider(all);
+    if (!emailCtx) {
+      // Email is optional — silently skip if not configured.
+      return;
+    }
+    const appName = all.app_name || envConfigs.app_name;
+    // SVG logos don't render in email clients; fall back to the text brand.
+    const rawLogo = all.app_logo || '';
+    const logo = /\.svg(\?|#|$)/i.test(rawLogo) ? '' : rawLogo;
+    const logoUrl = logo
+      ? logo.startsWith('http')
+        ? logo
+        : `${all.app_url || envConfigs.app_url || ''}${logo.startsWith('/') ? '' : '/'}${logo}`
+      : undefined;
+    // Mirror the keys used by grantForNewUser() in modules/credits so the
+    // bonus value shown in the email matches what's actually granted.
+    const bonusEnabled = all.initial_credits_enabled !== 'false';
+    const bonus = bonusEnabled ? Number(all.initial_credits_amount) || 10 : 0;
+    const baseUrl = all.app_url || envConfigs.app_url || '';
+    const ctaUrl = `${baseUrl.replace(/\/$/, '')}/api-playground`;
+
+    const result = await emailCtx.provider.sendEmail({
+      to: user.email,
+      subject: `Welcome to ${appName}`,
+      react: WelcomeEmail({
+        appName,
+        logoUrl,
+        name: user.name ?? undefined,
+        bonusCredits: bonus,
+        ctaUrl,
+      }),
+    });
+    if (!result.success) {
+      console.error('[auth] sendWelcomeEmail failed:', result.error);
+    }
+  } catch (e) {
+    console.error('[auth] sendWelcomeEmail error:', e);
+  }
 }
 
 function getAuthPlugins(configs: Record<string, string> | undefined) {
@@ -296,6 +353,14 @@ export function getAuth(configs?: Record<string, string>) {
               } catch (e) {
                 console.error('[auth] databaseHook grant credits failed:', e);
               }
+              // Send a welcome email via the configured Resend / Cloudflare
+              // provider. Runs in the background — never blocks the sign-up
+              // response, and any email failure is swallowed inside the helper.
+              void sendWelcomeEmail({
+                id: user.id,
+                email: user.email,
+                name: user.name,
+              });
             },
           },
         },

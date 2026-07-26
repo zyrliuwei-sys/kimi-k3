@@ -50,7 +50,9 @@ async function POST({ request }: { request: Request }) {
         userEmail: target.email,
         credits: amount,
         description: description || 'Admin grant',
-        scene: CreditTransactionScene.GIFT,
+        // REWARD (not GIFT) so admin-granted credits can pay for premium
+        // features like video. GIFT is reserved for the signup trial grant.
+        scene: CreditTransactionScene.REWARD,
       });
     } else {
       const result = await consume({

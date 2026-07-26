@@ -67,7 +67,7 @@
 
 @layer base {
   :root {
-    --background: oklch(0.925 0.014 20);
+    --background: oklch(0.97 0.012 305);
     --foreground: oklch(0.205 0.006 65);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.205 0.006 65);
@@ -340,11 +340,14 @@
 }
 
 /* ---- playground atmosphere ---- */
-/* Faint dotted grid — sits behind the playground, masked to fade at edges. */
+/* Faint dotted grid — sits behind the playground, masked to fade at edges.
+   Light mode uses a soft pastel hue (lavender) so the backdrop reads as
+   the dotted pastel layer from the new layout; dark mode falls back to
+   the neutral foreground tint used elsewhere. */
 .play-grid {
   background-image: radial-gradient(
     circle,
-    color-mix(in oklab, var(--foreground) 16%, transparent) 1px,
+    color-mix(in oklab, #6d28d9 14%, transparent) 1px,
     transparent 1px
   );
   background-size: 24px 24px;
@@ -358,6 +361,13 @@
     ellipse 75% 70% at 50% 45%,
     black 35%,
     transparent 78%
+  );
+}
+.dark .play-grid {
+  background-image: radial-gradient(
+    circle,
+    color-mix(in oklab, var(--foreground) 16%, transparent) 1px,
+    transparent 1px
   );
 }
 

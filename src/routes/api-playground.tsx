@@ -26,9 +26,9 @@ export const Route = createFileRoute('/api-playground')({
 
 function ApiPlaygroundPage() {
   return (
-    <div className="bg-background text-foreground flex h-[100dvh] flex-col overflow-hidden">
+    <div className="bg-background text-foreground flex min-h-[100dvh] flex-col">
       <Header />
-      <main className="flex min-h-0 flex-1 flex-col">
+      <main className="flex flex-1 flex-col overflow-y-auto">
         <ApiPlayground />
       </main>
     </div>

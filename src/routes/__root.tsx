@@ -26,8 +26,6 @@ import '@fontsource-variable/dm-sans';
 import '@fontsource/libre-baskerville';
 import '@fontsource/libre-baskerville/400-italic.css';
 import '@fontsource/libre-baskerville/700.css';
-import '@fontsource/playfair-display';
-import '@fontsource/playfair-display/400-italic.css';
 import '@/styles/globals.css';
 
 // Analytics IDs live in the DB config (1h-cached service). Fetched via a

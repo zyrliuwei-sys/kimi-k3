@@ -128,7 +128,7 @@ const ANON_UPLOAD_LIMIT = 1; // free anonymous uploads per IP
 
 async function POST({ request }: { request: Request }) {
   const limited = enforceMinIntervalRateLimit(request, {
-    intervalMs: 1000,
+    intervalMs: 500,
     keyPrefix: 'upload-media',
   });
   if (limited) return limited;
