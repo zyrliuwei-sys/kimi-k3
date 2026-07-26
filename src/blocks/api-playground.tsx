@@ -194,6 +194,34 @@ function inferAttachmentType(file: File): 'image' | 'video' | 'document' {
   if (VIDEO_EXTS.has(ext)) return 'video';
   return 'document';
 }
+
+// Pull image Files out of a paste event's clipboard — the path a screenshot
+// takes when captured to the clipboard (region select, Cmd/Ctrl+C from an
+// image viewer, etc.). Non-image clipboard data (text, other file types) is
+// ignored here so plain-text pasting still works. Clipboard screenshots
+// usually arrive with no/generic name, so each gets a stable screenshot-*
+// name — keeps the dedup key meaningful and the chip readable.
+function imageFilesFromClipboard(clipboardData: DataTransfer | null): File[] {
+  if (!clipboardData) return [];
+  const files: File[] = [];
+  let index = 0;
+  for (const item of clipboardData.items) {
+    if (item.kind !== 'file' || !item.type.startsWith('image/')) continue;
+    const file = item.getAsFile();
+    if (!file) continue;
+    index++;
+    const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+    const hasName = /\.[a-z0-9]+$/i.test(file.name);
+    files.push(
+      hasName
+        ? file
+        : new File([file], `screenshot-${Date.now()}-${index}.${ext}`, {
+            type: file.type,
+          })
+    );
+  }
+  return files;
+}
 /* ------------------------------------------------------------------ */
 /*  Video frame extraction                                             */
 /* ------------------------------------------------------------------ */
@@ -1206,6 +1234,18 @@ function Composer({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={(e) => {
+            // Cmd/Ctrl+V with a screenshot on the clipboard → lift the image
+            // out and route it through the same attachment pipeline as the
+            // picker (validate → dedup → optimistic chip → background upload).
+            // Pure-text pastes have no image items and fall through untouched.
+            const images = imageFilesFromClipboard(e.clipboardData);
+            if (!images.length) return;
+            e.preventDefault();
+            const dt = new DataTransfer();
+            for (const f of images) dt.items.add(f);
+            onFilesSelected(dt.files);
+          }}
           rows={1}
           placeholder={m['playground.input.placeholder']()}
           className="placeholder:text-foreground/40 block max-h-[280px] min-h-[2.5rem] w-full resize-none bg-transparent px-4 pt-2 font-mono text-[15px] leading-relaxed outline-none"
