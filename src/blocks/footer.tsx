@@ -139,9 +139,43 @@ export function Footer() {
         </div>
 
         <div className="mt-12 flex flex-col gap-4 border-t border-neutral-800 pt-8 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-neutral-500">
-            © {new Date().getFullYear()} anyany. {m['landing.footer.rights']()}
-          </p>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
+            <p className="text-sm text-neutral-500">
+              © {new Date().getFullYear()} anyany.{' '}
+              {m['landing.footer.rights']()}
+            </p>
+            {/* SEO backlinks — restored (accidentally removed in dfcbbed).
+                Badges are self-hosted under /badges so they don't depend on
+                flaky external image hosts (media.theresanaiforthat.com was
+                unreachable). The <a href> external links are what matter for
+                SEO; the images are just decoration. */}
+            <a
+              href="https://tooldirs.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/tooldirs-badge.svg"
+                alt="Featured on ToolDirs"
+                width={170}
+                height={54}
+              />
+            </a>
+            <a
+              href="https://theresanaiforthat.com/ai/kimik3-unofficial-guide/?ref=featured&v=7720459"
+              target="_blank"
+              rel="noopener noreferrer nofollow"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/taaft-badge.svg"
+                alt="Featured on There's An AI For That"
+                width={220}
+                height={44}
+              />
+            </a>
+          </div>
           <LocaleSelector
             variant="pill"
             className="border-neutral-700 text-neutral-300 hover:bg-white/5 hover:text-neutral-100"
