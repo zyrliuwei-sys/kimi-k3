@@ -175,6 +175,19 @@ export function Footer() {
                 height={44}
               />
             </a>
+            <a
+              href="https://aijustbetter.com/item/kimik3.net"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/aijustbetter-badge.svg"
+                alt="Featured on AIJustBetter.com"
+                width={212}
+                height={55}
+              />
+            </a>
           </div>
           <LocaleSelector
             variant="pill"
