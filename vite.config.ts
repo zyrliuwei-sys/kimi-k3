@@ -126,7 +126,8 @@ export default defineConfig({
               // Scripts: 'unsafe-inline' covers TanStack Start hydration,
               // 'unsafe-eval' covers React Query devtools in dev (prod tree-
               // shakes them out, so these are mostly inert there).
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.googletagmanager.com https://accounts.google.com https://static.cloudflareinsights.com",
+              // Cloudflare Turnstile: api.js widget (sign-up/sign-in bot check).
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.googletagmanager.com https://accounts.google.com https://static.cloudflareinsights.com https://challenges.cloudflare.com",
               // Media: blob: URLs are needed for the playground's local
               // attachment previews (object URLs for images/videos while the
               // upload is in flight). Without an explicit allow, browsers
@@ -152,11 +153,11 @@ export default defineConfig({
               // (google-analytics.com + google.com /g/collect). The wildcard
               // covers unknown AI providers you might enable later; tighten
               // once you've finalized the list.
-              "connect-src 'self' https://api.stripe.com https://api.evolink.ai https://api.openai.com https://*.amazonaws.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://api.resend.com https://api.replicate.com https://generativelanguage.googleapis.com https://api.fal.ai https://api.kie.ai https://www.google-analytics.com https://www.google.com",
-              // Stripe Elements / checkout iframes, plus YouTube (nocookie
-              // domain for privacy-enhanced embeds). Add more hosts here if
-              // you embed other video providers (Vimeo, Wistia, etc.).
-              'frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.youtube-nocookie.com https://www.youtube.com',
+              "connect-src 'self' https://api.stripe.com https://api.evolink.ai https://api.openai.com https://*.amazonaws.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://api.resend.com https://api.replicate.com https://generativelanguage.googleapis.com https://api.fal.ai https://api.kie.ai https://www.google-analytics.com https://www.google.com https://challenges.cloudflare.com",
+              // Stripe Elements / checkout iframes, YouTube embeds, and the
+              // Cloudflare Turnstile challenge iframe (challenges.cloudflare.com).
+              // Add more hosts here if you embed other video providers.
+              'frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.youtube-nocookie.com https://www.youtube.com https://challenges.cloudflare.com',
               "frame-ancestors 'none'",
               "form-action 'self'",
               "base-uri 'self'",
