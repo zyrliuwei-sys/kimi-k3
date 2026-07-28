@@ -29,6 +29,10 @@ const publicKeys = [
   'google_analytics_id',
   'plausible_domain',
   'plausible_src',
+  // Cloudflare Turnstile site key (public by design — needed to render the
+  // widget). The matching secret is NOT listed here: it ends in `_secret`,
+  // so filterPublicConfigs() drops it automatically.
+  'turnstile_sitekey',
 ];
 
 function isEmailSendingConfigured(configs: Record<string, string>): boolean {

@@ -11,6 +11,10 @@ import { m } from '@/paraglide/messages.js';
 import { localizeHref } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
 import { useSignupBonus } from '@/hooks/use-signup-bonus';
+import {
+  CaptchaWidget,
+  type CaptchaWidgetHandle,
+} from '@/components/captcha-widget';
 import { TextField } from '@/components/form-field';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -40,6 +44,8 @@ function SignUpPage() {
   // Set right before we navigate so the already-signed-in effect doesn't also fire.
   const navigatingRef = useRef(false);
   const [error, setError] = useState('');
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
+  const [turnstileToken, setTurnstileToken] = useState('');
 
   const [redirectParam, setRedirectParam] = useState<string | null>(null);
   const [callbackUrl, setCallbackUrl] = useState<string | null>(null);
@@ -92,6 +98,7 @@ function SignUpPage() {
   const emailVerificationEnabled =
     configs.email_verification_enabled === 'true';
   const inviteCodeRequired = configs.invite_code_required === 'true';
+  const turnstileSiteKey = configs.turnstile_sitekey;
   const hasSocial = googleEnabled || githubEnabled;
   const hasAnyMethod = emailEnabled || hasSocial;
 
@@ -112,6 +119,10 @@ function SignUpPage() {
     validators: { onSubmit: signUpSchema },
     onSubmit: async ({ value }) => {
       setError('');
+      if (turnstileSiteKey && !turnstileToken) {
+        setError(m['common.sign.captcha_required']());
+        return;
+      }
       const trimmedInvite = value.inviteCode.trim();
       if (inviteCodeRequired && !trimmedInvite) {
         setError(m['common.sign.invite_code_required']());
@@ -130,12 +141,19 @@ function SignUpPage() {
           }
         }
 
-        const result = await signUp.email({
-          name: value.name,
-          email: value.email,
-          password: value.password,
-        });
+        const result = await signUp.email(
+          {
+            name: value.name,
+            email: value.email,
+            password: value.password,
+          },
+          turnstileToken
+            ? { headers: { 'x-captcha-response': turnstileToken } }
+            : undefined
+        );
         if (result.error) {
+          captchaRef.current?.reset();
+          setTurnstileToken('');
           setError(result.error.message || 'Sign up failed');
           return;
         }
@@ -167,6 +185,8 @@ function SignUpPage() {
           window.location.assign(localizeHref(afterLoginUrl));
         }
       } catch (err: any) {
+        captchaRef.current?.reset();
+        setTurnstileToken('');
         setError(err.message || 'Sign up failed');
       }
     },
@@ -337,6 +357,11 @@ function SignUpPage() {
                         </form.Field>
                       )}
                       <Field>
+                        <CaptchaWidget
+                          ref={captchaRef}
+                          siteKey={turnstileSiteKey}
+                          onToken={setTurnstileToken}
+                        />
                         <form.Subscribe selector={(s) => s.isSubmitting}>
                           {(isSubmitting) => (
                             <Button type="submit" disabled={isSubmitting}>

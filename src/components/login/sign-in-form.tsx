@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
 
@@ -6,6 +6,10 @@ import { authClient, signIn } from '@/core/auth/client';
 import { Link, useRouter } from '@/core/i18n/navigation';
 import { m } from '@/paraglide/messages.js';
 import { localizeHref } from '@/paraglide/runtime.js';
+import {
+  CaptchaWidget,
+  type CaptchaWidgetHandle,
+} from '@/components/captcha-widget';
 import { TextField } from '@/components/form-field';
 import { SocialButtons } from '@/components/login/social-buttons';
 import { Button } from '@/components/ui/button';
@@ -30,6 +34,8 @@ type SignInFormProps = {
   githubEnabled: boolean;
   /** Whether the "Forgot password" link should be shown. */
   passwordResetEnabled: boolean;
+  /** Cloudflare Turnstile site key (undefined ⇒ Turnstile is off). */
+  turnstileSiteKey?: string;
 };
 
 /**
@@ -44,9 +50,12 @@ export function SignInForm({
   googleEnabled,
   githubEnabled,
   passwordResetEnabled,
+  turnstileSiteKey,
 }: SignInFormProps) {
   const router = useRouter();
   const [error, setError] = useState('');
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
+  const [turnstileToken, setTurnstileToken] = useState('');
 
   const hasSocial = googleEnabled || githubEnabled;
   const hasAnyMethod = emailEnabled || hasSocial;
@@ -56,12 +65,24 @@ export function SignInForm({
     validators: { onSubmit: signInSchema },
     onSubmit: async ({ value }) => {
       setError('');
+      if (turnstileSiteKey && !turnstileToken) {
+        setError(m['common.sign.captcha_required']());
+        return;
+      }
       try {
-        const result: any = await signIn.email({
-          email: value.email,
-          password: value.password,
-        });
+        const result: any = await signIn.email(
+          {
+            email: value.email,
+            password: value.password,
+          },
+          turnstileToken
+            ? { headers: { 'x-captcha-response': turnstileToken } }
+            : undefined
+        );
         if (result.error) {
+          // Turnstile tokens are single-use — reset so a retry gets a fresh one.
+          captchaRef.current?.reset();
+          setTurnstileToken('');
           const status = result.error.status;
           const code = result.error.code;
           const msg = result.error.message || '';
@@ -87,6 +108,8 @@ export function SignInForm({
           window.location.assign(localizeHref(afterLoginUrl));
         }
       } catch (err: any) {
+        captchaRef.current?.reset();
+        setTurnstileToken('');
         setError(err.message || 'Sign in failed');
       }
     },
@@ -202,6 +225,12 @@ export function SignInForm({
               );
             }}
           </form.Field>
+
+          <CaptchaWidget
+            ref={captchaRef}
+            siteKey={turnstileSiteKey}
+            onToken={setTurnstileToken}
+          />
 
           <Button
             type="submit"

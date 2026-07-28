@@ -12,6 +12,7 @@
   "common.sign.email_placeholder": "Enter your email",
   "common.sign.password_title": "Password",
   "common.sign.password_placeholder": "Enter your password",
+  "common.sign.captcha_required": "Please complete the security check",
   "common.sign.confirm_password_title": "Confirm Password",
   "common.sign.confirm_password_placeholder": "Re-enter your password",
   "common.sign.password_mismatch": "Passwords do not match",

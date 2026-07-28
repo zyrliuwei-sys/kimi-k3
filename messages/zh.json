@@ -12,6 +12,7 @@
   "common.sign.email_placeholder": "输入邮箱地址",
   "common.sign.password_title": "密码",
   "common.sign.password_placeholder": "输入密码",
+  "common.sign.captcha_required": "请完成安全验证",
   "common.sign.confirm_password_title": "确认密码",
   "common.sign.confirm_password_placeholder": "再次输入密码",
   "common.sign.password_mismatch": "两次输入的密码不一致",

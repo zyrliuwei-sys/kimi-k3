@@ -12,7 +12,7 @@ declare global {
   var __minIntervalRateLimitStore: Store | undefined;
 }
 
-function getClientIpFromRequest(request: Request): string {
+export function getClientIpFromRequest(request: Request): string {
   // Behind Cloudflare, CF-Connecting-IP is the authoritative client IP and
   // cannot be spoofed — Cloudflare overwrites any caller-supplied value. It
   // MUST be checked before X-Forwarded-For: XFF is a client-appendable chain,

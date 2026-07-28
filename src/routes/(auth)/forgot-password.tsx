@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
@@ -9,6 +9,10 @@ import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
 import { localizeHref } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
+import {
+  CaptchaWidget,
+  type CaptchaWidgetHandle,
+} from '@/components/captcha-widget';
 import { TextField } from '@/components/form-field';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +30,8 @@ const forgotSchema = z.object({
 
 function ForgotPasswordPage() {
   const [error, setError] = useState('');
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
+  const [turnstileToken, setTurnstileToken] = useState('');
   const [sent, setSent] = useState(false);
   const [sentEmail, setSentEmail] = useState('');
 
@@ -34,26 +40,40 @@ function ForgotPasswordPage() {
 
   const configsLoaded = configQuery.isSuccess;
   const passwordResetEnabled = configs.password_reset_enabled === 'true';
+  const turnstileSiteKey = configs.turnstile_sitekey;
 
   const form = useForm({
     defaultValues: { email: '' },
     validators: { onSubmit: forgotSchema },
     onSubmit: async ({ value }) => {
       setError('');
+      if (turnstileSiteKey && !turnstileToken) {
+        setError(m['common.sign.captcha_required']());
+        return;
+      }
       try {
         const origin = window.location.origin;
         const redirectTo = `${origin}${localizeHref('/reset-password')}`;
-        const result = await requestPasswordReset({
-          email: value.email,
-          redirectTo,
-        });
+        const result = await requestPasswordReset(
+          {
+            email: value.email,
+            redirectTo,
+          },
+          turnstileToken
+            ? { headers: { 'x-captcha-response': turnstileToken } }
+            : undefined
+        );
         if (result.error) {
+          captchaRef.current?.reset();
+          setTurnstileToken('');
           setError(result.error.message || 'Request failed');
         } else {
           setSentEmail(value.email);
           setSent(true);
         }
       } catch (err: any) {
+        captchaRef.current?.reset();
+        setTurnstileToken('');
         setError(err.message || 'Request failed');
       }
     },
@@ -139,6 +159,11 @@ function ForgotPasswordPage() {
                     )}
                   </form.Field>
                   <Field>
+                    <CaptchaWidget
+                      ref={captchaRef}
+                      siteKey={turnstileSiteKey}
+                      onToken={setTurnstileToken}
+                    />
                     <form.Subscribe selector={(s) => s.isSubmitting}>
                       {(isSubmitting) => (
                         <Button type="submit" disabled={isSubmitting}>

@@ -6,6 +6,7 @@ import {
   FileText,
   Film,
   Gift,
+  ImageIcon,
   Loader2,
   Plus,
   RefreshCw,
@@ -1325,6 +1326,9 @@ function Composer({
 /* ------------------------------------------------------------------ */
 
 function WelcomeState({ selected }: { selected: ModelOption }) {
+  // Entry labels follow the active locale — matches the QUICK_ACTIONS pattern.
+  const isZh = getLocale() === 'zh';
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -1332,9 +1336,11 @@ function WelcomeState({ selected }: { selected: ModelOption }) {
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className="flex w-full flex-col items-center text-center"
     >
-      {/* Single feature pill — sits at the top of the welcome state so it
-          doesn't fight the greeting for attention. */}
-      <div className="mb-6 inline-flex">
+      {/* Entry points. Document Analysis is the secondary outlined pill; the
+          "Generate Image" entry to its right is deliberately enlarged and uses
+          the brand gradient — image gen is the paid conversion path and the
+          action we want new visitors to notice first. */}
+      <div className="mb-6 flex flex-wrap items-center justify-center gap-3">
         <button
           type="button"
           className="border-foreground/15 bg-background hover:bg-foreground/5 inline-flex items-center rounded-full border px-5 py-1.5 text-sm font-medium transition-colors"
@@ -1342,8 +1348,15 @@ function WelcomeState({ selected }: { selected: ModelOption }) {
           <span aria-hidden className="mr-1.5">
             📄
           </span>
-          Document Analysis
+          {isZh ? '文档分析' : 'Document Analysis'}
         </button>
+        <Link
+          href="/image"
+          className="brand-gradient inline-flex items-center gap-2 rounded-full px-6 py-2.5 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] transition-all hover:brightness-110"
+        >
+          <ImageIcon className="size-4" />
+          {isZh ? '生成图片' : 'Generate Image'}
+        </Link>
       </div>
       <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
         {m['playground.welcome.greeting']()}

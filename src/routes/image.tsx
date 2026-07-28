@@ -4,11 +4,12 @@ import { AlertCircle, ImageIcon, Loader2, Sparkles } from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
 import { Link } from '@/core/i18n/navigation';
+import { getLocale } from '@/paraglide/runtime.js';
 import { Footer } from '@/blocks/footer';
 import { Header } from '@/blocks/header';
 
 /**
- * /image — standalone image generation page.
+ * /image — standalone image generation page (图片生成器 / Image Generator).
  *
  * Self-contained: doesn't share state with the chat playground. Uses
  * the same `/api/playground/generate-image` endpoint (sync wait, up
@@ -23,21 +24,29 @@ import { Header } from '@/blocks/header';
  */
 
 export const Route = createFileRoute('/image')({
-  head: () => ({
-    meta: [
-      { title: 'Generate an image · kimik3' },
-      {
-        name: 'description',
-        content:
-          'Generate an image from a text prompt, powered by Evolink gpt-image-2.',
-      },
-    ],
-  }),
+  head: () => {
+    const isZh = getLocale() === 'zh';
+    return {
+      meta: [
+        { title: isZh ? '图片生成器 · kimik3' : 'Image Generator · kimik3' },
+        {
+          name: 'description',
+          content: isZh
+            ? '用文字描述生成图片，由 Evolink gpt-image-2 驱动。'
+            : 'Generate an image from a text prompt, powered by Evolink gpt-image-2.',
+        },
+      ],
+    };
+  },
   component: ImagePage,
 });
 
 function ImagePage() {
   const { data: session, isPending } = useSession();
+  // Labels follow the active locale — the page is reachable from the
+  // playground's "Generate Image" entry, so it should speak the user's
+  // language the moment they land here.
+  const isZh = getLocale() === 'zh';
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +75,9 @@ function ImagePage() {
       }
       const url: string | undefined = data?.data?.url;
       if (typeof url !== 'string' || !url) {
-        throw new Error('Provider returned no image url');
+        throw new Error(
+          isZh ? '服务商未返回图片地址' : 'Provider returned no image url'
+        );
       }
       setResult({ url, prompt: trimmed });
     } catch (e: any) {
@@ -75,10 +86,13 @@ function ImagePage() {
         /aborted|timeout/i.test(e?.message || '')
       ) {
         setError(
-          'Image generation was cancelled or timed out after 5 minutes.'
+          isZh
+            ? '图片生成已取消，或在 5 分钟后超时。'
+            : 'Image generation was cancelled or timed out after 5 minutes.'
         );
       } else {
-        setError(e?.message || 'Image generation failed.');
+        const base = isZh ? '图片生成失败' : 'Image generation failed.';
+        setError(e?.message ? `${base} ${e.message}` : base);
       }
     } finally {
       setIsGenerating(false);
@@ -107,10 +121,12 @@ function ImagePage() {
               <Sparkles className="text-foreground/70 size-6" />
             </div>
             <h1 className="mb-2 text-3xl font-semibold tracking-tight sm:text-4xl">
-              Generate an image
+              {isZh ? '图片生成器' : 'Image Generator'}
             </h1>
             <p className="text-foreground/60 text-sm sm:text-base">
-              Powered by Evolink · model:{' '}
+              {isZh
+                ? '由 Evolink 驱动 · 模型：'
+                : 'Powered by Evolink · model: '}
               <code className="bg-foreground/5 rounded px-1.5 py-0.5 font-mono text-xs">
                 gpt-image-2
               </code>
@@ -121,18 +137,20 @@ function ImagePage() {
           {isPending ? (
             <div className="text-foreground/50 flex items-center justify-center gap-2 py-12 text-sm">
               <Loader2 className="size-4 animate-spin" />
-              Loading…
+              {isZh ? '加载中…' : 'Loading…'}
             </div>
           ) : !session?.user ? (
             <div className="border-foreground/10 bg-card rounded-2xl border p-8 text-center">
               <p className="text-foreground/70 mb-4 text-sm">
-                Sign in to generate images. Each request costs credits.
+                {isZh
+                  ? '登录后即可生成图片，每次请求消耗积分。'
+                  : 'Sign in to generate images. Each request costs credits.'}
               </p>
               <Link
                 href="/sign-in?callbackUrl=/image"
                 className="brand-gradient inline-flex h-10 items-center justify-center rounded-xl px-6 text-sm font-semibold text-white shadow-sm"
               >
-                Sign in
+                {isZh ? '登录' : 'Sign in'}
               </Link>
             </div>
           ) : (
@@ -142,7 +160,11 @@ function ImagePage() {
                 <textarea
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Describe the image you want… (e.g. a small cute dog)"
+                  placeholder={
+                    isZh
+                      ? '描述你想要的图片…（例如：一只可爱的小狗）'
+                      : 'Describe the image you want… (e.g. a small cute dog)'
+                  }
                   rows={3}
                   maxLength={2000}
                   disabled={isGenerating}
@@ -161,12 +183,12 @@ function ImagePage() {
                     {isGenerating ? (
                       <>
                         <Loader2 className="size-3.5 animate-spin" />
-                        Generating…
+                        {isZh ? '生成中…' : 'Generating…'}
                       </>
                     ) : (
                       <>
                         <Sparkles className="size-3.5" />
-                        Generate
+                        {isZh ? '生成' : 'Generate'}
                       </>
                     )}
                   </button>
@@ -177,7 +199,9 @@ function ImagePage() {
               {isGenerating && (
                 <div className="text-foreground/60 mt-6 flex items-center justify-center gap-2 text-sm">
                   <Loader2 className="size-4 animate-spin" />
-                  Generating — typically 1–3 minutes…
+                  {isZh
+                    ? '生成中 — 通常需要 1–3 分钟…'
+                    : 'Generating — typically 1–3 minutes…'}
                 </div>
               )}
 
@@ -186,7 +210,9 @@ function ImagePage() {
                 <div className="border-destructive/30 bg-destructive/5 text-destructive mt-6 flex items-start gap-2 rounded-xl border p-4 text-sm">
                   <AlertCircle className="mt-0.5 size-4 shrink-0" />
                   <div className="flex-1">
-                    <div className="font-medium">Generation failed</div>
+                    <div className="font-medium">
+                      {isZh ? '生成失败' : 'Generation failed'}
+                    </div>
                     <div className="text-destructive/80 mt-0.5 text-xs">
                       {error}
                     </div>
@@ -213,7 +239,7 @@ function ImagePage() {
                         className="border-foreground/15 hover:bg-foreground/5 inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-3 text-xs font-medium"
                       >
                         <ImageIcon className="size-3.5" />
-                        Download
+                        {isZh ? '下载' : 'Download'}
                       </button>
                     </div>
                   </div>
