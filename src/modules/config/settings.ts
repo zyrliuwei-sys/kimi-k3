@@ -197,6 +197,13 @@ export function getSettingGroups(): SettingGroup[] {
         'AI Website Auditor — paste a URL, get a 7-dimension audit + Cursor-ready fixes',
       tab: 'ai',
     },
+    {
+      name: 'mcp',
+      title: 'MCP Servers',
+      description:
+        'Model Context Protocol servers — extra tools the AI chat can call (remote/HTTP only)',
+      tab: 'ai',
+    },
 
     // Analytics
     {
@@ -311,21 +318,6 @@ export function getSettings(): Setting[] {
       title: 'Description',
       type: 'text',
       placeholder: 'Welcome bonus',
-      group: 'credit',
-      tab: 'general',
-    },
-    {
-      // Per-image credit cost — applied at the start of
-      // /api/playground/generate-image. The signup trial grant (gift
-      // credits) may be used for image gen; only video requires paid
-      // credits. Default 2 — keeps the trial usable (10 credits ≈ 5
-      // images) while covering provider cost.
-      name: 'image_credit_cost',
-      title: 'Credits per image generation',
-      type: 'number',
-      placeholder: '2',
-      defaultValue: '2',
-      min: 1,
       group: 'credit',
       tab: 'general',
     },
@@ -1208,6 +1200,34 @@ export function getSettings(): Setting[] {
       group: 'audit',
       tab: 'ai',
       defaultValue: 'true',
+    },
+
+    // ─── AI / MCP Servers ───────────────────────────────────────────
+    // Standard MCP client config, stored verbatim in the config table.
+    // Consumed later by the chat tool-call loop. Remote/HTTP servers only
+    // (url) — this product runs on Cloudflare Workers, which can't spawn
+    // stdio MCP processes. Pre-filled with applora so it works out of the
+    // box once enabled.
+    {
+      name: 'mcp_enabled',
+      title: 'Enable MCP tools',
+      type: 'switch',
+      group: 'mcp',
+      tab: 'ai',
+      defaultValue: 'false',
+      tip: 'Expose the configured MCP servers as tools the AI chat can call.',
+    },
+    {
+      name: 'mcp_servers',
+      title: 'MCP Servers (JSON)',
+      type: 'textarea',
+      placeholder:
+        '{"mcpServers":{"applora":{"url":"https://applora.ai/mcp"}}}',
+      defaultValue:
+        '{"mcpServers":{"applora":{"url":"https://applora.ai/mcp"}}}',
+      group: 'mcp',
+      tab: 'ai',
+      tip: 'Standard MCP client config. Remote/HTTP servers only — each entry is { "url": "https://..." }. e.g. {"mcpServers":{"applora":{"url":"https://applora.ai/mcp"}}}',
     },
   ];
 }
