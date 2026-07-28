@@ -188,6 +188,19 @@ export function Footer() {
                 height={55}
               />
             </a>
+            <a
+              href="https://tinylaunch.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/tinylaunch-badge.svg"
+                alt="Live on TinyLaunch"
+                width={202}
+                height={61}
+              />
+            </a>
           </div>
           <LocaleSelector
             variant="pill"

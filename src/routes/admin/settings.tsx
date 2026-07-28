@@ -29,6 +29,16 @@ import {
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 
+/** Translate a dynamic settings key, falling back to `fallback` when the key
+ *  has no translation. `tDynamic` returns the raw key string when a message
+ *  is missing — this catches that and shows the readable title instead, so a
+ *  settings field/group/tab without a translation never renders as
+ *  `admin.settings.fields.<name>`. */
+function labelOr(key: string, fallback: string): string {
+  const dyn = tDynamic(key);
+  return dyn === key ? fallback : dyn;
+}
+
 function AdminSettingsPage() {
   const placeholders: Record<string, string> = {
     creem_test_amount: m['admin.settings.placeholders.creem_test_amount'](),
@@ -176,7 +186,7 @@ function AdminSettingsPage() {
                 : 'text-muted-foreground hover:text-foreground border-transparent'
             )}
           >
-            {tDynamic(`admin.settings.tabs.${tab.name}`)}
+            {labelOr(`admin.settings.tabs.${tab.name}`, tab.title)}
           </button>
         ))}
       </div>
@@ -250,7 +260,10 @@ function AdminSettingsPage() {
               >
                 <div className="flex items-center justify-between">
                   <CardTitle>
-                    {tDynamic(`admin.settings.groups.${group.name}.title`)}
+                    {labelOr(
+                      `admin.settings.groups.${group.name}.title`,
+                      group.title
+                    )}
                   </CardTitle>
                   <div className="flex items-center gap-2">
                     {testSpec && (
@@ -281,7 +294,10 @@ function AdminSettingsPage() {
                     <SettingField
                       key={setting.name}
                       setting={setting}
-                      label={tDynamic(`admin.settings.fields.${setting.name}`)}
+                      label={labelOr(
+                        `admin.settings.fields.${setting.name}`,
+                        setting.title
+                      )}
                       placeholder={
                         placeholders[setting.name] ?? setting.placeholder
                       }
@@ -304,7 +320,10 @@ function AdminSettingsPage() {
           onOpenChange={(open) => !open && setTestingGroup(null)}
           group={testingGroup}
           spec={getTestSpec(testingGroup)!}
-          groupTitle={tDynamic(`admin.settings.groups.${testingGroup}.title`)}
+          groupTitle={labelOr(
+            `admin.settings.groups.${testingGroup}.title`,
+            groups.find((g) => g.name === testingGroup)?.title ?? testingGroup
+          )}
           configOverrides={Object.fromEntries(
             settings
               .filter(

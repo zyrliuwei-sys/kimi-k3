@@ -141,7 +141,7 @@ const oneTimeProducts: Record<string, PricingProduct> = {
     productId: 'starter_once',
     productName: 'Starter Pack',
     planName: 'Starter Pack',
-    description: 'Starter 小包 · 105 积分(约 114 次 Chat)',
+    description: 'Starter 小包 · 105 积分(约 17 次对话,视长度而定)',
     type: PaymentType.ONE_TIME,
     priceInCents: 900, // $9
     currency: USD,
@@ -151,7 +151,7 @@ const oneTimeProducts: Record<string, PricingProduct> = {
     productId: 'standard_once',
     productName: 'Standard Pack',
     planName: 'Standard Pack',
-    description: 'Standard 标配 · 340 积分(约 370 次 Chat)',
+    description: 'Standard 标配 · 340 积分(约 57 次对话,视长度而定)',
     type: PaymentType.ONE_TIME,
     priceInCents: 2900, // $29
     currency: USD,
@@ -161,7 +161,7 @@ const oneTimeProducts: Record<string, PricingProduct> = {
     productId: 'boost_once',
     productName: 'Boost Pack',
     planName: 'Boost Pack',
-    description: 'Boost 加量包 · 930 积分(约 1011 次 Chat)',
+    description: 'Boost 加量包 · 930 积分(约 155 次对话,视长度而定)',
     type: PaymentType.ONE_TIME,
     priceInCents: 7900, // $79
     currency: USD,

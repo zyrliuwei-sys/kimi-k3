@@ -15,12 +15,16 @@ import { getConfig } from '@/modules/config/service';
 import { getBalance } from '@/modules/credits/service';
 import { parseDocument } from '@/modules/doc-library/parser';
 import { getStorage } from '@/modules/storage/service';
-import { refundConsume } from '@/modules/subscription-quota/refund';
+import { settleConsume } from '@/modules/subscription-quota/refund';
 import {
   consumeMessage,
   getRemainingQuota,
 } from '@/modules/subscription-quota/service';
-import { getCookieFromHeader } from '@/lib/cookie';
+import {
+  computeTokenCost,
+  getChatTokenRates,
+  type ChatTokenRates,
+} from '@/lib/chat-billing';
 import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 import { respErr } from '@/lib/resp';
 
@@ -28,14 +32,11 @@ import { respErr } from '@/lib/resp';
  * Stateless "API Playground" chat endpoint — **streaming** (SSE).
  *
  * Access tiers (in order):
- *   1. Anonymous visitor with no `kimi_free_chat_used` cookie → ONE free
- *      chat. On the way out we set the cookie so the next anonymous request
- *      trips the gate.
- *   2. Anonymous visitor with the cookie already set → `login_required`
- *      gate (must sign up / log in).
- *   3. Signed-in user with subscription quota or paid credits → allowed
+ *   1. Anonymous visitor → `login_required` gate (must sign up / log in).
+ *      No free tier — every call costs real API money.
+ *   2. Signed-in user with subscription quota or paid credits → allowed
  *      (`consumeMessage` debits).
- *   4. Signed-in user with neither → `payment_required` gate.
+ *   3. Signed-in user with neither → `payment_required` gate.
  *
  * Conversations are NOT persisted here — that's what /api/chat is for.
  * Prefer the configured `evolink` provider (model defaults to `kimi-k3`)
@@ -59,7 +60,7 @@ const MAX_TURNS = 20;
 const MAX_CONTENT_LEN = 4000;
 // 2s between messages — feels like a real conversation without opening the
 // floodgates. The hard cost ceiling is the credit/quota gate downstream
-// (signed-in: consumeMessage debits; anon: 1 free chat per IP via cookie),
+// (signed-in: consumeMessage debits; anon: login_required),
 // so this is just an anti-click-spam guard, not an anti-abuse wall.
 const RATE_LIMIT_INTERVAL_MS = 2000;
 // Signed-in users: subscription quota first, then credit balance fallback.
@@ -126,14 +127,8 @@ async function resolvePlaygroundConfig(): Promise<PlaygroundConfig> {
   return { provider: 'openai', apiKey, baseUrl, model, hasKey: !!apiKey };
 }
 
-/** Build a `text/event-stream` Response that runs `work`, emitting frames.
- *  `setCookies` lets the caller attach one or more Set-Cookie headers to the
- *  response (used to flip the `kimi_free_chat_used` cookie after the first
- *  anonymous chat). */
-function sseResponse(
-  work: (emit: SseEmit) => Promise<void>,
-  setCookies: string[] = []
-): Response {
+/** Build a `text/event-stream` Response that runs `work`, emitting frames. */
+function sseResponse(work: (emit: SseEmit) => Promise<void>): Response {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const encoder = new TextEncoder();
@@ -154,9 +149,6 @@ function sseResponse(
     Connection: 'keep-alive',
     'X-Accel-Buffering': 'no',
   });
-  for (const cookie of setCookies) {
-    headers.append('Set-Cookie', cookie);
-  }
   return new Response(stream, { headers });
 }
 
@@ -469,15 +461,6 @@ async function checkChatAccess(
   return 'payment_required';
 }
 
-/** Cookie that marks an anonymous visitor as having used their free chat.
- *  HttpOnly so it can't be cleared from JS; 1-year max-age so clearing site
- *  data is the only way to reset. */
-const FREE_CHAT_COOKIE = 'kimi_free_chat_used';
-const FREE_CHAT_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
-function freeChatCookieHeader(): string {
-  return `${FREE_CHAT_COOKIE}=1; Max-Age=${FREE_CHAT_MAX_AGE_SECONDS}; Path=/; HttpOnly; SameSite=Lax`;
-}
-
 async function POST({ request }: { request: Request }) {
   const limited = enforceMinIntervalRateLimit(request, {
     intervalMs: RATE_LIMIT_INTERVAL_MS,
@@ -522,24 +505,11 @@ async function POST({ request }: { request: Request }) {
   const auth = getAuth();
   const session = await auth.api.getSession({ headers: request.headers });
 
-  // Tier 1 + 2: anonymous visitor gets exactly one free chat, tracked via
-  // an HttpOnly cookie. The cookie is checked server-side so clearing
-  // document.cookie via JS can't reset it (only clearing site data works).
-  const hasUsedFreeChat = !!getCookieFromHeader(
-    request.headers.get('cookie'),
-    FREE_CHAT_COOKIE
-  );
-
+  // Anonymous visitors must sign in — no free tier. Every call costs real
+  // API money, so we gate before streaming rather than eating the cost.
   let gate: 'login_required' | 'payment_required' | null = null;
-  let markFreeChatUsed = false;
   if (!session?.user) {
-    if (!hasUsedFreeChat) {
-      // Tier 1: first anonymous chat — allowed; flip the cookie on the way out.
-      markFreeChatUsed = true;
-    } else {
-      // Tier 2: free chat already used — must sign up / log in.
-      gate = 'login_required';
-    }
+    gate = 'login_required';
   }
   // NOTE: For SIGNED-IN users we no longer pre-check the balance. We always
   // proceed to the stream and let `consumeMessage` decide — if it fails
@@ -556,158 +526,147 @@ async function POST({ request }: { request: Request }) {
     });
   }
 
-  return sseResponse(
-    async (emit) => {
-      try {
-        // ── Per-token billing ──
-        // Two-phase: pre-flight estimate (charge upfront so a race with
-        // another tab doesn't accidentally stream a request the user can't
-        // pay for), post-flight actual (refund the difference if the model
-        // returned fewer tokens than estimated).
-        //
-        // The debit intentionally happens AFTER buildMessages + the
-        // long-context guard so we don't charge for requests that get
-        // rejected downstream (doc parse failures, 200k+ token past grace).
-        const trustedHosts = await getTrustedStorageHosts();
-        const { messages, model } = await buildMessages(
-          turns,
-          rawAttachments,
-          cfg,
-          trustedHosts
-        );
-        const fullMessages: ChatTurn[] = [
-          { role: 'system', content: SYSTEM_PROMPT },
-          ...messages,
-        ];
+  return sseResponse(async (emit) => {
+    try {
+      // ── Per-token billing ──
+      // Two-phase: pre-flight estimate (charge upfront so a race with
+      // another tab doesn't accidentally stream a request the user can't
+      // pay for), post-flight actual (refund the difference if the model
+      // returned fewer tokens than estimated).
+      //
+      // The debit intentionally happens AFTER buildMessages + the
+      // long-context guard so we don't charge for requests that get
+      // rejected downstream (doc parse failures, 200k+ token past grace).
+      const trustedHosts = await getTrustedStorageHosts();
+      const { messages, model } = await buildMessages(
+        turns,
+        rawAttachments,
+        cfg,
+        trustedHosts
+      );
+      const fullMessages: ChatTurn[] = [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...messages,
+      ];
 
-        // Long-context guard. Only enforced for signed-in users (anon path
-        // is already capped at MAX_CONTENT_LEN * MAX_TURNS above, well below
-        // the threshold). Long pastes / huge attachments need a subscription.
-        if (session?.user) {
-          const tierCheck = await checkLongContextAllowed({
-            userId: session.user.id,
-            messages: fullMessages,
-          });
-          if (!tierCheck.allowed) {
-            emit({
-              t: 'error',
-              message:
-                'subscription_required: this message exceeds the long-context limit. Subscribe to send large prompts.',
-            });
-            emit({ t: 'done' });
-            return;
-          }
-        }
-
-        // Pre-flight estimate → upfront debit. Subscription quota path
-        // ignores cost (1 quota slot per call, by design — see consumeMessage).
-        // Credit path uses per-token math from admin-configurable rate/min.
-        let chargeCtx:
-          | { via: 'quota' }
-          | { via: 'credits'; consumeId: string; originalCost: number }
-          | null = null;
-        if (session?.user) {
-          const rateRaw = await getConfig('chat_credit_per_1k_tokens');
-          const rate = Number.parseFloat(rateRaw || '0.05');
-          const minRaw = await getConfig('chat_credit_min_per_call');
-          const minCost = Number.parseInt(minRaw || '1', 10) || 1;
-
-          const estimatedTokens = estimateMessagesTokens(fullMessages);
-          const estimatedCost = Math.max(
-            minCost,
-            Math.ceil(
-              (estimatedTokens / 1000) *
-                (Number.isFinite(rate) && rate > 0 ? rate : 0.05)
-            )
-          );
-
-          const debit = await consumeMessage(session.user.id, {
-            cost: estimatedCost,
-            scene: 'playground_chat',
-            description: `Playground chat · ${estimatedTokens} tok (est.)`,
-          });
-          if (!debit.success) {
-            emit({ t: 'gate', status: 'payment_required' });
-            emit({ t: 'done' });
-            return;
-          }
-          if (debit.via === 'credits' && debit.result?.consumedCredit?.id) {
-            chargeCtx = {
-              via: 'credits',
-              consumeId: debit.result.consumedCredit.id,
-              originalCost: estimatedCost,
-            };
-          } else {
-            chargeCtx = { via: 'quota' };
-          }
-        }
-
-        // Stream + collect actual usage for the refund pass.
-        let actualUsage: ChatCompletionUsage | undefined;
-        try {
-          for await (const chunk of openaiChatCompletionStream({
-            apiKey: cfg.apiKey,
-            baseUrl: cfg.baseUrl,
-            model,
-            messages: fullMessages,
-          })) {
-            if (typeof chunk === 'string') {
-              if (chunk) emit({ t: 'delta', text: chunk });
-            } else {
-              actualUsage = chunk.usage;
-            }
-          }
-        } catch (streamErr) {
-          // Stream failed mid-flight — keep the charge (user got partial
-          // output) and surface the error.
+      // Long-context guard. Only enforced for signed-in users (anon path
+      // is already capped at MAX_CONTENT_LEN * MAX_TURNS above, well below
+      // the threshold). Long pastes / huge attachments need a subscription.
+      if (session?.user) {
+        const tierCheck = await checkLongContextAllowed({
+          userId: session.user.id,
+          messages: fullMessages,
+        });
+        if (!tierCheck.allowed) {
           emit({
             t: 'error',
-            message: (streamErr as Error)?.message || 'Stream interrupted',
+            message:
+              'subscription_required: this message exceeds the long-context limit. Subscribe to send large prompts.',
           });
           emit({ t: 'done' });
           return;
         }
+      }
 
-        emit({ t: 'done', model, provider: cfg.provider });
+      // Pre-flight reservation on ESTIMATED INPUT tokens. This guarantees
+      // the user can cover at least the prompt before we call the model —
+      // a drained balance is rejected here (payment_required), NOT
+      // mid-stream, so the admin never pays for a request the user can't
+      // afford. The real input+output cost is settled post-flight.
+      // Subscription quota path ignores cost (1 quota slot per call).
+      let chargeCtx:
+        | { via: 'quota' }
+        | {
+            via: 'credits';
+            consumeId: string;
+            originalCost: number;
+            rates: ChatTokenRates;
+          }
+        | null = null;
+      if (session?.user) {
+        const rates = await getChatTokenRates();
+        const estimatedInputTokens = estimateMessagesTokens(fullMessages);
+        // Reserve on input estimate only — output isn't known yet. Floored
+        // at minCost so even a tiny prompt reserves the minimum.
+        const estimatedCost = computeTokenCost(estimatedInputTokens, 0, rates);
 
-        // Post-flight refund: only when we (a) charged via credits (not
-        // subscription quota), (b) the provider returned real usage, and
-        // (c) actual cost < estimated cost. We never surcharge post-flight.
-        if (
-          chargeCtx?.via === 'credits' &&
-          actualUsage &&
-          actualUsage.total_tokens > 0
-        ) {
-          const rateRaw = await getConfig('chat_credit_per_1k_tokens');
-          const rate = Number.parseFloat(rateRaw || '0.05');
-          const minRaw = await getConfig('chat_credit_min_per_call');
-          const minCost = Number.parseInt(minRaw || '1', 10) || 1;
+        const debit = await consumeMessage(session.user.id, {
+          cost: estimatedCost,
+          scene: 'playground_chat',
+          description: `Playground chat · ~${estimatedInputTokens} in tok (est.)`,
+        });
+        if (!debit.success) {
+          emit({ t: 'gate', status: 'payment_required' });
+          emit({ t: 'done' });
+          return;
+        }
+        if (debit.via === 'credits' && debit.result?.consumedCredit?.id) {
+          chargeCtx = {
+            via: 'credits',
+            consumeId: debit.result.consumedCredit.id,
+            originalCost: estimatedCost,
+            rates,
+          };
+        } else {
+          chargeCtx = { via: 'quota' };
+        }
+      }
 
-          const actualCost = Math.max(
-            minCost,
-            Math.ceil(
-              (actualUsage.total_tokens / 1000) *
-                (Number.isFinite(rate) && rate > 0 ? rate : 0.05)
-            )
-          );
-
-          if (actualCost < chargeCtx.originalCost) {
-            // Fire and forget — failures are logged inside refundConsume.
-            void refundConsume({
-              consumeId: chargeCtx.consumeId,
-              userId: session.user.id,
-              originalCost: chargeCtx.originalCost,
-              keepAmount: actualCost,
-            });
+      // Stream + collect actual usage for the refund pass.
+      let actualUsage: ChatCompletionUsage | undefined;
+      try {
+        for await (const chunk of openaiChatCompletionStream({
+          apiKey: cfg.apiKey,
+          baseUrl: cfg.baseUrl,
+          model,
+          messages: fullMessages,
+        })) {
+          if (typeof chunk === 'string') {
+            if (chunk) emit({ t: 'delta', text: chunk });
+          } else {
+            actualUsage = chunk.usage;
           }
         }
-      } catch (e: any) {
-        emit({ t: 'error', message: e?.message || 'Generation failed' });
+      } catch (streamErr) {
+        // Stream failed mid-flight — keep the charge (user got partial
+        // output) and surface the error.
+        emit({
+          t: 'error',
+          message: (streamErr as Error)?.message || 'Stream interrupted',
+        });
         emit({ t: 'done' });
+        return;
       }
-    },
-    markFreeChatUsed ? [freeChatCookieHeader()] : []
-  );
+
+      emit({ t: 'done', model, provider: cfg.provider });
+
+      // Post-flight settle to ACTUAL usage (input + output, split rates).
+      // Two-way: surcharge when the reply ran longer than the input-only
+      // reservation, refund when shorter. Subscription quota path is
+      // skipped (flat per call). Fire-and-forget — settleConsume logs its
+      // own failures.
+      if (
+        chargeCtx?.via === 'credits' &&
+        actualUsage &&
+        actualUsage.total_tokens > 0
+      ) {
+        const finalCost = computeTokenCost(
+          actualUsage.prompt_tokens ?? 0,
+          actualUsage.completion_tokens ?? 0,
+          chargeCtx.rates
+        );
+        void settleConsume({
+          consumeId: chargeCtx.consumeId,
+          userId: session.user.id,
+          originalCost: chargeCtx.originalCost,
+          finalAmount: finalCost,
+        });
+      }
+    } catch (e: any) {
+      emit({ t: 'error', message: e?.message || 'Generation failed' });
+      emit({ t: 'done' });
+    }
+  });
 }
 
 export const Route = createFileRoute('/api/playground/chat')({

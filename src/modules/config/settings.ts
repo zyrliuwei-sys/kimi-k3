@@ -335,21 +335,37 @@ export function getSettings(): Setting[] {
       tab: 'general',
     },
     {
-      // Chat cost = max(minPerCall, ceil(estimatedTokens / 1000 × rate)).
-      // Applied at /api/playground/chat and /api/chat/$id after the model
-      // request is built (so the estimate reflects parsed documents /
-      // attached files). Actual usage from `usage.total_tokens` refunds
-      // the difference if lower; we eat over-runs to avoid "surcharge
-      // after the fact" UX.
-      name: 'chat_credit_per_1k_tokens',
-      title: 'Chat credits per 1k tokens',
+      // Per-token chat billing — input and output billed SEPARATELY at
+      // 6× the EvoLink wholesale cost (input 0.204 cr/1k, output 1.02 cr/1k;
+      // output is ~5× pricier, so it gets its own rate). Applied at
+      // /api/playground/chat, /api/chat/$id, and doc-library `ask`.
+      //
+      // Flow: pre-flight reserves on ESTIMATED input tokens (so a drained
+      // balance is rejected before we call the model — admin never pays for
+      // a request the user can't cover); post-flight settles to ACTUAL
+      // usage (usage.prompt_tokens × inputRate + usage.completion_tokens ×
+      // outputRate), surcharging the difference for long outputs and
+      // refunding for short ones. Longer chats / bigger files ⇒ more credits.
+      name: 'chat_credit_per_1k_input_tokens',
+      title: 'Chat credits per 1k INPUT tokens',
       type: 'number',
-      placeholder: '0.05',
-      defaultValue: '0.05',
+      placeholder: '1.2',
+      defaultValue: '1.2',
       min: 0,
       group: 'credit',
       tab: 'general',
-      tip: 'Per-token chat cost (credits per 1k tokens). Default 0.05 = 1 cr per 20k tokens.',
+      tip: "Per 1k input/prompt tokens (the user's message + history + uploaded file text). 1.2 ≈ 6× wholesale cost.",
+    },
+    {
+      name: 'chat_credit_per_1k_output_tokens',
+      title: 'Chat credits per 1k OUTPUT tokens',
+      type: 'number',
+      placeholder: '6',
+      defaultValue: '6',
+      min: 0,
+      group: 'credit',
+      tab: 'general',
+      tip: 'Per 1k tokens the model generates (the reply). Output costs ~5× input, so default 6 ≈ 6× wholesale. Long replies cost proportionally more.',
     },
     {
       name: 'chat_credit_min_per_call',
@@ -360,7 +376,7 @@ export function getSettings(): Setting[] {
       min: 0,
       group: 'credit',
       tab: 'general',
-      tip: 'Minimum credits charged per chat, even when the per-token math rounds below this.',
+      tip: 'Minimum credits charged per chat/doc query, even when the per-token math rounds below this.',
     },
 
     // ─── Auth / Email ────────────────────────────────────────────────

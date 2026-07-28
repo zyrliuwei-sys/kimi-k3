@@ -15,8 +15,9 @@ import {
   type ChatMessage,
 } from '@/config/db/schema';
 import { getConfig } from '@/modules/config/service';
-import { refundConsume } from '@/modules/subscription-quota/refund';
+import { settleConsume } from '@/modules/subscription-quota/refund';
 import { consumeMessage } from '@/modules/subscription-quota/service';
+import { computeTokenCost, getChatTokenRates } from '@/lib/chat-billing';
 import { getUuid } from '@/lib/hash';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
@@ -262,24 +263,18 @@ export async function* streamMessage(params: {
     return;
   }
 
-  // 1c. Per-token billing — pre-flight estimate, post-flight refund.
-  //     Mirrors /api/playground/chat. Pre-charge so a drained balance
-  //     between build and stream can't leak free responses.
-  const rateRaw = await getConfig('chat_credit_per_1k_tokens');
-  const rate = Number.parseFloat(rateRaw || '0.05');
-  const minRaw = await getConfig('chat_credit_min_per_call');
-  const minCost = Number.parseInt(minRaw || '1', 10) || 1;
-  const safeRate = Number.isFinite(rate) && rate > 0 ? rate : 0.05;
-  const estimatedTokens = estimateMessagesTokens(turns);
-  const estimatedCost = Math.max(
-    minCost,
-    Math.ceil((estimatedTokens / 1000) * safeRate)
-  );
+  // 1c. Per-token billing — pre-flight reservation on estimated INPUT
+  //     tokens, post-flight settle to actual (input+output). Mirrors
+  //     /api/playground/chat. Pre-charge so a drained balance between build
+  //     and stream can't leak free responses.
+  const rates = await getChatTokenRates();
+  const estimatedInputTokens = estimateMessagesTokens(turns);
+  const estimatedCost = computeTokenCost(estimatedInputTokens, 0, rates);
 
   const debit = await consumeMessage(userId, {
     cost: estimatedCost,
     scene: 'persistent_chat',
-    description: `Persistent chat · ${estimatedTokens} tok (est.)`,
+    description: `Persistent chat · ~${estimatedInputTokens} in tok (est.)`,
   });
   if (!debit.success) {
     yield { type: 'error', message: 'payment_required' };
@@ -291,6 +286,7 @@ export async function* streamMessage(params: {
           via: 'credits' as const,
           consumeId: debit.result.consumedCredit.id,
           originalCost: estimatedCost,
+          rates,
         }
       : { via: 'quota' as const };
 
@@ -329,25 +325,25 @@ export async function* streamMessage(params: {
     yield { type: 'delta', text: assistantText };
   }
 
-  // 3b. Post-flight refund — same rules as the playground endpoint.
+  // 3b. Post-flight settle to actual (input+output, split rates) — two-way,
+  //     same as the playground endpoint. Surcharge for long replies, refund
+  //     for short ones. Fire-and-forget — settleConsume logs its own failures.
   if (
     chargeCtx.via === 'credits' &&
     actualUsage &&
     actualUsage.total_tokens > 0
   ) {
-    const actualCost = Math.max(
-      minCost,
-      Math.ceil((actualUsage.total_tokens / 1000) * safeRate)
+    const finalCost = computeTokenCost(
+      actualUsage.prompt_tokens ?? 0,
+      actualUsage.completion_tokens ?? 0,
+      chargeCtx.rates
     );
-    if (actualCost < chargeCtx.originalCost) {
-      // Fire and forget — refundConsume logs its own failures.
-      void refundConsume({
-        consumeId: chargeCtx.consumeId,
-        userId,
-        originalCost: chargeCtx.originalCost,
-        keepAmount: actualCost,
-      });
-    }
+    void settleConsume({
+      consumeId: chargeCtx.consumeId,
+      userId,
+      originalCost: chargeCtx.originalCost,
+      finalAmount: finalCost,
+    });
   }
 
   // 4. persist the user + assistant turns together, then emit the canonical pair

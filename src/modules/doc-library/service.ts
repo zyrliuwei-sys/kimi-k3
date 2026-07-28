@@ -1,7 +1,11 @@
 import { and, count, desc, eq, inArray, sql } from 'drizzle-orm';
 
-import { openaiChatCompletionStream } from '@/core/ai/chat';
+import {
+  openaiChatCompletionStream,
+  type ChatCompletionUsage,
+} from '@/core/ai/chat';
 import { checkLongContextAllowed } from '@/core/ai/tier-pricing';
+import { estimateMessagesTokens } from '@/core/ai/token-estimate';
 import { db } from '@/core/db';
 import {
   credit,
@@ -10,7 +14,9 @@ import {
   docCollectionMessage,
 } from '@/config/db/schema';
 import { getConfig } from '@/modules/config/service';
+import { settleConsume } from '@/modules/subscription-quota/refund';
 import { consumeMessage } from '@/modules/subscription-quota/service';
+import { computeTokenCost, getChatTokenRates } from '@/lib/chat-billing';
 import { getUuid } from '@/lib/hash';
 import { respErr } from '@/lib/resp';
 
@@ -19,11 +25,10 @@ import { buildAskPrompt, SYSTEM_PROMPT } from './prompts';
 
 // ─── Doc-library "taste, not a meal" policy ──────────────────────────────────
 // The first ask-per-user is FREE so newcomers see the value (AI answering
-// real questions from their PDF). After that, every ask costs a flat rate
-// because doc-library input size is wildly variable — a flat rate is easier
-// to explain to users than a token-tiered cost, and it doubles as a
-// deliberate loss-leader to drive subscription conversion.
-const DOC_LIBRARY_COST = 30;
+// real questions from their PDF). After that, every ask is billed per-token
+// (input + output, same split rates as chat — see @/lib/chat-billing), so a
+// big document costs proportionally more than a small one. The free first
+// call is a deliberate loss-leader to drive subscription conversion.
 const DOC_LIBRARY_SCENE = 'doc_library';
 
 /** Has this user ever completed a doc-library ask (consumed a credit)? */
@@ -460,27 +465,12 @@ async function* _streamAskImpl(
   params: AskInput,
   signal?: AbortSignal
 ): AsyncGenerator<AskStreamEvent, void, unknown> {
-  // 1. Doc-library "taste, not a meal" — first call is FREE so the user
-  //    sees the magic ("AI really read my PDF!") before any paywall. After
-  //    that, every call costs DOC_LIBRARY_COST credits (flat rate — see
-  //    rationale in tier-pricing.ts). The "first time" marker is any prior
-  //    consume record with scene=DOC_LIBRARY_SCENE for this user.
+  // 1. Doc-library "taste, not a meal" — first call is FREE. We detect the
+  //    trial up front, but DEFER the actual charge to step 5c (after the
+  //    prompt is built) so we can reserve based on the real estimated input
+  //    size, not a flat rate. The "first time" marker is any prior consume
+  //    record with scene=DOC_LIBRARY_SCENE for this user.
   const isFirstDocCall = !(await hasPriorDocLibraryConsumption(params.userId));
-  const docCost = isFirstDocCall ? 0 : DOC_LIBRARY_COST;
-
-  // 2. Access gate. cost=0 short-circuits past subscription quota and
-  //    credit balance (no charge), but still records a 0-credit consume
-  //    row so subsequent calls see "trial already used".
-  if (
-    !(await consumeMessage(params.userId, {
-      cost: docCost,
-      scene: DOC_LIBRARY_SCENE,
-      description: 'Document library · Kimi K3',
-    }).then((r) => r.success))
-  ) {
-    yield { type: 'error', message: 'payment_required' };
-    return;
-  }
 
   // 3. Pull collection + parsed documents.
   const coll = await getCollection(params.userId, params.collectionId);
@@ -555,8 +545,43 @@ async function* _streamAskImpl(
     return;
   }
 
-  // 6. Stream.
+  // 5c. Pre-flight reservation on ESTIMATED INPUT tokens. The parsed docs
+  //     dominate the prompt, so this is close to the real input cost. First
+  //     call is free (a 0-credit consume row still marks the trial used);
+  //     a drained balance on a paid call is rejected HERE — before the model
+  //     call — so the admin never pays for a request the user can't cover.
+  //     The real input+output cost is settled post-flight via settleConsume.
+  const rates = await getChatTokenRates();
+  const estimatedInputTokens = estimateMessagesTokens(messages);
+  const reservedCost = isFirstDocCall
+    ? 0
+    : computeTokenCost(estimatedInputTokens, 0, rates);
+  const debit = await consumeMessage(params.userId, {
+    cost: reservedCost,
+    scene: DOC_LIBRARY_SCENE,
+    description: isFirstDocCall
+      ? 'Document library · first free ask'
+      : `Document library · ~${estimatedInputTokens} in tok (est.)`,
+  });
+  if (!debit.success) {
+    yield { type: 'error', message: 'payment_required' };
+    return;
+  }
+  const chargeCtx =
+    !isFirstDocCall &&
+    debit.via === 'credits' &&
+    debit.result?.consumedCredit?.id
+      ? {
+          via: 'credits' as const,
+          consumeId: debit.result.consumedCredit.id,
+          originalCost: reservedCost,
+          rates,
+        }
+      : null;
+
+  // 6. Stream + capture actual usage for the post-flight settle.
   let full = '';
+  let actualUsage: ChatCompletionUsage | undefined;
   try {
     for await (const chunk of openaiChatCompletionStream({
       apiKey: cfg.apiKey,
@@ -565,14 +590,12 @@ async function* _streamAskImpl(
       messages,
       signal,
     })) {
-      // Doc-library has its own fixed-cost charge (consumeMessage above);
-      // we just discard the terminal usage frame so the type signature is
-      // satisfied. If we ever switch to per-token doc-library billing, the
-      // captured `chunk.usage` is right here.
       if (typeof chunk === 'string') {
         if (!chunk) continue;
         full += chunk;
         yield { type: 'delta', text: chunk };
+      } else {
+        actualUsage = chunk.usage;
       }
     }
   } catch (err: any) {
@@ -608,6 +631,25 @@ async function* _streamAskImpl(
   }
   if (citations.length) {
     yield { type: 'sources', sources: citations };
+  }
+
+  // 8. Settle to actual usage (input + output, split rates) — two-way:
+  //    surcharge when the answer ran longer than the input-only reservation,
+  //    refund when shorter. Skipped for the free first call and for
+  //    subscription-quota calls. Fire-and-forget — settleConsume logs its
+  //    own failures.
+  if (chargeCtx && actualUsage && actualUsage.total_tokens > 0) {
+    const finalCost = computeTokenCost(
+      actualUsage.prompt_tokens ?? 0,
+      actualUsage.completion_tokens ?? 0,
+      chargeCtx.rates
+    );
+    void settleConsume({
+      consumeId: chargeCtx.consumeId,
+      userId: params.userId,
+      originalCost: chargeCtx.originalCost,
+      finalAmount: finalCost,
+    });
   }
   yield { type: 'done' };
 }
