@@ -201,6 +201,19 @@ export function Footer() {
                 height={61}
               />
             </a>
+            <a
+              href="https://curlship.com/l/2225"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/curlship-badge.svg"
+                alt="Listed on CurlShip"
+                width={200}
+                height={44}
+              />
+            </a>
           </div>
           <LocaleSelector
             variant="pill"

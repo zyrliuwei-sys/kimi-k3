@@ -11,7 +11,6 @@ import { WelcomeEmail } from '@/core/email/templates/welcome-email';
 import { AUTH_SECRET_PLACEHOLDER, envConfigs } from '@/config';
 import * as schema from '@/config/db/schema';
 import { getAllConfigs } from '@/modules/config/service';
-import { grantForNewUser } from '@/modules/credits/service';
 import { getUuid } from '@/lib/hash';
 
 function assertProductionAuthSecret() {
@@ -239,6 +238,8 @@ function getAuthPlugins(configs: Record<string, string> | undefined) {
   return plugins;
 }
 
+export { sendWelcomeEmail };
+
 export function getAuth(configs?: Record<string, string>) {
   assertProductionAuthSecret();
   // Rebuild if any social provider credential changed
@@ -333,38 +334,14 @@ export function getAuth(configs?: Record<string, string>) {
     },
     advanced: {
       database: { generateId: () => getUuid() },
-      // better-auth's databaseHooks fire on every user insert regardless of
-      // sign-up path (email, Google OAuth, GitHub OAuth, magic-link, etc.).
-      // We use the `after` hook to grant signup credits. The catch +
-      // console.error prevents a config-table outage from breaking auth —
-      // sign-ups still succeed even if the credit grant silently no-ops.
-      databaseHooks: {
-        user: {
-          create: {
-            after: async (user) => {
-              try {
-                // Force-refresh — signup bonus must reflect latest admin config.
-                const all = await getAllConfigs(true);
-                await grantForNewUser({
-                  userId: user.id,
-                  userEmail: user.email,
-                  configs: all,
-                });
-              } catch (e) {
-                console.error('[auth] databaseHook grant credits failed:', e);
-              }
-              // Send a welcome email via the configured Resend / Cloudflare
-              // provider. Runs in the background — never blocks the sign-up
-              // response, and any email failure is swallowed inside the helper.
-              void sendWelcomeEmail({
-                id: user.id,
-                email: user.email,
-                name: user.name,
-              });
-            },
-          },
-        },
-      },
+      // Signup credits are NOT granted here. `databaseHooks.user.create.after`
+      // runs via `queueAfterTransactionHook`, but better-auth 1.6.x does not
+      // reliably flush that queue before the OAuth callback throws
+      // `c.redirect(...)`, so Google / GitHub / magic-link users end up with
+      // no credit row. Grant lives in `src/routes/api/auth/$.ts` instead,
+      // which intercepts both `/sign-up/email` (200 JSON) and
+      // `/callback/{provider}` (302 redirect) right after `auth.handler`
+      // returns.
     },
     emailAndPassword: {
       enabled: emailAndPasswordEnabled,
