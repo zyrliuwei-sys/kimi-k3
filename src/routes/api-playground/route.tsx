@@ -1,7 +1,7 @@
 import { createFileRoute, Outlet, useLocation } from '@tanstack/react-router';
 import {
   History,
-  ImageIcon,
+  Image,
   MessageSquarePlus,
   Search,
   Video,
@@ -20,14 +20,18 @@ import { PlaygroundShell } from '@/components/playground-shell';
 /**
  * Layout for the lorka-style `/api-playground/*` routes.
  *
- * Children (ChatPlayground, ImagePlayground, ComingSoon placeholders) are
- * mounted via `<Outlet />`. The sidebar is mode-aware: when the URL is
- * `/api-playground/image`, the list shows `[Image #N]` image tasks; otherwise
- * it shows `[Chat #N]` chat rows. Nav items highlight the active route via
- * the standard `isActiveHref` prefix logic.
+ * Children (ChatPlayground, ImagePlayground, VideoPlayground, ComingSoon
+ * placeholders) are mounted via `<Outlet />`. The sidebar is mode-aware —
+ * `mode` is derived from the URL prefix:
+ *   - `/api-playground/image` → `[Image #N]` image tasks
+ *   - `/api-playground/video` → `[Video #N]` video tasks
+ *   - everything else          → `[Chat #N]` chat rows
+ * Nav items highlight the active route via the standard `isActiveHref`
+ * prefix logic.
  *
- * The "新建聊天" / "新建图像" CTA calls `playgroundStore.clearActive()`
- * directly — it's a local-only reset that doesn't touch the URL.
+ * The "新建聊天" / "新建图像" / "新建视频" CTA calls
+ * `playgroundStore.clearActive()` directly — it's a local-only reset that
+ * doesn't touch the URL.
  */
 export const Route = createFileRoute('/api-playground')({
   component: PlaygroundLayout,
@@ -35,11 +39,11 @@ export const Route = createFileRoute('/api-playground')({
 
 function PlaygroundLayout() {
   const location = useLocation();
-  const mode: 'chat' | 'image' = location.pathname.startsWith(
-    '/api-playground/image'
-  )
-    ? 'image'
-    : 'chat';
+  const mode: 'chat' | 'image' | 'video' = (() => {
+    if (location.pathname.startsWith('/api-playground/image')) return 'image';
+    if (location.pathname.startsWith('/api-playground/video')) return 'video';
+    return 'chat';
+  })();
 
   // Keep the store's mode in sync with the URL so non-React callers (e.g.
   // event handlers in the chat block) see the right value without passing
@@ -47,9 +51,15 @@ function PlaygroundLayout() {
   const store = usePlaygroundStore();
   if (store.mode !== mode) store.setMode(mode);
 
-  // For the "新建聊天" / "新建图像" CTA — only one is needed per mode.
+  // For the "新建聊天" / "新建图像" / "新建视频" CTA — one per mode.
   // Anonymous users can also see and click this; clearing local state
   // is the safe no-op for them.
+  const ctaText =
+    mode === 'image'
+      ? m['playground.image.new_image']()
+      : mode === 'video'
+        ? m['playground.video.new_video']()
+        : m['playground.chat.new_chat']();
   const cta = (
     <button
       type="button"
@@ -57,9 +67,7 @@ function PlaygroundLayout() {
       className="brand-gradient inline-flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.55)] transition-all hover:opacity-95"
     >
       <MessageSquarePlus className="size-4" />
-      {mode === 'image'
-        ? m['playground.image.new_image']()
-        : m['playground.chat.new_chat']()}
+      {ctaText}
     </button>
   );
 
@@ -79,7 +87,7 @@ function PlaygroundLayout() {
         {
           href: '/api-playground/image',
           label: m['playground.nav.image'](),
-          icon: ImageIcon,
+          icon: Image,
         },
         {
           href: '/api-playground/video',

@@ -41,7 +41,10 @@ export function PlaygroundShell({
   upgradeCard?: React.ReactNode;
 }) {
   return (
-    <SidebarProvider>
+    // h-svh + overflow-hidden locks the shell to the viewport so each
+    // playground page scrolls inside its OWN track (the image wall, the
+    // chat thread) instead of growing the window scrollbar.
+    <SidebarProvider className="h-svh overflow-hidden">
       <AppSidebar
         brand={brand}
         brandHref={brandHref}
@@ -53,7 +56,7 @@ export function PlaygroundShell({
       {/* min-w-0: let the inset shrink below its content's min-content width —
           otherwise wide tables stretch the page and force horizontal scroll
           instead of scrolling inside their own overflow-x-auto wrappers */}
-      <SidebarInset className="min-w-0">
+      <SidebarInset className="min-h-0 min-w-0">
         <header className="flex h-14 shrink-0 items-center gap-2">
           <div className="flex items-center gap-2 px-4">
             <SidebarTrigger className="-ml-1" />
@@ -64,7 +67,9 @@ export function PlaygroundShell({
             <div className="flex items-center gap-1 px-4">{headerCta}</div>
           )}
         </header>
-        <main className="flex-1 overflow-auto">{children}</main>
+        {/* min-h-0 lets this shrink below its content so pages with their
+            own scroll track (image wall, chat thread) scroll internally. */}
+        <main className="min-h-0 flex-1 overflow-auto">{children}</main>
       </SidebarInset>
     </SidebarProvider>
   );

@@ -33,6 +33,12 @@ const publicKeys = [
   // widget). The matching secret is NOT listed here: it ends in `_secret`,
   // so filterPublicConfigs() drops it automatically.
   'turnstile_sitekey',
+  // Playground model selectors and feature toggles — non-sensitive, used by
+  // the Image / Video composer to surface admin overrides to the client.
+  'evolink_image_model',
+  'evolink_video_model',
+  'image_credit_cost',
+  'seedance_video_enabled',
 ];
 
 function isEmailSendingConfigured(configs: Record<string, string>): boolean {
@@ -59,7 +65,37 @@ async function GET({ request }: { request: Request }) {
     configs.email_verification_enabled === 'true' && emailConfigured
       ? 'true'
       : 'false';
+  // Auto-enable social providers when both id+secret are present, even if
+  // the admin hasn't flipped the `*_auth_enabled` switch yet. The switch
+  // still wins when set to 'true' or 'false' explicitly — only the unset
+  // case auto-falls-through. This makes local dev (env vars only) work
+  // without first wiring the admin DB.
+  result.google_auth_enabled = resolveSocialEnabled(
+    configs.google_auth_enabled,
+    configs.google_client_id,
+    configs.google_client_secret
+  );
+  result.github_auth_enabled = resolveSocialEnabled(
+    configs.github_auth_enabled,
+    configs.github_client_id,
+    configs.github_client_secret
+  );
   return respData(result, noStore);
+}
+
+/**
+ * Resolve the public "is X enabled?" flag for a social provider.
+ *   explicit 'true' / 'false' wins; otherwise auto-enable when both
+ *   client id and secret are configured (env or DB).
+ */
+function resolveSocialEnabled(
+  flag: string | undefined,
+  clientId: string | undefined,
+  clientSecret: string | undefined
+): 'true' | 'false' {
+  if (flag === 'true') return 'true';
+  if (flag === 'false') return 'false';
+  return clientId && clientSecret ? 'true' : 'false';
 }
 
 export const Route = createFileRoute('/api/config/public')({

@@ -1,11 +1,12 @@
 /**
  * Tiny shared store for the `/api-playground` multi-session UX.
  *
- * Holds the currently-selected chat row and the currently-active image task.
- * The blocks (`ChatPlayground`, `ImagePlayground`) and the sidebar list
- * (`PlaygroundSidebarList`) subscribe to it; "新建聊天" just calls
- * `clearActive()` which flips both ids to `null` — the chat block reacts by
- * clearing its local input/pending/attachments state via a useEffect.
+ * Holds the currently-selected chat row, image task, and video task. The
+ * blocks (`ChatPlayground`, `ImagePlayground`, `VideoPlayground`) and the
+ * sidebar list (`PlaygroundSidebarList`) subscribe to it; the per-mode
+ * "新建…" CTAs just call `clearActive()` which flips every active id to
+ * `null` — each block reacts by clearing its local input / pending state
+ * through a useEffect.
  *
  * Implemented with `useSyncExternalStore` over a module-scoped state object
  * so we don't pull in a state-management library. The store is intentionally
@@ -14,18 +15,20 @@
 
 import { useSyncExternalStore } from 'react';
 
-export type PlaygroundMode = 'chat' | 'image';
+export type PlaygroundMode = 'chat' | 'image' | 'video';
 
 export interface PlaygroundState {
   mode: PlaygroundMode;
   activeChatId: string | null;
   activeImageId: string | null;
+  activeVideoId: string | null;
 }
 
 const state: PlaygroundState = {
   mode: 'chat',
   activeChatId: null,
   activeImageId: null,
+  activeVideoId: null,
 };
 
 const listeners = new Set<() => void>();
@@ -65,6 +68,7 @@ export const usePlaygroundStore = () => {
     mode: snapshot.mode,
     activeChatId: snapshot.activeChatId,
     activeImageId: snapshot.activeImageId,
+    activeVideoId: snapshot.activeVideoId,
 
     setMode(mode: PlaygroundMode) {
       if (state.mode === mode) return;
@@ -84,12 +88,21 @@ export const usePlaygroundStore = () => {
       emit();
     },
 
-    /** "新建聊天" / "新建图像" — local clear, no server call. */
+    setActiveVideoId(id: string | null) {
+      if (state.activeVideoId === id) return;
+      state.activeVideoId = id;
+      emit();
+    },
+
+    /** "新建聊天" / "新建图像" / "新建视频" — local clear, no server call. */
     clearActive() {
       const changed =
-        state.activeChatId !== null || state.activeImageId !== null;
+        state.activeChatId !== null ||
+        state.activeImageId !== null ||
+        state.activeVideoId !== null;
       state.activeChatId = null;
       state.activeImageId = null;
+      state.activeVideoId = null;
       if (changed) emit();
     },
   };
@@ -106,6 +119,9 @@ export const playgroundStore = {
   get activeImageId() {
     return state.activeImageId;
   },
+  get activeVideoId() {
+    return state.activeVideoId;
+  },
   setMode(mode: PlaygroundMode) {
     if (state.mode === mode) return;
     state.mode = mode;
@@ -121,10 +137,19 @@ export const playgroundStore = {
     state.activeImageId = id;
     emit();
   },
+  setActiveVideoId(id: string | null) {
+    if (state.activeVideoId === id) return;
+    state.activeVideoId = id;
+    emit();
+  },
   clearActive() {
-    const changed = state.activeChatId !== null || state.activeImageId !== null;
+    const changed =
+      state.activeChatId !== null ||
+      state.activeImageId !== null ||
+      state.activeVideoId !== null;
     state.activeChatId = null;
     state.activeImageId = null;
+    state.activeVideoId = null;
     if (changed) emit();
   },
   subscribe,

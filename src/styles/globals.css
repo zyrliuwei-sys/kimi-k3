@@ -282,6 +282,21 @@
     transform: translate3d(0, -9px, 0);
   }
 }
+
+/* Vertical infinite scroll for the image-playground backdrop wall.
+   The container is rendered at 2× the column's content height (the items
+   are duplicated top + bottom), and animates from 0 to -50% — at the loop
+   point the bottom half is visually identical to the top half, so the
+   transition is invisible. Per-column animation-duration is set inline so
+   each column scrolls at a slightly different speed (parallax). */
+@keyframes k3-scroll-up {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, -50%, 0);
+  }
+}
 @keyframes k3-glow {
   0%,
   100% {

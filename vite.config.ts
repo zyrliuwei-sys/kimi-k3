@@ -145,7 +145,7 @@ export default defineConfig({
               // GA4 tracking pixel (googletagmanager.com loads a 1x1 gif
               // through the GTM script tag — without an explicit allow, it
               // trips the fallback `script-src` and gets blocked).
-              "img-src 'self' data: blob: https://api.evolink.ai https://*.evolink.ai https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.amazonaws.com https://i.ytimg.com https://yt3.ggpht.com https://www.googletagmanager.com",
+              "img-src 'self' data: blob: https://api.evolink.ai https://*.evolink.ai https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.amazonaws.com https://i.ytimg.com https://yt3.ggpht.com https://www.googletagmanager.com https://saasgrow.app https://curlship.com https://*.curlship.com",
               // Fonts: @fontsource (bundled, served from self) + Google Fonts.
               "font-src 'self' data: https://fonts.gstatic.com",
               // XHR/fetch: AI providers, Stripe API, Replicate, Resend,

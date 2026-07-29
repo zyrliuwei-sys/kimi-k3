@@ -142,7 +142,12 @@ export class EvolinkImageProvider {
     // Single canonical path. Hardcoded after 60+ polls of "processing"
     // never resolved — the previous multi-path probe was almost
     // certainly missing the right URL on this version of Evolink.
-    const p = this.discoveredPollPath ?? `/images/generations/${args.taskId}`;
+    // The /v1/ prefix is required by the current Evolink gateway — the
+    // path without it returns 403 (verified live). Earlier the code
+    // omitted /v1/, which made every poll fail silently and made the
+    // task look stuck in "processing" forever.
+    const p =
+      this.discoveredPollPath ?? `/v1/images/generations/${args.taskId}`;
     const url = `${this.baseUrl}${p}`;
 
     let resp: Response;
@@ -285,6 +290,125 @@ interface DiscoveryCacheEntry {
 const DISCOVERY_TTL_MS = 60 * 60 * 1000; // 1 hour
 const discoveryCache = new Map<string, DiscoveryCacheEntry>();
 
+// Substring hints used to tell image models apart from the text/audio
+// models the same gateway serves. Order matters: IMAGE_HINTS is checked
+// first so `gpt-image-2` isn't swallowed by the `gpt` text hint.
+const IMAGE_HINTS = [
+  'image',
+  'img',
+  'gpt-image',
+  'dall-e',
+  'sdxl',
+  'sd-',
+  'sd3',
+  'flux',
+  'imagen',
+  'kandinsky',
+  'midjourney',
+  'firefly',
+  'nano-banana',
+  'seedream',
+  'qwen-image',
+  'grok-imagine',
+];
+
+// Checked BEFORE the image hints: the gateway serves many `*-image-to-video`
+// ids (kling, seedance, wan, grok-imagine) whose names contain "image" but
+// which are video endpoints. Without this pass they'd leak into the image
+// menu and fail at submit time.
+const VIDEO_HINTS = ['video', 't2v', 'i2v'];
+
+const TEXT_ONLY_HINTS = [
+  'gpt',
+  'claude',
+  'kimi',
+  'chat',
+  'embed',
+  'whisper',
+  'tts',
+  'audio',
+  'music',
+  'transcribe',
+  'realtime',
+];
+
+/**
+ * Narrow a raw `/v1/models` listing down to the image-capable ids.
+ *
+ * Used two ways: to populate the composer's model menu, and as the
+ * server-side allowlist for a client-supplied `model` (so a caller can't
+ * bill an arbitrary model id through the image endpoint).
+ */
+export function filterEvolinkImageModels(models: string[]): string[] {
+  // Drop video endpoints first — many are named `*-image-to-video`, so the
+  // "image" hint below would otherwise match them.
+  const notVideo = models.filter(
+    (mo) => !VIDEO_HINTS.some((h) => mo.toLowerCase().includes(h))
+  );
+  const strong = notVideo.filter((mo) =>
+    IMAGE_HINTS.some((h) => mo.toLowerCase().includes(h))
+  );
+  if (strong.length) return strong;
+  // No obvious image ids — fall back to "everything that isn't clearly
+  // text/audio" so a gateway with opaque names still yields a menu.
+  return notVideo.filter(
+    (mo) => !TEXT_ONLY_HINTS.some((h) => mo.toLowerCase().includes(h))
+  );
+}
+
+interface ListCacheEntry {
+  expires: number;
+  models: string[];
+}
+const listCache = new Map<string, ListCacheEntry>();
+
+/**
+ * Cached image-model listing for the composer menu. Each call would
+ * otherwise hit the gateway's `/v1/models`, so results are cached per API
+ * key for an hour (same TTL as the single-model discovery above).
+ *
+ * `allowlist` — when provided, the listing is intersected with this set
+ * so admins can pick exactly which image models appear in the menu
+ * (everything else Evolink exposes stays hidden). Order in the allowlist
+ * is preserved. Pass `undefined`/empty to keep the legacy behaviour of
+ * returning every image-capable id.
+ */
+export async function listEvolinkImageModels(
+  provider: EvolinkImageProvider,
+  cacheKey: string,
+  allowlist?: string[]
+): Promise<string[]> {
+  const now = Date.now();
+  const cached = listCache.get(cacheKey);
+  if (cached && cached.expires > now) return cached.models;
+
+  let models: string[] = [];
+  try {
+    models = filterEvolinkImageModels(await provider.listModels());
+  } catch (e: any) {
+    console.warn('[evolink-image] listModels failed:', e?.message);
+    return [];
+  }
+
+  // Apply the admin allowlist. We validate the ids against the live
+  // listing so a typo in the admin config doesn't silently produce an
+  // empty menu.
+  if (allowlist && allowlist.length > 0) {
+    const allowSet = new Set(allowlist);
+    const kept = allowlist.filter((id) => models.includes(id));
+    const dropped = allowlist.filter((id) => !models.includes(id));
+    if (dropped.length) {
+      console.warn(
+        `[evolink-image] allowlist ids not in gateway listing: ${dropped.join(', ')}`
+      );
+    }
+    models = kept.length ? kept : models;
+  }
+
+  listCache.set(cacheKey, { expires: now + DISCOVERY_TTL_MS, models });
+  return models;
+}
+
 /**
  * Pick an image-capable model from the user's available models.
  *
@@ -312,41 +436,8 @@ export async function pickEvolinkImageModel(
     );
   }
 
-  // Prefer names that clearly mean image generation.
-  const imageHints = [
-    'image',
-    'img',
-    'gpt-image',
-    'dall-e',
-    'sdxl',
-    'sd-',
-    'sd3',
-    'flux',
-    'imagen',
-    'kandinsky',
-    'midjourney',
-    'firefly',
-  ];
-  const textOnlyHints = [
-    'gpt',
-    'claude',
-    'kimi',
-    'chat',
-    'embed',
-    'whisper',
-    'tts',
-    'audio',
-    'music',
-    'transcribe',
-    'realtime',
-  ];
-
-  const pick =
-    models.find((m) => imageHints.some((h) => m.toLowerCase().includes(h))) ||
-    models.find(
-      (m) => !textOnlyHints.some((h) => m.toLowerCase().includes(h))
-    ) ||
-    models[0];
+  // Prefer names that clearly mean image generation (shared hint lists).
+  const pick = filterEvolinkImageModels(models)[0] || models[0];
 
   discoveryCache.set(cacheKey, {
     expires: now + DISCOVERY_TTL_MS,

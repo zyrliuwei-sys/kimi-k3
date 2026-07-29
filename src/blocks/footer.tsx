@@ -214,6 +214,19 @@ export function Footer() {
                 height={44}
               />
             </a>
+            <a
+              href="https://saasgrow.app?ref=kimik3.net"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://saasgrow.app/api/badge?type=featured&style=dark"
+                alt="kimik3 on SaaSGrow"
+                width={240}
+                height={54}
+              />
+            </a>
           </div>
           <LocaleSelector
             variant="pill"

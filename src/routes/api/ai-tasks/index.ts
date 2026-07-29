@@ -20,6 +20,7 @@ import {
   DEFAULT_PROMPT,
   isAllowedVideoUrl,
 } from './-shared';
+import { postVideoTask } from './-video';
 
 /**
  * `POST /api/ai-tasks` — start an AI generation task.
@@ -49,7 +50,10 @@ async function POST({ request }: { request: Request }) {
       return postImageTask({ request, session, body });
     }
     if (mediaType === AIMediaType.VIDEO) {
-      return postVideoTask({ request, session, body });
+      // Seedance text-to-video (no source videoUrl) → new handler in ./ -video
+      if (!body?.videoUrl) return postVideoTask({ request, session, body });
+      // Fal Web & Motion video-to-video (existing pipeline) → inline below
+      return postFalVideoTask({ request, session, body });
     }
     return respErr('Unsupported mediaType', { status: 400 });
   } catch (error: any) {
@@ -124,7 +128,7 @@ function parseThumbnail(t: any): string | undefined {
  * Video pipeline (Web & Motion via Fal) — lifted verbatim from the original
  * file. Behavior unchanged.
  */
-async function postVideoTask({
+async function postFalVideoTask({
   request: _request,
   session,
   body,
