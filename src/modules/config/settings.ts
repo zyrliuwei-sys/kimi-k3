@@ -84,6 +84,13 @@ export function getSettingGroups(): SettingGroup[] {
       description: 'GitHub OAuth login',
       tab: 'auth',
     },
+    {
+      name: 'bot_protection',
+      title: 'Bot Protection',
+      description:
+        'Cloudflare Turnstile CAPTCHA on sign-up / sign-in / forgot-password',
+      tab: 'auth',
+    },
 
     // Payment
     {
@@ -461,6 +468,39 @@ export function getSettings(): Setting[] {
       placeholder: 'xxx',
       group: 'github_auth',
       tab: 'auth',
+    },
+
+    // ─── Auth / Bot Protection (Cloudflare Turnstile) ────────────────
+    // Opt-in: defaults to off so existing deploys without Turnstile keys
+    // aren't broken. Both site key (public) and secret (server-only) must
+    // be configured before enabling — verification is a no-op when the
+    // secret is missing.
+    {
+      name: 'turnstile_enabled',
+      title: 'Enable Turnstile',
+      type: 'switch',
+      group: 'bot_protection',
+      tab: 'auth',
+      defaultValue: 'false',
+      tip: 'Off by default. Once on, sign-up / sign-in / forgot-password must pass Turnstile verification.',
+    },
+    {
+      name: 'turnstile_sitekey',
+      title: 'Site Key',
+      type: 'text',
+      placeholder: '0x4AAAAAAA...',
+      group: 'bot_protection',
+      tab: 'auth',
+      tip: 'Public site key from Cloudflare Dashboard → Turnstile → your site.',
+    },
+    {
+      name: 'turnstile_secret',
+      title: 'Secret Key',
+      type: 'password',
+      placeholder: '0x4AAAAAAA...',
+      group: 'bot_protection',
+      tab: 'auth',
+      tip: 'Server-only secret key. Encrypted at rest when CONFIG_ENCRYPTION_KEY is set.',
     },
 
     // ─── Payment / Basic ─────────────────────────────────────────────

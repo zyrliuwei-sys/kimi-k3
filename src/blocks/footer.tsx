@@ -214,6 +214,33 @@ export function Footer() {
                 height={44}
               />
             </a>
+            <a
+              href="https://startupfa.st"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Powered by Startup Fast"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/startupfast-badge.svg"
+                alt="Powered by Startup Fast"
+                width={150}
+                height={44}
+              />
+            </a>
+            <a
+              href="https://www.peterindia.net"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/peterindia-badge.gif"
+                alt="PeterIndia — IT Knowledge Portal"
+                width={200}
+                height={26}
+              />
+            </a>
           </div>
           <LocaleSelector
             variant="pill"

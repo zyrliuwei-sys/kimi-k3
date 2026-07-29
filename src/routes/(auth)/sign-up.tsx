@@ -98,7 +98,10 @@ function SignUpPage() {
   const emailVerificationEnabled =
     configs.email_verification_enabled === 'true';
   const inviteCodeRequired = configs.invite_code_required === 'true';
-  const turnstileSiteKey = configs.turnstile_sitekey;
+  const turnstileSiteKey =
+    configs.turnstile_enabled === 'true' && configs.turnstile_sitekey
+      ? configs.turnstile_sitekey
+      : '';
   const hasSocial = googleEnabled || githubEnabled;
   const hasAnyMethod = emailEnabled || hasSocial;
 

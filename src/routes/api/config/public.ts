@@ -33,6 +33,9 @@ const publicKeys = [
   // widget). The matching secret is NOT listed here: it ends in `_secret`,
   // so filterPublicConfigs() drops it automatically.
   'turnstile_sitekey',
+  // Whether Turnstile verification is enabled. The widget renders only
+  // when both this is 'true' AND the site key is non-empty.
+  'turnstile_enabled',
 ];
 
 function isEmailSendingConfigured(configs: Record<string, string>): boolean {

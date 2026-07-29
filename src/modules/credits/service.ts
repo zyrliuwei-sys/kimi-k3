@@ -1,7 +1,18 @@
-import { and, asc, desc, eq, gt, isNull, or, sql, sum } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  gt,
+  isNull,
+  or,
+  sql,
+  sum,
+} from 'drizzle-orm';
 
 import { db } from '@/core/db';
-import { credit } from '@/config/db/schema';
+import { chatMessage, credit, user } from '@/config/db/schema';
 import { getSnowId, getUuid } from '@/lib/hash';
 
 // --- Enums ---
@@ -261,6 +272,85 @@ export async function revoke(consumeCreditId: string) {
 }
 
 // --- Auto-grant for new user ---
+
+/**
+ * Lazy signup bonus. New users earn 5 free credits the first time they
+ * BOTH have a verified email AND have sent at least one chat message.
+ * Replaces the old at-signup grant (`grantForNewUser`) — bot signups
+ * no longer harvest credits by registering, only real users who verify
+ * and actually use the playground do.
+ *
+ * Idempotent: a user with any existing `transactionScene = 'gift'` row
+ * is a no-op. Safe to call on every chat message; the first call that
+ * finds the conditions satisfied inserts the grant, every subsequent
+ * call short-circuits.
+ *
+ * Race note: two concurrent chat sends from the same brand-new user
+ * could both pass the existence check before either inserts, resulting
+ * in 10 credits instead of 5. The window is microseconds and matches
+ * the safety bar of the previous at-signup grant — accept it.
+ */
+export async function maybeClaimSignupBonus(userId: string): Promise<void> {
+  // Bail fast if a gift credit already exists.
+  const [existing] = await db()
+    .select({ id: credit.id })
+    .from(credit)
+    .where(
+      and(
+        eq(credit.userId, userId),
+        eq(credit.transactionScene, CreditTransactionScene.GIFT)
+      )
+    )
+    .limit(1);
+  if (existing) return;
+
+  // Email must be verified — bot signups with throwaway addresses stay
+  // unverified and never earn the bonus.
+  const [u] = await db()
+    .select({ emailVerified: user.emailVerified, email: user.email })
+    .from(user)
+    .where(eq(user.id, userId))
+    .limit(1);
+  if (!u?.emailVerified) return;
+
+  // At least one chat message must exist. The caller hooks this on the
+  // user-message insert path, so by the time we run the row is live.
+  const [{ c: msgCount }] = await db()
+    .select({ c: count() })
+    .from(chatMessage)
+    .where(eq(chatMessage.userId, userId));
+  if (!msgCount) return;
+
+  const expiresAt = calculateCreditExpirationTime({
+    creditsValidDays: SIGNUP_BONUS_VALID_DAYS,
+  });
+
+  try {
+    await grant({
+      userId,
+      userEmail: u.email,
+      credits: SIGNUP_BONUS_AMOUNT,
+      description: SIGNUP_BONUS_DESCRIPTION,
+      scene: CreditTransactionScene.GIFT,
+      expiresAt,
+    });
+  } catch (e) {
+    // Don't let a bonus-grant failure bubble up into the chat handler —
+    // the user is mid-conversation and a credit-row hiccup shouldn't
+    // break their message persistence. The next chat message retries.
+    console.error(
+      `[credits] lazy signup bonus grant failed (user=${userId}):`,
+      e
+    );
+  }
+}
+
+// Constants live next to the function that uses them so it's obvious
+// where the "5 credits / 30 days" numbers come from.
+const SIGNUP_BONUS_AMOUNT = 5;
+const SIGNUP_BONUS_VALID_DAYS = 30;
+const SIGNUP_BONUS_DESCRIPTION =
+  'Welcome bonus — 5 free credits to try kimik3 🎉';
 
 export async function grantForNewUser(params: {
   userId: string;

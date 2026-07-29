@@ -86,7 +86,11 @@ function SignInPage() {
         googleEnabled={googleEnabled}
         githubEnabled={githubEnabled}
         passwordResetEnabled={passwordResetEnabled}
-        turnstileSiteKey={configs.turnstile_sitekey}
+        turnstileSiteKey={
+          configs.turnstile_enabled === 'true' && configs.turnstile_sitekey
+            ? configs.turnstile_sitekey
+            : ''
+        }
       />
     </SignInShell>
   );

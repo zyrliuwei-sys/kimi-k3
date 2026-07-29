@@ -15,6 +15,7 @@ import {
   type ChatMessage,
 } from '@/config/db/schema';
 import { getConfig } from '@/modules/config/service';
+import { maybeClaimSignupBonus } from '@/modules/credits/service';
 import { settleConsume } from '@/modules/subscription-quota/refund';
 import { consumeMessage } from '@/modules/subscription-quota/service';
 import { computeTokenCost, getChatTokenRates } from '@/lib/chat-billing';
@@ -361,6 +362,11 @@ export async function* streamMessage(params: {
     updatedAt: new Date(),
   };
   await db().insert(chatMessage).values(userMessage);
+  // After the first user message lands, check if the signup bonus can
+  // be claimed (also requires a verified email). Fire-and-forget — a
+  // delay or failure here must not block the chat response or message
+  // persistence; the next chat message simply retries.
+  void maybeClaimSignupBonus(userId);
   const assistantMessage = await saveAssistantAndBump({
     owned,
     content,

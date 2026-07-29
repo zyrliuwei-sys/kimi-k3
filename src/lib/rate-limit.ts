@@ -114,3 +114,93 @@ export function checkIpQuota(
   store.set(key, current + 1);
   return { exceeded: false, count: current + 1, limit };
 }
+
+// ─── QQ-email attempt cooldown ───────────────────────────────────────────────
+//
+// After QQ_ATTEMPT_LIMIT blocked QQ-email signup attempts from the same
+// client IP within QQ_ATTEMPT_WINDOW_MS, that IP is locked out of ALL
+// signup attempts for QQ_COOLDOWN_MS. The 24h cool-off makes scripted
+// abuse with rotating QQ aliases uneconomical while still letting a
+// curious real user through the next day.
+//
+// Like the other limiters in this file the store is per-process; on
+// Cloudflare Workers each request gets a fresh Map so the cross-request
+// state is effectively lost. Acceptable today (deployment runs on
+// Node + Neon) and matches the existing rate-limit pattern; revisit
+// with KV / D1 if / when we move signup to Workers.
+
+const QQ_ATTEMPT_LIMIT = 5;
+const QQ_ATTEMPT_WINDOW_MS = 60 * 60 * 1000; // 1h sliding window
+const QQ_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h lockout
+
+type QqAttemptState = {
+  count: number;
+  windowStart: number;
+  blockedUntil: number;
+};
+
+function getQqAttemptState(ip: string): QqAttemptState {
+  const store = getStore();
+  const key = `qq-attempt|${ip}`;
+  const now = Date.now();
+  const existing = store.get(key) as QqAttemptState | undefined;
+  if (!existing || now - existing.windowStart > QQ_ATTEMPT_WINDOW_MS) {
+    const fresh: QqAttemptState = {
+      count: 0,
+      windowStart: now,
+      blockedUntil: 0,
+    };
+    store.set(key, fresh);
+    return fresh;
+  }
+  return existing;
+}
+
+/**
+ * Check whether the client IP is currently in the QQ-attempt cooldown.
+ * Returns a 429 Response when locked out, or null when the request may
+ * proceed. Caller is expected to short-circuit on a non-null return.
+ */
+export function enforceQqAttemptCooldown(
+  request: Request,
+  message: string
+): Response | null {
+  const ip = getClientIpFromRequest(request);
+  if (!ip) return null;
+  const state = getQqAttemptState(ip);
+  const now = Date.now();
+  if (state.blockedUntil > now) {
+    const retryAfter = Math.max(
+      1,
+      Math.ceil((state.blockedUntil - now) / 1000)
+    );
+    return Response.json(
+      { message },
+      {
+        status: 429,
+        headers: {
+          'cache-control': 'no-store',
+          'retry-after': String(retryAfter),
+        },
+      }
+    );
+  }
+  return null;
+}
+
+/**
+ * Bump the QQ-attempt counter for the client IP. If the counter crosses
+ * QQ_ATTEMPT_LIMIT inside the current 1h window, the IP is flagged for
+ * a 24h cooldown that the next enforceQqAttemptCooldown() call will
+ * surface. Call this only on QQ-email blocks (not on every signup) so
+ * legitimate signups from the same IP don't poison the counter.
+ */
+export function recordQqAttempt(request: Request): void {
+  const ip = getClientIpFromRequest(request);
+  if (!ip) return;
+  const state = getQqAttemptState(ip);
+  state.count += 1;
+  if (state.count >= QQ_ATTEMPT_LIMIT) {
+    state.blockedUntil = Date.now() + QQ_COOLDOWN_MS;
+  }
+}
