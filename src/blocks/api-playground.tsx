@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUp,
   Check,
@@ -6,11 +7,15 @@ import {
   FileText,
   Film,
   Gift,
+  Image as ImageIcon,
   Loader2,
+  MessageSquarePlus,
   Plus,
   RefreshCw,
   Sparkles,
+  Sparkles as SparklesIcon,
   Terminal,
+  Trash2,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -18,8 +23,9 @@ import { toast } from 'sonner';
 
 import { signIn, useSession } from '@/core/auth/client';
 import { Link } from '@/core/i18n/navigation';
-import { apiPost } from '@/lib/api-client';
+import { apiDelete, apiGet, apiPost } from '@/lib/api-client';
 import { streamChat } from '@/lib/chat-stream';
+import { usePlaygroundStore } from '@/lib/playground-store';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { getLocale } from '@/paraglide/runtime.js';
@@ -1683,4 +1689,995 @@ function buildPreviewReply(prompt: string, model: ModelOption): string {
   });
   const quote = m['playground.reply.quote_label']();
   return `${prefix}\n\n**${quote}**\n\n> ${prompt}`;
+}
+
+/* ========================================================================== */
+/*  Lorka-style multi-session playground (sidebar + chat + image tabs)        */
+/* ========================================================================== */
+/*                                                                            */
+/*  These are the new exports used by `src/routes/api-playground/`. They sit   */
+/*  alongside the legacy `ApiPlayground` (single-thread marketing variant)    */
+/*  to keep the marketing landing's import path intact while the dashboard    */
+/*  routes pick up the new multi-session UX.                                   */
+/*                                                                            */
+/*  Reuses the helpers above verbatim:                                         */
+/*    - `uploadMediaFiles`  — POST /api/storage/upload-media                   */
+/*    - `imageFilesFromClipboard` — paste-to-upload (screenshot flow)          */
+/*    - `inferAttachmentType` / `isSupportedMime` / `hasSupportedDocumentExtension` */
+/*    - `Attachment` / `Message` types                                          */
+/* ========================================================================== */
+
+interface ChatRow {
+  id: string;
+  title?: string | null;
+  createdAt: string | Date;
+  updatedAt?: string | Date;
+}
+
+interface ImageTaskRow {
+  id: string;
+  mediaType: string;
+  prompt: string;
+  status: string;
+  model?: string | null;
+  createdAt: string | Date;
+  thumbnailUrl?: string | null;
+}
+
+/* ------------------------------------------------------------------ */
+/*  ChatPlayground                                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Multi-session chat mode. Lifts the sidebar + delete + streaming pattern
+ * from `src/routes/settings/chat.tsx`. Kept in this file (rather than a
+ * new module) so it can share the screenshot paste, attachment upload,
+ * and message-bubble rendering with the legacy single-thread component.
+ */
+export function ChatPlayground() {
+  const store = usePlaygroundStore();
+  const { activeChatId, clearActive } = store;
+  const queryClient = useQueryClient();
+  const { data: session } = useSession();
+
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [input, setInput] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [authOpen, setAuthOpen] = useState(false);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const idRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const previewUrlsRef = useRef<Set<string>>(new Set());
+
+  function requireAuth(): boolean {
+    if (!session?.user) {
+      setAuthOpen(true);
+      return false;
+    }
+    return true;
+  }
+
+  // Load active chat + its messages. `enabled: !activeChatId` returns
+  // undefined until the user picks a session from the sidebar.
+  const chatQuery = useQuery({
+    queryKey: ['chat', activeChatId],
+    queryFn: () =>
+      apiGet<{ chat: ChatRow; messages: Message[] }>(
+        `/api/chat/${activeChatId}`
+      ),
+    enabled: !!activeChatId,
+  });
+
+  // When the active chat resolves, hydrate local messages + scroll. We do
+  // NOT keep messages in react-query cache — they're too large to share
+  // across navigation and the sidebar list already has the metadata.
+  useEffect(() => {
+    if (chatQuery.data?.messages) {
+      setMessages(
+        chatQuery.data.messages.map((m: any, i: number) => ({
+          id: i + 1,
+          role: m.role,
+          content: m.content,
+        }))
+      );
+    }
+  }, [chatQuery.data]);
+
+  // Auto-grow the textarea to fit its content (capped).
+  function syncTextareaHeight() {
+    const el = taRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }
+  useEffect(() => {
+    syncTextareaHeight();
+  }, [input]);
+
+  // Keep the latest message in view; re-run as the streaming bubble grows.
+  const lastLen = messages.length
+    ? messages[messages.length - 1].content.length
+    : 0;
+  useEffect(() => {
+    scrollRef.current?.scrollTo({
+      top: scrollRef.current.scrollHeight,
+      behavior: 'smooth',
+    });
+  }, [messages.length, isThinking, lastLen]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
+      previewUrlsRef.current.clear();
+    };
+  }, []);
+
+  // Local clear — runs when "新建聊天" flips activeChatId to null. Resets
+  // input + pending attachments + aborts any in-flight stream.
+  useEffect(() => {
+    if (activeChatId !== null) return;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setMessages([]);
+    setInput('');
+    setAttachments([]);
+    setIsThinking(false);
+    for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
+    previewUrlsRef.current.clear();
+  }, [activeChatId]);
+
+  function openFilePicker() {
+    if (!requireAuth()) return;
+    fileInputRef.current?.click();
+  }
+
+  async function handleFilesSelected(files: FileList | null) {
+    if (!files || !files.length) return;
+    let list = Array.from(files);
+
+    const offenders: Array<{ file: File; reason: 'size' | 'mime' }> = [];
+    for (const file of list) {
+      if (file.size > MAX_FILE_BYTES) offenders.push({ file, reason: 'size' });
+      else if (
+        !isSupportedMime(file.type) &&
+        !hasSupportedDocumentExtension(file.name)
+      )
+        offenders.push({ file, reason: 'mime' });
+    }
+    if (offenders.length) {
+      for (const o of offenders) {
+        const key =
+          o.reason === 'size'
+            ? 'playground.attachment.err_too_large'
+            : 'playground.attachment.err_unsupported';
+        toast.error(m[key]({ name: o.file.name }));
+      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    let framesAdded = 0;
+    const expanded: File[] = [];
+    for (const file of list) {
+      expanded.push(file);
+      if (inferAttachmentType(file) !== 'video') continue;
+      try {
+        const result = await extractVideoFrames(file);
+        if (!result) continue;
+        const baseName = file.name.replace(/\.[^.]+$/, '');
+        for (let i = 0; i < result.frames.length; i++) {
+          const { blob, t } = result.frames[i];
+          const frameName = `${baseName}-frame-${i + 1}-${(t * 10).toFixed(0)}.jpg`;
+          expanded.push(new File([blob], frameName, { type: 'image/jpeg' }));
+          framesAdded++;
+        }
+      } catch {
+        // ignore — video chip stays on its own
+      }
+    }
+    list = expanded;
+
+    if (list.length > MAX_FILES) {
+      toast.error(m['playground.attachment.err_too_many']());
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const fresh = list.filter((f) => {
+      const key = `${f.name}|${f.size}|${f.lastModified}`;
+      return !Array.from(attachments).some(
+        (a) =>
+          a.filename === f.name &&
+          a._size === f.size &&
+          a._mtime === f.lastModified
+      );
+    });
+    if (fresh.length === 0) {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const placeholders: Attachment[] = fresh.map((file) => {
+      const previewUrl = URL.createObjectURL(file);
+      previewUrlsRef.current.add(previewUrl);
+      return {
+        id: crypto.randomUUID(),
+        type: inferAttachmentType(file),
+        url: previewUrl,
+        previewUrl,
+        filename: file.name,
+        uploadStatus: 'uploading',
+        _size: file.size,
+        _mtime: file.lastModified,
+      };
+    });
+    setAttachments((prev) => [...prev, ...placeholders]);
+    setUploading(true);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+
+    void (async () => {
+      try {
+        const uploaded = await uploadMediaFiles(fresh);
+        setAttachments((prev) => {
+          const placeholderIds = new Set(placeholders.map((p) => p.id));
+          const seen = new Set<string>();
+          return prev.map((a) => {
+            if (!placeholderIds.has(a.id)) return a;
+            const idx = placeholders.findIndex((p) => p.id === a.id);
+            const result = uploaded[idx];
+            if (!result) return { ...a, uploadStatus: 'error' };
+            if (seen.has(result.url)) return { ...a, uploadStatus: 'error' };
+            seen.add(result.url);
+            return {
+              ...a,
+              type: result.type,
+              url: result.url,
+              key: result.key,
+              uploadStatus: 'done',
+            };
+          });
+        });
+      } catch (err) {
+        const msg = (err as Error)?.message || '';
+        const key = /Anonymous upload limit/i.test(msg)
+          ? 'playground.attachment.err_anon_limit'
+          : /Please retry after/i.test(msg)
+            ? 'playground.attachment.err_rate_limited'
+            : 'playground.attachment.err_upload_failed';
+        toast.error(
+          m[key]({
+            name: fresh.length > 1 ? `${fresh.length} files` : fresh[0].name,
+          })
+        );
+        const placeholderIds = new Set(placeholders.map((p) => p.id));
+        setAttachments((prev) =>
+          prev.map((a) =>
+            placeholderIds.has(a.id) ? { ...a, uploadStatus: 'error' } : a
+          )
+        );
+      } finally {
+        setUploading(false);
+      }
+    })();
+  }
+
+  function removeAttachment(id: string) {
+    setAttachments((prev) => {
+      const dropped = prev.find((a) => a.id === id);
+      if (dropped?.previewUrl) {
+        URL.revokeObjectURL(dropped.previewUrl);
+        previewUrlsRef.current.delete(dropped.previewUrl);
+      }
+      return prev.filter((a) => a.id !== id);
+    });
+  }
+
+  /**
+   * Lazily create a chat row on first send (mirrors /settings/chat.tsx).
+   * If the user hasn't picked a session, we mint one server-side and then
+   * set it as active — sidebar picks it up via the chats list query.
+   */
+  const newChatMutation = useMutation({
+    mutationFn: () => apiPost<{ chat: ChatRow }>('/api/chat', {}),
+    onSuccess: (data) => {
+      playgroundStore.setActiveChatId(data.chat.id);
+      queryClient.invalidateQueries({ queryKey: ['chats'] });
+    },
+  });
+
+  async function handleSend() {
+    if (!requireAuth()) return;
+    const text = input.trim();
+    if (!text && attachments.length === 0) return;
+    if (isThinking) return;
+
+    let chatId = activeChatId;
+    if (!chatId) {
+      // Lazy-create. The mutation's onSuccess will set the id; we then
+      // need to read it back from the store before posting the message.
+      try {
+        const created = await apiPost<{ chat: ChatRow }>('/api/chat', {});
+        chatId = created.chat.id;
+        playgroundStore.setActiveChatId(chatId);
+        queryClient.invalidateQueries({ queryKey: ['chats'] });
+      } catch (e) {
+        toast.error((e as Error).message);
+        return;
+      }
+    }
+
+    const userMsg: Message = {
+      id: ++idRef.current,
+      role: 'user',
+      content: text || m['playground.attachment.default_prompt'](),
+      attachments: attachments.length ? attachments : undefined,
+    };
+    const turns = [...messages, userMsg];
+    setMessages(turns);
+    setInput('');
+    setAttachments([]);
+    setIsThinking(true);
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (el) el.style.height = 'auto';
+    });
+
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    const assistantId = ++idRef.current;
+    const pushOrAppend = (delta: string) => {
+      setIsThinking(false);
+      setMessages((prev) => {
+        const existing = prev.find((mm) => mm.id === assistantId);
+        if (existing) {
+          return prev.map((mm) =>
+            mm.id === assistantId ? { ...mm, content: mm.content + delta } : mm
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: assistantId,
+            role: 'assistant',
+            content: delta,
+          },
+        ];
+      });
+    };
+
+    try {
+      await streamChat(
+        {
+          chatId,
+          messages: turns.map((msg) => ({
+            role: msg.role,
+            content: msg.content,
+          })),
+          attachments: attachments.map((a) => {
+            const {
+              previewUrl: _p,
+              uploadStatus: _s,
+              id: _i,
+              _size,
+              _mtime,
+              ...rest
+            } = a;
+            return rest;
+          }),
+        },
+        {
+          signal: controller.signal,
+          onDelta: (delta) => pushOrAppend(delta),
+          onGate: (status) => {
+            setIsThinking(false);
+            const body =
+              status === 'login_required'
+                ? m['playground.gate.login']()
+                : m['playground.gate.pay']();
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: assistantId,
+                role: 'assistant',
+                content: body,
+              },
+            ]);
+          },
+          onError: (msg) => {
+            setIsThinking(false);
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: assistantId,
+                role: 'assistant',
+                content: `⚠️ ${msg || 'Request failed'} — please try again.`,
+              },
+            ]);
+          },
+          onDone: () => {
+            setIsThinking(false);
+          },
+        }
+      );
+    } catch {
+      setIsThinking(false);
+    } finally {
+      if (abortRef.current === controller) abortRef.current = null;
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  // Pass-through to the legacy Composer (re-uses the chat-mode file picker,
+  // video-frame extraction, attachment chips). Cleaner than re-implementing.
+  const composerProps = {
+    input,
+    setInput,
+    onKeyDown: handleKeyDown,
+    onSend: handleSend,
+    canSend: !!input.trim() || attachments.length > 0,
+    isThinking: isThinking || uploading,
+    models: useModels(),
+    selected: useModels()[0],
+    onSelectModel: () => undefined,
+    taRef,
+    attachments,
+    uploading,
+    onPlusClick: openFilePicker,
+    onFilesSelected: handleFilesSelected,
+    onRemoveAttachment: removeAttachment,
+    fileInputRef,
+  };
+
+  const hasThread = messages.length > 0 || isThinking;
+
+  return (
+    <div className="relative flex h-full min-h-0 flex-col">
+      {hasThread ? (
+        <>
+          <div
+            ref={scrollRef}
+            className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+          >
+            <ThreadHeader onReset={clearActive} />
+            <div className="mx-auto w-full max-w-3xl flex-1 px-4">
+              <div className="space-y-6 py-6">
+                {messages.map((msg) => (
+                  <MessageBubble key={msg.id} message={msg} />
+                ))}
+                {isThinking && <ThinkingBubble />}
+              </div>
+            </div>
+          </div>
+          <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
+            <Composer {...composerProps} />
+          </div>
+        </>
+      ) : (
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
+          <div className="flex w-full max-w-3xl flex-col items-center">
+            <WelcomeState selected={composerProps.selected} />
+            <div className="mt-10 w-full">
+              <Composer {...composerProps} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  ImagePlayground                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Image generation tab. txt2img + img2img (reference upload). Submits to
+ * `POST /api/ai-tasks` with `mediaType: 'image'`, then polls
+ * `GET /api/ai-tasks/$id` every 2s until the task is terminal.
+ *
+ * Cost is fixed by server config (`image_credit_cost`, default 5). Result
+ * image URLs come back via the persisted `taskResult` JSON, parsed by
+ * `parseThumbnail` in the route's GET handler.
+ */
+export function ImagePlayground() {
+  const store = usePlaygroundStore();
+  const { activeImageId, clearActive } = store;
+  const { data: session } = useSession();
+
+  const [prompt, setPrompt] = useState('');
+  const [reference, setReference] = useState<{
+    url: string;
+    previewUrl: string;
+    filename: string;
+  } | null>(null);
+  const [pollingTaskId, setPollingTaskId] = useState<string | null>(null);
+  const [authOpen, setAuthOpen] = useState(false);
+  const [uploadingReference, setUploadingReference] = useState(false);
+
+  const queryClient = useQueryClient();
+  const taskQuery = useQuery({
+    queryKey: ['image-task', activeImageId],
+    queryFn: () => apiGet<{ task: any }>(`/api/ai-tasks/${activeImageId}`),
+    enabled: !!activeImageId,
+  });
+
+  // Poll the active task until it reaches a terminal status. Cap at 60
+  // attempts (~2 min) so a stuck task doesn't burn request budget forever;
+  // the sidebar list keeps the task visible so the user can re-open it.
+  useEffect(() => {
+    if (!pollingTaskId) return;
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 60;
+
+    const tick = async () => {
+      if (cancelled) return;
+      attempts++;
+      try {
+        const r = await apiGet<{ task: { status: string } }>(
+          `/api/ai-tasks/${pollingTaskId}`
+        );
+        if (r.task.status === 'success' || r.task.status === 'failed') {
+          queryClient.invalidateQueries({ queryKey: ['image-tasks'] });
+          queryClient.invalidateQueries({
+            queryKey: ['image-task', pollingTaskId],
+          });
+          setPollingTaskId(null);
+          return;
+        }
+      } catch {
+        // network blip — keep polling
+      }
+      if (attempts >= MAX_ATTEMPTS) {
+        setPollingTaskId(null);
+        toast.error('Image generation timed out — check sidebar for status.');
+        return;
+      }
+      setTimeout(tick, 2000);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+    };
+  }, [pollingTaskId, queryClient]);
+
+  const submitMutation = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, any> = {
+        mediaType: 'image',
+        prompt: prompt.trim(),
+      };
+      if (reference?.url) body.referenceUrl = reference.url;
+      return apiPost<{ taskId: string; status: string }>('/api/ai-tasks', body);
+    },
+    onSuccess: (data) => {
+      setPollingTaskId(data.taskId);
+      store.setActiveImageId(data.taskId);
+      setPrompt('');
+      // keep reference for the next image — many users iterate on the same ref
+      queryClient.invalidateQueries({ queryKey: ['image-tasks'] });
+    },
+    onError: (e: Error) => {
+      const msg = e.message || '';
+      const key = /insufficient/i.test(msg)
+        ? 'playground.image.error_insufficient_credits'
+        : /not configured/i.test(msg)
+          ? 'playground.image.error_no_provider'
+          : null;
+      toast.error(key ? m[key]() : msg);
+    },
+  });
+
+  async function handleReferenceUpload(files: FileList | null) {
+    if (!files?.length) return;
+    if (!session?.user) {
+      setAuthOpen(true);
+      return;
+    }
+    const file = files[0];
+    if (!file.type.startsWith('image/')) {
+      toast.error(
+        m['playground.attachment.err_unsupported']({ name: file.name })
+      );
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error(
+        m['playground.attachment.err_too_large']({ name: file.name })
+      );
+      return;
+    }
+    setUploadingReference(true);
+    const previewUrl = URL.createObjectURL(file);
+    try {
+      const uploaded = await uploadMediaFiles([file]);
+      if (reference?.previewUrl) URL.revokeObjectURL(reference.previewUrl);
+      setReference({
+        url: uploaded[0].url,
+        previewUrl,
+        filename: file.name,
+      });
+    } catch (err) {
+      URL.revokeObjectURL(previewUrl);
+      toast.error((err as Error).message);
+    } finally {
+      setUploadingReference(false);
+    }
+  }
+
+  function handleReferencePaste(e: React.ClipboardEvent) {
+    const images = imageFilesFromClipboard(e.clipboardData);
+    if (!images.length) return;
+    e.preventDefault();
+    const dt = new DataTransfer();
+    for (const f of images) dt.items.add(f);
+    handleReferenceUpload(dt.files);
+  }
+
+  // Resolve the active task's first image URL for the "Active image" panel.
+  const activeTask = taskQuery.data?.task;
+  const activeResultUrl = (() => {
+    if (!activeTask) return null;
+    try {
+      const raw = activeTask.taskResult;
+      const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (!r) return null;
+      if (Array.isArray(r.imageUrls) && r.imageUrls[0]) return r.imageUrls[0];
+      if (Array.isArray(r.images) && r.images[0]) {
+        const first = r.images[0];
+        return typeof first === 'string' ? first : first?.url;
+      }
+      if (typeof r.imageUrl === 'string') return r.imageUrl;
+      if (typeof r.url === 'string') return r.url;
+    } catch {
+      // ignore parse error
+    }
+    return null;
+  })();
+
+  return (
+    <div className="relative mx-auto flex h-full min-h-0 w-full max-w-5xl flex-col gap-6 px-4 py-6">
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {activeImageId
+            ? m['playground.image.result_label']()
+            : m['playground.image.new_image']()}
+        </h1>
+        <button
+          type="button"
+          onClick={clearActive}
+          className="border-foreground/15 hover:bg-foreground/5 inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-medium transition-colors"
+        >
+          <MessageSquarePlus className="size-4" />
+          {m['playground.image.new_image']()}
+        </button>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-[2fr_1fr]">
+        {/* Prompt */}
+        <div className="border-foreground/10 bg-card rounded-2xl border p-4">
+          <label className="text-foreground/70 text-xs font-medium tracking-wider uppercase">
+            {m['playground.image.prompt_label']()}
+          </label>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder={m['playground.image.prompt_placeholder']()}
+            rows={6}
+            className="placeholder:text-foreground/40 mt-2 block w-full resize-none bg-transparent text-base leading-relaxed outline-none"
+          />
+          <div className="text-foreground/55 mt-2 flex items-center justify-between text-xs">
+            <span>{m['playground.image.cost_label']({ cost: 5 })}</span>
+            <button
+              type="button"
+              disabled={!prompt.trim() || submitMutation.isPending}
+              onClick={() => submitMutation.mutate()}
+              className="brand-gradient inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] transition-all hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitMutation.isPending || pollingTaskId ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  {m['playground.image.submitting']()}
+                </>
+              ) : (
+                <>
+                  <SparklesIcon className="size-4" />
+                  {m['playground.image.submit']()}
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Reference upload */}
+        <div
+          onPaste={handleReferencePaste}
+          className="border-foreground/15 bg-card hover:border-foreground/30 relative flex min-h-[200px] flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition-colors"
+        >
+          {reference ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={reference.previewUrl}
+                alt={reference.filename}
+                className="max-h-32 w-auto rounded-lg object-contain"
+              />
+              <p className="text-foreground/60 text-xs">{reference.filename}</p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (reference.previewUrl)
+                    URL.revokeObjectURL(reference.previewUrl);
+                  setReference(null);
+                }}
+                className="text-foreground/55 hover:text-foreground text-xs underline"
+              >
+                {m['playground.image.reference_remove']()}
+              </button>
+            </>
+          ) : (
+            <>
+              <ImageIcon className="text-foreground/40 size-8" />
+              <p className="text-foreground/65 text-sm">
+                {m['playground.image.reference_label']()}
+              </p>
+              <p className="text-foreground/45 text-xs">
+                {m['playground.image.reference_hint']()}
+              </p>
+              <label className="border-foreground/15 bg-background hover:bg-foreground/5 inline-flex cursor-pointer items-center gap-2 rounded-xl border px-4 py-2 text-xs font-medium transition-colors">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handleReferenceUpload(e.target.files)}
+                />
+                {uploadingReference ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <Plus className="size-3.5" />
+                )}
+                {m['playground.attachment.add']()}
+              </label>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Active image */}
+      {activeResultUrl ? (
+        <div className="border-foreground/10 bg-card overflow-hidden rounded-2xl border">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={activeResultUrl}
+            alt={prompt || 'Generated image'}
+            className="mx-auto max-h-[600px] w-auto object-contain"
+          />
+          <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+            <a
+              href={activeResultUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="border-foreground/15 hover:bg-foreground/5 inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors"
+            >
+              {m['playground.image.open_in_new_tab']()}
+            </a>
+            <a
+              href={activeResultUrl}
+              download
+              className="brand-gradient inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all hover:opacity-95"
+            >
+              {m['playground.image.download']()}
+            </a>
+          </div>
+        </div>
+      ) : (
+        <div className="border-foreground/10 bg-card/40 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed py-16 text-center">
+          <SparklesIcon className="text-foreground/30 size-10" />
+          <p className="text-foreground/55 text-sm">
+            {m['playground.image.result_empty']()}
+          </p>
+        </div>
+      )}
+
+      <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  PlaygroundSidebarList                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Sidebar session list. Renders inside the `sessionList` slot of
+ * `AppSidebar`. Switches between the chat and image lists based on
+ * the `mode` prop (driven by the parent layout route's URL match).
+ */
+export function PlaygroundSidebarList({ mode }: { mode: 'chat' | 'image' }) {
+  const store = usePlaygroundStore();
+  const queryClient = useQueryClient();
+
+  const chatsQuery = useQuery({
+    queryKey: ['chats'],
+    queryFn: () => apiGet<{ chats: ChatRow[] }>('/api/chat'),
+    enabled: mode === 'chat',
+  });
+  const imagesQuery = useQuery({
+    queryKey: ['image-tasks'],
+    queryFn: () =>
+      apiGet<{ tasks: ImageTaskRow[] }>(
+        '/api/ai-tasks?mediaType=image&limit=50'
+      ),
+    enabled: mode === 'image',
+  });
+
+  if (mode === 'chat') {
+    const list = (chatsQuery.data?.chats ?? [])
+      .slice()
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      );
+
+    if (!list.length) {
+      return (
+        <p className="text-foreground/55 px-2 py-1 text-xs">
+          {m['playground.sidebar.no_chats']()}
+        </p>
+      );
+    }
+
+    return (
+      <div className="flex flex-col gap-1">
+        {list.map((c, i) => (
+          <SessionRow
+            key={c.id}
+            index={i + 1}
+            label={m['playground.sidebar.chat_label']({ n: i + 1 })}
+            title={c.title?.trim() || m['playground.sidebar.untitled']()}
+            active={store.activeChatId === c.id}
+            onClick={() => store.setActiveChatId(c.id)}
+            onDelete={async () => {
+              await apiDelete(`/api/chat/${c.id}`);
+              if (store.activeChatId === c.id) store.clearActive();
+              queryClient.invalidateQueries({ queryKey: ['chats'] });
+            }}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  // image mode
+  const list = (imagesQuery.data?.tasks ?? []).slice();
+  if (!list.length) {
+    return (
+      <p className="text-foreground/55 px-2 py-1 text-xs">
+        {m['playground.sidebar.no_images']()}
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      {list.map((t, i) => (
+        <SessionRow
+          key={t.id}
+          index={i + 1}
+          label={m['playground.sidebar.image_label']({ n: i + 1 })}
+          title={
+            t.prompt?.trim().slice(0, 60) || m['playground.sidebar.untitled']()
+          }
+          active={store.activeImageId === t.id}
+          thumbnailUrl={t.thumbnailUrl || undefined}
+          onClick={() => store.setActiveImageId(t.id)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function SessionRow({
+  label,
+  title,
+  active,
+  thumbnailUrl,
+  onClick,
+  onDelete,
+}: {
+  index: number;
+  label: string;
+  title: string;
+  active: boolean;
+  thumbnailUrl?: string;
+  onClick: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        'group/session relative flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-sm transition-colors',
+        active
+          ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+          : 'hover:bg-sidebar-accent/50'
+      )}
+    >
+      {thumbnailUrl ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img
+          src={thumbnailUrl}
+          alt=""
+          className="size-7 shrink-0 rounded object-cover"
+        />
+      ) : (
+        <span className="text-foreground/55 min-w-[5.5rem] shrink-0 font-mono text-[11px]">
+          {label}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={onClick}
+        className="min-w-0 flex-1 truncate text-left"
+      >
+        {title}
+      </button>
+      {onDelete && (
+        <button
+          type="button"
+          aria-label={m['playground.chat.delete']()}
+          onClick={onDelete}
+          className="text-foreground/40 hover:text-foreground hidden shrink-0 group-hover/session:block"
+        >
+          <Trash2 className="size-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  PlaygroundUpgradeCard                                              */
+/* ------------------------------------------------------------------ */
+
+export function PlaygroundUpgradeCard() {
+  return (
+    <Link
+      href="/pricing"
+      className="brand-gradient block rounded-2xl px-4 py-3 text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] transition-all hover:opacity-95"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold">
+            {m['playground.upgrade_card.title']()}
+          </p>
+          <p className="text-[11px] leading-snug opacity-90">
+            {m['playground.upgrade_card.subtitle']()}
+          </p>
+        </div>
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-white/15">
+          →
+        </span>
+      </div>
+      <p className="mt-2 text-center text-xs font-medium underline underline-offset-2">
+        {m['playground.upgrade_card.cta']()}
+      </p>
+    </Link>
+  );
 }

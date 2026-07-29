@@ -1,0 +1,109 @@
+import { createFileRoute, Outlet, useLocation } from '@tanstack/react-router';
+import {
+  History,
+  ImageIcon,
+  MessageSquarePlus,
+  Search,
+  Video,
+  Wrench,
+} from 'lucide-react';
+
+import { useSession } from '@/core/auth/client';
+import { usePlaygroundStore } from '@/lib/playground-store';
+import { m } from '@/paraglide/messages.js';
+import {
+  PlaygroundSidebarList,
+  PlaygroundUpgradeCard,
+} from '@/blocks/api-playground';
+import { PlaygroundShell } from '@/components/playground-shell';
+
+/**
+ * Layout for the lorka-style `/api-playground/*` routes.
+ *
+ * Children (ChatPlayground, ImagePlayground, ComingSoon placeholders) are
+ * mounted via `<Outlet />`. The sidebar is mode-aware: when the URL is
+ * `/api-playground/image`, the list shows `[Image #N]` image tasks; otherwise
+ * it shows `[Chat #N]` chat rows. Nav items highlight the active route via
+ * the standard `isActiveHref` prefix logic.
+ *
+ * The "新建聊天" / "新建图像" CTA calls `playgroundStore.clearActive()`
+ * directly — it's a local-only reset that doesn't touch the URL.
+ */
+export const Route = createFileRoute('/api-playground')({
+  component: PlaygroundLayout,
+});
+
+function PlaygroundLayout() {
+  const location = useLocation();
+  const mode: 'chat' | 'image' = location.pathname.startsWith(
+    '/api-playground/image'
+  )
+    ? 'image'
+    : 'chat';
+
+  // Keep the store's mode in sync with the URL so non-React callers (e.g.
+  // event handlers in the chat block) see the right value without passing
+  // it through props.
+  const store = usePlaygroundStore();
+  if (store.mode !== mode) store.setMode(mode);
+
+  // For the "新建聊天" / "新建图像" CTA — only one is needed per mode.
+  // Anonymous users can also see and click this; clearing local state
+  // is the safe no-op for them.
+  const cta = (
+    <button
+      type="button"
+      onClick={() => store.clearActive()}
+      className="brand-gradient inline-flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.55)] transition-all hover:opacity-95"
+    >
+      <MessageSquarePlus className="size-4" />
+      {mode === 'image'
+        ? m['playground.image.new_image']()
+        : m['playground.chat.new_chat']()}
+    </button>
+  );
+
+  return (
+    <PlaygroundShell
+      brand="Kimi K3"
+      brandHref="/api-playground"
+      headerCta={cta}
+      sessionList={<PlaygroundSidebarList mode={mode} />}
+      upgradeCard={<PlaygroundUpgradeCard />}
+      navItems={[
+        {
+          href: '/api-playground',
+          label: m['playground.nav.chat'](),
+          icon: MessageSquarePlus,
+        },
+        {
+          href: '/api-playground/image',
+          label: m['playground.nav.image'](),
+          icon: ImageIcon,
+        },
+        {
+          href: '/api-playground/video',
+          label: m['playground.nav.video'](),
+          icon: Video,
+        },
+        {
+          href: '/api-playground/search',
+          label: m['playground.nav.search'](),
+          icon: Search,
+        },
+        {
+          href: '/api-playground/tools',
+          label: m['playground.nav.tools'](),
+          icon: Wrench,
+        },
+        {
+          href: '/api-playground/history',
+          label: m['playground.nav.history'](),
+          icon: History,
+        },
+      ]}
+    >
+      <Outlet />
+    </PlaygroundShell>
+  );
+}

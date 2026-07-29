@@ -43,12 +43,25 @@ export function AppSidebar({
   navItems,
   footerNavItems,
   footer,
+  headerCta,
+  sessionList,
+  upgradeCard,
 }: {
   brand: React.ReactNode;
   brandHref?: string;
   navItems: NavItem[];
   footerNavItems?: NavItem[];
   footer?: React.ReactNode;
+  /** Optional primary CTA rendered at the top of the sidebar content
+   *  (above the nav groups). Used by the playground for "新建聊天". */
+  headerCta?: React.ReactNode;
+  /** Optional scrollable session list rendered as its own group at the
+   *  bottom of the sidebar content. Used by the playground for the
+   *  [Chat #N] / [Image #N] session list. */
+  sessionList?: React.ReactNode;
+  /** Optional upgrade / marketing card pinned at the top of the sidebar
+   *  footer (above UserMenu). Hidden on icon-collapsed sidebar. */
+  upgradeCard?: React.ReactNode;
 }) {
   const pathname = usePathname();
 
@@ -144,6 +157,7 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
+        {headerCta && <div className="px-2 pb-2">{headerCta}</div>}
         {groups.map((group, gi) => (
           <SidebarGroup key={gi}>
             {group.label && (
@@ -213,9 +227,19 @@ export function AppSidebar({
             </SidebarGroupContent>
           </SidebarGroup>
         ))}
+        {sessionList && (
+          <SidebarGroup>
+            <SidebarGroupContent>{sessionList}</SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
 
       <SidebarFooter>
+        {upgradeCard && (
+          <div className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
+            {upgradeCard}
+          </div>
+        )}
         {footerNavItems && footerNavItems.length > 0 && (
           <SidebarMenu>
             {footerNavItems.map((item) => {

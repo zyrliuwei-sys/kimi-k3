@@ -27,6 +27,9 @@ export function AppLayout({
   profileHref,
   requirePermission,
   unauthorizedRedirect = '/settings',
+  headerCta,
+  sessionList,
+  upgradeCard,
 }: {
   children: React.ReactNode;
   navItems: NavItem[];
@@ -38,6 +41,12 @@ export function AppLayout({
   profileHref?: string;
   requirePermission?: string;
   unauthorizedRedirect?: string;
+  /** Forwarded to <AppSidebar />. See app-sidebar.tsx for details. */
+  headerCta?: React.ReactNode;
+  /** Forwarded to <AppSidebar />. */
+  sessionList?: React.ReactNode;
+  /** Forwarded to <AppSidebar />. */
+  upgradeCard?: React.ReactNode;
 }) {
   const { data: session, isPending } = useSession();
   const router = useRouter();
@@ -139,6 +148,9 @@ export function AppLayout({
         brandHref={brandHref}
         navItems={navItems}
         footerNavItems={footerNavItems}
+        headerCta={headerCta}
+        sessionList={sessionList}
+        upgradeCard={upgradeCard}
         footer={
           <UserMenu
             name={session.user.name || 'User'}
