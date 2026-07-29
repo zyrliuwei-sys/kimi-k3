@@ -34,6 +34,11 @@ type SignInFormProps = {
   githubEnabled: boolean;
   /** Whether the "Forgot password" link should be shown. */
   passwordResetEnabled: boolean;
+  /** Pre-translated error message to show on first render — set by the
+   *  /sign-in page when the auth wrapper redirected here with
+   *  `?error=<code>` (e.g. `ip_limit` for a rolled-back OAuth / magic-
+   *  link sign-up that exceeded the per-IP registration cap). */
+  initialError?: string;
   /** Cloudflare Turnstile site key (undefined ⇒ Turnstile is off). */
   turnstileSiteKey?: string;
 };
@@ -50,10 +55,11 @@ export function SignInForm({
   googleEnabled,
   githubEnabled,
   passwordResetEnabled,
+  initialError = '',
   turnstileSiteKey,
 }: SignInFormProps) {
   const router = useRouter();
-  const [error, setError] = useState('');
+  const [error, setError] = useState(initialError);
   const captchaRef = useRef<CaptchaWidgetHandle>(null);
   const [turnstileToken, setTurnstileToken] = useState('');
 

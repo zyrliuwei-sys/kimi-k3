@@ -133,14 +133,15 @@ async function handle(request: Request) {
 
   // Signup policy preflight — only on POST /sign-up/email. The QQ / IP-cap
   // checks live in front of better-auth so we reject *before* a user row
-  // is inserted (and its signup credits granted). The body is cloned so
-  // the original request stream is still readable by `auth.handler` below.
+  // is inserted. The body is cloned so the original request stream is
+  // still readable by `auth.handler` below.
   //
-  // Scope note: the IP cap only applies to credential sign-ups — OAuth /
-  // magic-link hand-offs are validated by the upstream provider, and the
-  // user has already been created by the time /callback runs, so a clean
-  // pre-rejection isn't possible there. OAuth paths still persist the IP
-  // (see recordSignupIp) so the count stays accurate for credential flows.
+  // Scope note: the QQ block is credential-only by design (OAuth / magic
+  // link users can't pick a different email). The IP cap, on the other
+  // hand, applies to ALL new-account creation — for OAuth + magic-link
+  // we run the same check AFTER `auth.handler` and roll back the just-
+  // inserted user if the IP is already at the limit. See the `newSignups`
+  // loop below.
   if (isSignUp && request.method === 'POST') {
     // Cooldown gate first — if this IP has been hammering with QQ
     // aliases, short-circuit before even parsing the body. The 24h
@@ -246,6 +247,36 @@ async function handle(request: Request) {
         );
 
       for (const newUser of newSignups) {
+        // Per-IP registration cap — applies to OAuth / magic-link as
+        // well as credential sign-ups. better-auth has already inserted
+        // the user row by the time we get here, so the check has to be
+        // paired with a rollback: if adding this new user would push the
+        // IP over MAX_REGISTRATIONS_PER_IP, delete it (cascade kills
+        // the just-issued session + account row) and redirect to the
+        // sign-in page with an error code. Existing users on the same
+        // IP signing in don't hit this path — the newSignups filter
+        // excludes pre-existing user rows.
+        if (clientIp) {
+          const [{ count: existingIpCount }] = await db()
+            .select({ count: count() })
+            .from(user)
+            .where(eq(user.ip, clientIp));
+          if ((existingIpCount ?? 0) >= MAX_REGISTRATIONS_PER_IP) {
+            await db()
+              .delete(user)
+              .where(eq(user.id, newUser.userId))
+              .catch((e) =>
+                console.error(
+                  `[auth] ip-cap rollback failed (user=${newUser.userId}):`,
+                  e
+                )
+              );
+            return Response.redirect(
+              new URL('/sign-in?error=ip_limit', request.url),
+              302
+            );
+          }
+        }
         // Persist the client IP so future /sign-up/email attempts from
         // this IP see the new account in their quota count. Fire-and-
         // forget — never blocks the auth response.
