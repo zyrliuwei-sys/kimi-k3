@@ -31,6 +31,18 @@
 import { getConfig } from '@/modules/config/service';
 
 const DEFAULT_MARKUP = 5;
+/**
+ * Flat per-image cost used by the legacy path when neither
+ * `image_credit_markup` nor `image_credit_cost` has a row. Note that
+ * `getAllConfigs()` does NOT apply the `defaultValue`s declared in
+ * settings.ts — a key with no DB row is simply absent — so this constant
+ * (not the '5' in settings.ts) is what an untouched deployment actually
+ * charges: 5 cr per image. Once an admin saves the AI settings tab,
+ * `image_credit_markup=5` is written and the wholesale path takes over
+ * (≈10 cr for 1024²). The first-image-free trial below keeps the
+ * first-run experience identical under both modes.
+ */
+const DEFAULT_FLAT_COST = 5;
 const DEFAULT_WHOLESALE_OUTPUT_PER_1K = 1.728; // cr per 1K Image Output tokens
 const DEFAULT_WHOLESALE_INPUT_PER_1K = 0.4608; // cr per 1K Image Input tokens
 const DEFAULT_TOKENS_PER_IMAGE_1024 = 1050; // output tokens for a 1024×1024 image
@@ -75,7 +87,8 @@ export function computeImageCost(args: ImageCostArgs): number {
   // new wholesale-×-markup mode.
   const markup = parsePositive(configs.image_credit_markup, 0);
   if (!markup) {
-    const flat = parsePositive(configs.image_credit_cost, 0) || DEFAULT_MARKUP;
+    const flat =
+      parsePositive(configs.image_credit_cost, 0) || DEFAULT_FLAT_COST;
     return flat * iN;
   }
 
@@ -109,4 +122,48 @@ export function computeImageCost(args: ImageCostArgs): number {
   const inputCost = hasReference ? (tokensBase * wholesaleInput) / 1000 : 0;
 
   return Math.max(1, Math.ceil((outputCost + inputCost) * iN * markup));
+}
+
+// ── First-image-free trial ──────────────────────────────────────────
+
+/** `image_first_free` default — a user's first image generation is free. */
+export const DEFAULT_IMAGE_FIRST_FREE = true;
+
+/**
+ * Whether the first-image-free trial is enabled. Anything other than an
+ * explicit `'false'` is ON, so a fresh install with no config row still
+ * gets the trial (mirrors `audit_first_free` in website-audit/pricing.ts).
+ */
+export function readImageFirstFree(configs: Record<string, string>): boolean {
+  const raw = configs.image_first_free;
+  return raw === undefined ? DEFAULT_IMAGE_FIRST_FREE : raw !== 'false';
+}
+
+/**
+ * Size tokens billed at the base (cheapest) resolution factor. Kept as an
+ * explicit allowlist rather than "not mid and not large" so an unrecognized
+ * string (e.g. Nano Banana's raw `"16:9"`, which `computeImageCost` silently
+ * bills at the base factor) can't sneak a 1.8×-cost image into the free
+ * trial.
+ */
+const FREE_TRIAL_SIZES = new Set(['', '1024x1024', '1:1']);
+
+/**
+ * Shape gate for the free trial: one image, base resolution, no reference
+ * image. Without this a new account could take a batch of four 1792×1024
+ * img2img renders for free (≈68 credits of real cost) instead of the ~10
+ * credits the trial is meant to cover.
+ *
+ * `size === undefined` is the composer's default ("Smart" — let the model
+ * decide), which `computeImageCost` bills at the base factor, so it is
+ * eligible.
+ */
+export function isFreeTrialShape(args: {
+  n: number;
+  size?: string;
+  hasReference: boolean;
+}): boolean {
+  if (args.hasReference) return false;
+  if (Math.floor(args.n) !== 1) return false;
+  return args.size === undefined || FREE_TRIAL_SIZES.has(args.size);
 }

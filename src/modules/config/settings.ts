@@ -290,20 +290,20 @@ export function getSettings(): Setting[] {
 
     // ─── General / Credits ───────────────────────────────────────────
     // Defaults are tuned for an overseas B2C AI product where Kimi K3 is
-
-    // the model. 1 credit ≈ $0.015 of API cost, so 10 credits ≈ $0.15
-    // CAC — well under industry freemium norms ($3-15). At 10 cr per
-    // 1024×1024 image (current `image_credit_*` defaults), 10 credits
-    // ≈ 1 free image generation — a tight demo that nudges toward
-    // paywall without starving the first-run experience.
-
-    // the model. 1 credit ≈ $0.0148 of API cost, so 5 credits ≈ $0.07 CAC
+    // the model. 1 credit ≈ $0.015 of API cost, so 5 credits ≈ $0.07 CAC
     // — far under industry freemium norms ($3-15). At 5 cr per PPT deck
     // that's exactly one deck, or a handful of chat turns: enough to see
     // the product work, tight enough to nudge toward the paywall.
-    // Granted at sign-up (src/routes/api/auth/$.ts); abuse is handled by
-    // the QQ/Foxmail domain block + 3-per-IP cap + Turnstile, not by
-    // withholding the bonus.
+    //
+    // Image generation is priced above the bonus on purpose (~10 cr for a
+    // 1024×1024 render), so the first image is handed out as a separate
+    // one-shot trial instead — see `image_first_free` on the AI tab. Net
+    // first-run allowance: 5 credits + 1 image; the second image is paid.
+    //
+    // Granted at sign-up (src/routes/api/auth/$.ts) — the grant does NOT
+    // wait for email verification. Abuse is handled by the QQ/Foxmail
+    // domain block + 3-per-IP cap + Turnstile, not by withholding the
+    // bonus.
 
     {
       name: 'initial_credits_enabled',
@@ -1002,6 +1002,20 @@ export function getSettings(): Setting[] {
       placeholder: '5',
       defaultValue: '5',
       tip: 'Multiplier on the EvoLink wholesale token cost. Default 5× (chat uses 6×). Set to any positive number to enable the wholesale × markup pricing; leave at 0 to keep the legacy flat-cost behavior.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      // First-image-free trial — see `readImageFirstFree` /
+      // `isFreeTrialShape` in src/lib/image-billing.ts and the decision in
+      // src/routes/api/ai-tasks/-image.ts. Exists because one image (~10 cr)
+      // costs more than the whole signup bonus (5 cr), so a new account
+      // would otherwise be paywalled on its first click.
+      name: 'image_first_free',
+      title: 'First image free per user',
+      type: 'switch',
+      defaultValue: 'true',
+      tip: "Skip the credit deduction for a user's first image generation (acquisition funnel). Only applies to 1 image at base resolution with no reference image; the second generation is charged normally. Failed attempts don't burn the trial.",
       group: 'evolink',
       tab: 'ai',
     },

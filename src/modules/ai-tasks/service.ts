@@ -168,6 +168,37 @@ export async function findTask(taskId: string) {
 }
 
 /**
+ * Count a user's prior tasks of one media type that aren't failed/canceled.
+ *
+ * Powers the "first one free" trials (`image_first_free`, and the video
+ * equivalent): a user with zero prior active tasks of that media type gets
+ * `costCredits = 0`. Failed/canceled attempts are excluded so a botched
+ * first try doesn't burn the free trial — consistent with the auto-refund
+ * policy for paid tasks.
+ *
+ * Deliberately does NOT filter on `deletedAt`: the task row IS the
+ * "trial used" marker, so a (future) soft-delete of a generated image must
+ * not hand the trial back.
+ */
+export async function countUserActiveTasks(
+  userId: string,
+  mediaType: string
+): Promise<number> {
+  const [row] = await db()
+    .select({ n: count() })
+    .from(aiTask)
+    .where(
+      and(
+        eq(aiTask.userId, userId),
+        eq(aiTask.mediaType, mediaType),
+        ne(aiTask.status, AITaskStatus.FAILED),
+        ne(aiTask.status, AITaskStatus.CANCELED)
+      )
+    );
+  return Number(row?.n ?? 0);
+}
+
+/**
  * Count a user's prior video tasks that aren't failed/canceled.
  *
  * Used to grant the first Web & Motion replicate free: a user with zero prior
@@ -178,18 +209,7 @@ export async function findTask(taskId: string) {
 export async function countUserActiveVideoTasks(
   userId: string
 ): Promise<number> {
-  const [row] = await db()
-    .select({ n: count() })
-    .from(aiTask)
-    .where(
-      and(
-        eq(aiTask.userId, userId),
-        eq(aiTask.mediaType, AIMediaType.VIDEO),
-        ne(aiTask.status, AITaskStatus.FAILED),
-        ne(aiTask.status, AITaskStatus.CANCELED)
-      )
-    );
-  return Number(row?.n ?? 0);
+  return countUserActiveTasks(userId, AIMediaType.VIDEO);
 }
 
 export async function countUserInFlightVideoTasks(

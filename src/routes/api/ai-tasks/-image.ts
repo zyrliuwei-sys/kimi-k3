@@ -7,11 +7,16 @@ import {
 import { normalizeRatioToSize } from '@/core/ai/aspect-ratios';
 import {
   AITaskStatus,
+  countUserActiveTasks,
   createTask,
   updateTask,
 } from '@/modules/ai-tasks/service';
 import { getAllConfigs } from '@/modules/config/service';
-import { computeImageCost } from '@/lib/image-billing';
+import {
+  computeImageCost,
+  isFreeTrialShape,
+  readImageFirstFree,
+} from '@/lib/image-billing';
 import { respData, respErr } from '@/lib/resp';
 
 import { buildRehostSaveFiles } from './-shared';
@@ -131,12 +136,34 @@ export async function postImageTask({
   // `src/lib/image-billing.ts` for the formula and config keys. The
   // legacy `image_credit_cost` flat config is honored when
   // `image_credit_markup` is unset — see the helper's "legacy fallback".
-  const costCredits = computeImageCost({
+  const standardCost = computeImageCost({
     n,
     size,
     hasReference: !!referenceUrl,
     configs,
   });
+
+  // First-image-free trial (`image_first_free`, default on). The signup
+  // bonus is 5 credits and one image costs ~10, so without this a brand-new
+  // account would hit the paywall on its very first click. Free only for the
+  // cheap shape (1 image, base resolution, no reference — see
+  // `isFreeTrialShape`) and only until the user's first non-failed image
+  // task exists; the second generation is charged normally, which is the
+  // intended paywall.
+  //
+  // Race note: two concurrent submits can both read zero prior tasks and
+  // both go free. The window is one request round-trip and the blast radius
+  // is a single extra image (~$0.03), so this isn't worth a lock.
+  let costCredits = standardCost;
+  let pricingReason: 'first_free' | 'standard' = 'standard';
+  if (
+    readImageFirstFree(configs) &&
+    isFreeTrialShape({ n, size, hasReference: !!referenceUrl }) &&
+    (await countUserActiveTasks(session.user.id, AIMediaType.IMAGE)) === 0
+  ) {
+    costCredits = 0;
+    pricingReason = 'first_free';
+  }
 
   // 1. Insert aiTask + consume credits (single transaction).
   let task;
@@ -255,6 +282,12 @@ export async function postImageTask({
         status: AITaskStatus.SUCCESS,
         imageUrls: providerUrls,
         imageUrl: providerUrls[0],
+        // What this generation actually cost, and why. `first_free` means
+        // the trial was spent on this call — the client can use it to tell
+        // the user the next one is paid. Mirrors -video.ts / website-audit.
+        costCredits,
+        standardCost,
+        reason: pricingReason,
         // Pass the task row we already have (model, prompt, etc.) so
         // the client can render the active image without a follow-up
         // GET — saves a DB round-trip on every sync generation.
@@ -291,6 +324,9 @@ export async function postImageTask({
     return respData({
       taskId: task.id,
       status: AITaskStatus.PROCESSING,
+      costCredits,
+      standardCost,
+      reason: pricingReason,
       // Surface the estimate to the client immediately so the UI can
       // show a real countdown from the very first frame after submit.
       ...(result.mode === 'async' && result.estimatedSeconds

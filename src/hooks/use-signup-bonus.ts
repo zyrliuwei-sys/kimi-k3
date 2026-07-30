@@ -24,12 +24,8 @@ const DEFAULT_BONUS: SignupBonus = {
   enabled: true,
   credits: 5,
   validDays: 30,
-
   description:
-    'Welcome to kimik3 — 10 free credits (≈ 1 free image generation) to try it out 🎨',
-
-  description: 'Welcome to kimik3 — 5 free credits to try it out 🎉',
-
+    'Welcome to kimik3 — 5 free credits + your first image generation on us 🎨',
 };
 
 export function useSignupBonus(): SignupBonus {

@@ -312,18 +312,13 @@ export async function grantForNewUser(params: {
 }) {
   const { userId, userEmail, configs } = params;
 
-
-  // Defaults (must mirror src/modules/config/settings.ts for fresh installs
-  // that never opened Admin → Settings): 10 credits expiring in 30 days.
-  // Tuned for Kimi K3 economics — at 10 cr per image, 10 credits ≈ 1 free
-  // image generation (1024×1024, no reference image). See the comment block
-  // in settings.ts.
-
   // Defaults (must mirror src/modules/config/settings.ts and
   // src/hooks/use-signup-bonus.ts for fresh installs that never opened
   // Admin → Settings): 5 credits expiring in 30 days — enough for one
-  // PPT deck or a short chat session, so a new account can actually try
-  // the product instead of hitting a paywall on its first click.
+  // PPT deck or a short chat session. Image generation costs more than
+  // the whole bonus (~10 cr), so the first image is handed out separately
+  // by the `image_first_free` trial (src/lib/image-billing.ts) rather than
+  // by inflating this number.
 
   if (configs.initial_credits_enabled === 'false') return;
 
@@ -336,11 +331,7 @@ export async function grantForNewUser(params: {
   const validDays = parseInt(configs.initial_credits_valid_days) || 30;
   const description =
     configs.initial_credits_description ||
-
-    'Welcome to kimik3 — 10 free credits (≈ 1 free image generation) to try it out 🎨';
-
-    'Welcome to kimik3 — 5 free credits to try it out 🎉';
-
+    'Welcome to kimik3 — 5 free credits + your first image generation on us 🎨';
 
   const expiresAt = calculateCreditExpirationTime({
     creditsValidDays: validDays,
