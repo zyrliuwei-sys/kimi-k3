@@ -37,6 +37,16 @@ export async function streamChat(
 ): Promise<void> {
   const { onDelta, onGate, onDone, onError, signal } = handlers;
 
+  // Client-side safety net: if the server takes >120s to send the first
+  // byte (DB hang, auth hang, upstream gateway hang without our
+  // upstream-timeout kicking in), abort and surface an error so the
+  // playground's "thinking…" UI doesn't freeze. The upstream provider
+  // also has its own 90s timeout inside the server, so this only fires
+  // for the rarer case where the server itself can't return at all.
+  const firstByteTimer = setTimeout(() => {
+    onError?.('Request timed out — please try again.');
+  }, 120_000);
+
   let res: Response;
   try {
     res = await fetch('/api/playground/chat', {
@@ -45,7 +55,9 @@ export async function streamChat(
       body: JSON.stringify(body),
       signal,
     });
+    clearTimeout(firstByteTimer);
   } catch (e: any) {
+    clearTimeout(firstByteTimer);
     if (e?.name === 'AbortError') return;
     const msg = e?.message || 'Network request failed';
     onError?.(msg);

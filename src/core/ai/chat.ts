@@ -103,25 +103,47 @@ export async function* openaiChatCompletionStream(
   const { apiKey, baseUrl, model, messages, temperature = 1, signal } = params;
 
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature,
-      stream: true,
-      // Ask the provider to emit a final frame with `usage`. Not all
-      // OpenAI-compatible gateways honor this — when missing, the parser
-      // just never yields a usage chunk and the caller's pre-flight
-      // estimate stands.
-      stream_options: { include_usage: true },
-    }),
-    signal,
-  });
+  // Hard upstream cap. Without it, a hung gateway leaves the SSE stream
+  // open indefinitely — the client never receives a `done` / `error`
+  // frame and the playground's "thinking…" UI freezes. 90s covers any
+  // realistic chat completion (even the slowest Kimi K3 reasoning pass)
+  // while still failing fast enough for the user to retry.
+  const controller = new AbortController();
+  const upstreamTimer = setTimeout(() => controller.abort(), 90_000);
+  // Forward the caller's signal so client-side cancel still works.
+  const onCallerAbort = () => controller.abort();
+  signal?.addEventListener('abort', onCallerAbort);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature,
+        stream: true,
+        // Ask the provider to emit a final frame with `usage`. Not all
+        // OpenAI-compatible gateways honor this — when missing, the parser
+        // just never yields a usage chunk and the caller's pre-flight
+        // estimate stands.
+        stream_options: { include_usage: true },
+      }),
+      signal: controller.signal,
+    });
+  } catch (e: any) {
+    clearTimeout(upstreamTimer);
+    signal?.removeEventListener('abort', onCallerAbort);
+    if (e?.name === 'AbortError' && !signal?.aborted) {
+      throw new Error(
+        'Upstream chat provider timed out after 90s — please retry.'
+      );
+    }
+    throw e;
+  }
 
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
@@ -154,6 +176,8 @@ export async function* openaiChatCompletionStream(
       for (const chunk of parseFrame(buffer)) yield chunk;
     }
   } finally {
+    clearTimeout(upstreamTimer);
+    signal?.removeEventListener('abort', onCallerAbort);
     reader.releaseLock();
   }
 }

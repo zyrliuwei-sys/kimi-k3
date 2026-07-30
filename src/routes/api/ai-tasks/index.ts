@@ -90,37 +90,67 @@ async function GET({ request }: { request: Request }) {
     });
 
     return respData({
-      tasks: tasks.map((t: any) => ({
-        id: t.id,
-        mediaType: t.mediaType,
-        prompt: t.prompt,
-        status: t.status,
-        model: t.model,
-        provider: t.provider,
-        createdAt: t.createdAt,
-        thumbnailUrl: parseThumbnail(t),
-      })),
+      tasks: tasks.map((t: any) => {
+        const media = parseTaskMedia(t);
+        return {
+          id: t.id,
+          mediaType: t.mediaType,
+          prompt: t.prompt,
+          status: t.status,
+          model: t.model,
+          provider: t.provider,
+          createdAt: t.createdAt,
+          // imageUrls carries every URL the task produced (N=1..4) so
+          // the My Images view can render each submission as one row
+          // with all of its images side-by-side, instead of dropping
+          // every image past the first one.
+          imageUrls: media.imageUrls,
+          // Keep `thumbnailUrl` for the sidebar — that surface only
+          // needs the first frame.
+          thumbnailUrl: media.thumbnailUrl,
+        };
+      }),
     });
   } catch (error: any) {
     return respErr(error.message || 'Failed to list AI tasks');
   }
 }
 
-function parseThumbnail(t: any): string | undefined {
+/**
+ * Extract every media URL a task produced plus the first one as the
+ * thumbnail fallback.
+ *
+ *   `imageUrls[]`  → all frames returned by the provider (N=1..4).
+ *                    Surfaced to the My Images view so a single batch
+ *                    with multiple generations renders as one row.
+ *   `thumbnailUrl` → the legacy single-frame field. The sidebar uses
+ *                    it as a small chip preview; unchanged in shape.
+ */
+function parseTaskMedia(t: any): {
+  imageUrls: string[];
+  thumbnailUrl?: string;
+} {
   try {
     const raw = t.taskResult;
     const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (!r) return undefined;
-    if (Array.isArray(r.imageUrls) && r.imageUrls[0]) return r.imageUrls[0];
-    if (Array.isArray(r.images) && r.images[0]) {
-      const first = r.images[0];
-      return typeof first === 'string' ? first : first?.url;
+    if (!r) return { imageUrls: [] };
+    let imageUrls: string[] = [];
+    if (Array.isArray(r.imageUrls)) {
+      imageUrls = r.imageUrls.filter(
+        (u: any): u is string => typeof u === 'string' && !!u
+      );
+    } else if (Array.isArray(r.images)) {
+      imageUrls = r.images
+        .map((i: any) => (typeof i === 'string' ? i : i?.url))
+        .filter((u: any): u is string => typeof u === 'string' && !!u);
+    } else if (typeof r.imageUrl === 'string' && r.imageUrl) {
+      imageUrls = [r.imageUrl];
+    } else if (typeof r.url === 'string' && r.url) {
+      imageUrls = [r.url];
     }
-    if (typeof r.imageUrl === 'string') return r.imageUrl;
-    if (typeof r.url === 'string') return r.url;
-    return undefined;
+    return { imageUrls, thumbnailUrl: imageUrls[0] };
   } catch {
-    return undefined;
+    return { imageUrls: [] };
   }
 }
 

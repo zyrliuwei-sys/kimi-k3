@@ -94,11 +94,13 @@ export async function postImageTask({
   // (including an expensive non-image one) through this endpoint. The
   // listing is cached for an hour, so this costs nothing per request.
   //
-  // Exposed in the composer menu are: gpt-image-2 (OpenAI flagship on
-  // Evolink) and gemini-3.1-flash-image-preview (Nano Banana 2). Both
-  // are reached through the same /v1/images/generations endpoint but
-  // have different request shapes — handled in evolink-image.submit().
-  const ALLOWED_MODELS = ['gpt-image-2', 'gemini-3.1-flash-image-preview'];
+  // Exposed in the composer menu are:
+  //   - gpt-image-2 (OpenAI flagship, ~15-25s) — DEFAULT
+  //   - gpt-image-1.5-lite (if the gateway serves it)
+  // Keep this in sync with the menu in image-models.ts so a client can't
+  // bill an unlisted model id through the image endpoint. Nano Banana 2
+  // is parked — see image-models.ts.
+  const ALLOWED_MODELS = ['gpt-image-2', 'gpt-image-1.5-lite'];
   const allowlist = ALLOWED_MODELS;
   let model = pick.defaultModel;
   if (requestedModel && requestedModel !== pick.defaultModel) {
@@ -266,10 +268,26 @@ export async function postImageTask({
         provider: pick.name,
         referenceUrl,
         model,
+        // Persist the gateway estimate alongside the remote id so the
+        // polling endpoint can re-surface it on every poll and the UI
+        // shows a real "Generating… ~12s" countdown instead of just
+        // spinning. Optional — undefined for models that don't supply
+        // an estimate.
+        ...(result.mode === 'async' && result.estimatedSeconds
+          ? { estimatedSeconds: result.estimatedSeconds }
+          : {}),
       },
     });
 
-    return respData({ taskId: task.id, status: AITaskStatus.PROCESSING });
+    return respData({
+      taskId: task.id,
+      status: AITaskStatus.PROCESSING,
+      // Surface the estimate to the client immediately so the UI can
+      // show a real countdown from the very first frame after submit.
+      ...(result.mode === 'async' && result.estimatedSeconds
+        ? { estimatedSeconds: result.estimatedSeconds }
+        : {}),
+    });
   } catch (e: any) {
     // Map provider-side failures to the right HTTP status so the user
     // sees an actionable message instead of a generic 500. Without

@@ -1,5 +1,12 @@
 import { createFileRoute, Outlet, useLocation } from '@tanstack/react-router';
-import { Image, MessageSquarePlus, Search, Video, Wrench } from 'lucide-react';
+import {
+  Home,
+  Image,
+  MessageSquarePlus,
+  Search,
+  Video,
+  Wrench,
+} from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
 import { usePlaygroundStore } from '@/lib/playground-store';
@@ -75,12 +82,24 @@ function PlaygroundLayout() {
     <PlaygroundShell
       brand="Kimi K3"
       brandHref="/api-playground"
-      headerCta={cta}
+      // No header CTA — chat mode gets the in-thread "New chat" reset
+      // affordance from <ThreadHeader>, and image/video modes already
+      // cover the "start over" action in the composer. The top-right
+      // button duplicated the same flow and crowded the header.
+      headerCta={undefined}
       sessionList={
         showHistorySidebar ? <PlaygroundSidebarList mode={mode} /> : undefined
       }
       upgradeCard={<PlaygroundUpgradeCard />}
       navItems={[
+        {
+          // One-click escape back to the marketing landing page. Sits
+          // at the very top of the sidebar so it's always within reach,
+          // independent of the active playground tab (chat/image/video).
+          href: '/',
+          label: m['playground.nav.home'](),
+          icon: Home,
+        },
         {
           href: '/api-playground',
           label: m['playground.nav.chat'](),
@@ -91,21 +110,25 @@ function PlaygroundLayout() {
           label: m['playground.nav.image'](),
           icon: Image,
         },
-        {
-          href: '/api-playground/video',
-          label: m['playground.nav.video'](),
-          icon: Video,
-        },
-        {
-          href: '/api-playground/search',
-          label: m['playground.nav.search'](),
-          icon: Search,
-        },
-        {
-          href: '/api-playground/tools',
-          label: m['playground.nav.tools'](),
-          icon: Wrench,
-        },
+        // Video tab is hidden for now — feature is parked for later. The
+        // route + block still exist; just not wired into the sidebar.
+        // {
+        //   href: '/api-playground/video',
+        //   label: m['playground.nav.video'](),
+        //   icon: Video,
+        // },
+        // Search tab is parked for later development.
+        // {
+        //   href: '/api-playground/search',
+        //   label: m['playground.nav.search'](),
+        //   icon: Search,
+        // },
+        // Tools tab is parked for later development.
+        // {
+        //   href: '/api-playground/tools',
+        //   label: m['playground.nav.tools'](),
+        //   icon: Wrench,
+        // },
       ]}
     >
       <Outlet />

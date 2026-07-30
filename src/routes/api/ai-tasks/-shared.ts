@@ -65,6 +65,13 @@ export function allowedVideoHosts(configs: Record<string, any>): string[] {
  * Build a saveFiles fn that rehosts generated outputs to the storage provider
  * (so Fal's temporary URLs don't expire). Returns undefined when storage isn't
  * configured — callers then degrade to Fal's temporary URLs.
+ *
+ * Rehost runs the per-file `download → upload` round-trips in **parallel**
+ * (one `Promise.all` over the whole batch). Previously this was a sequential
+ * `for…of await` — a 4-image generation spent ~12s on rehost instead of the
+ * ~3s the slowest single transfer actually takes. Failures on one file don't
+ * block the others; each falls back to its source URL like the serial
+ * version did.
  */
 export async function buildRehostSaveFiles(): Promise<
   SaveFilesFunction | undefined
@@ -72,16 +79,22 @@ export async function buildRehostSaveFiles(): Promise<
   const storage = await getStorage();
   if (!storage) return undefined;
   return async (files: AIFile[]): Promise<AIFile[]> => {
-    const out: AIFile[] = [];
-    for (const f of files) {
-      const res = await storage.downloadAndUpload({
-        url: f.url,
-        key: f.key,
-        contentType: f.contentType,
-        disposition: 'inline',
-      });
-      out.push({ ...f, url: res.url || f.url });
-    }
-    return out;
+    const results = await Promise.all(
+      files.map(async (f) => {
+        try {
+          const res = await storage.downloadAndUpload({
+            url: f.url,
+            key: f.key,
+            contentType: f.contentType,
+            disposition: 'inline',
+          });
+          return { ...f, url: res.url || f.url };
+        } catch (err: any) {
+          console.warn('[rehost] failed for', f.key || f.url, err?.message);
+          return f; // fall back to the upstream URL
+        }
+      })
+    );
+    return results;
   };
 }

@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
 
 import { Link, usePathname } from '@/core/i18n/navigation';
+import { cn } from '@/lib/utils';
 import { localizeHref } from '@/paraglide/runtime.js';
+import { HoverBorderGradient } from '@/components/ui/hover-border-gradient';
 import {
   Sidebar,
   SidebarContent,
@@ -46,6 +48,8 @@ export function AppSidebar({
   headerCta,
   sessionList,
   upgradeCard,
+  navItemSize,
+  navItemsVariant = 'default',
 }: {
   brand: React.ReactNode;
   brandHref?: string;
@@ -62,6 +66,14 @@ export function AppSidebar({
   /** Optional upgrade / marketing card pinned at the top of the sidebar
    *  footer (above UserMenu). Hidden on icon-collapsed sidebar. */
   upgradeCard?: React.ReactNode;
+  /** Size of top-level nav buttons. Defaults to SidebarMenuButton's "default"
+   *  (h-8). The playground passes "lg" so Chat/Image get a bigger tap target
+   *  matching the screenshot. */
+  navItemSize?: 'sm' | 'default' | 'lg';
+  /** Visual style for the top-level nav. The playground uses
+   *  "hoverborder" (Aceternity-style neon pills) for the lorka feel;
+   *  admin / settings use the default SidebarMenuButton. */
+  navItemsVariant?: 'default' | 'hoverborder';
 }) {
   const pathname = usePathname();
 
@@ -157,73 +169,117 @@ export function AppSidebar({
       </SidebarHeader>
 
       <SidebarContent>
-        {headerCta && <div className="px-2 pb-2">{headerCta}</div>}
+        {headerCta && <div className="px-2 pt-4 pb-4">{headerCta}</div>}
         {groups.map((group, gi) => (
           <SidebarGroup key={gi}>
             {group.label && (
               <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             )}
-            <SidebarGroupContent className="flex flex-col gap-2">
-              <SidebarMenu>
-                {group.items.map((item) => {
+            <SidebarGroupContent
+              className={cn(
+                'flex flex-col',
+                navItemsVariant === 'hoverborder' ? 'gap-2.5 px-2' : 'gap-2'
+              )}
+            >
+              {navItemsVariant === 'hoverborder' ? (
+                // Playground-style nav: flat stack of HoverBorderGradient
+                // buttons. Collapsible parents and sub-items aren't part of
+                // this variant — the playground only ships plain links.
+                group.items.map((item) => {
                   const Icon = item.icon;
+                  const active = isActiveHref(item.href);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      aria-current={active ? 'page' : undefined}
+                      className="block"
+                    >
+                      <HoverBorderGradient
+                        as="div"
+                        containerClassName={cn(
+                          'rounded-xl',
+                          active &&
+                            'shadow-[0_8px_24px_-12px_rgba(124,58,237,0.55)]'
+                        )}
+                        className={cn(
+                          'bg-sidebar rounded-xl py-2.5 text-sm font-medium tracking-tight',
+                          active
+                            ? 'text-foreground'
+                            : 'text-muted-foreground hover:text-foreground'
+                        )}
+                        disableIdleAnimation={active}
+                      >
+                        <Icon className="size-4" />
+                        <span>{item.label}</span>
+                      </HoverBorderGradient>
+                    </Link>
+                  );
+                })
+              ) : (
+                <SidebarMenu>
+                  {group.items.map((item) => {
+                    const Icon = item.icon;
 
-                  // Collapsible parent with sub-items.
-                  if (item.items?.length) {
-                    const open = openItems.has(item.href);
-                    const childActive = item.items.some((sub) =>
-                      isActiveHref(sub.href)
-                    );
+                    // Collapsible parent with sub-items.
+                    if (item.items?.length) {
+                      const open = openItems.has(item.href);
+                      const childActive = item.items.some((sub) =>
+                        isActiveHref(sub.href)
+                      );
+                      return (
+                        <SidebarMenuItem key={item.href}>
+                          <SidebarMenuButton
+                            tooltip={item.label}
+                            isActive={childActive && !open}
+                            aria-expanded={open}
+                            onClick={() => toggleItem(item.href)}
+                            size={navItemSize}
+                          >
+                            <Icon />
+                            <span>{item.label}</span>
+                            <ChevronRight
+                              className={`text-muted-foreground ml-auto size-4 shrink-0 transition-transform ${
+                                open ? 'rotate-90' : ''
+                              }`}
+                            />
+                          </SidebarMenuButton>
+                          {open && (
+                            <SidebarMenuSub>
+                              {item.items.map((sub) => (
+                                <SidebarMenuSubItem key={sub.href}>
+                                  <SidebarMenuSubButton
+                                    render={<Link href={sub.href} />}
+                                    isActive={isActiveHref(sub.href)}
+                                  >
+                                    <span>{sub.label}</span>
+                                  </SidebarMenuSubButton>
+                                </SidebarMenuSubItem>
+                              ))}
+                            </SidebarMenuSub>
+                          )}
+                        </SidebarMenuItem>
+                      );
+                    }
+
+                    // Plain link.
                     return (
                       <SidebarMenuItem key={item.href}>
-                        <SidebarMenuButton
-                          tooltip={item.label}
-                          isActive={childActive && !open}
-                          aria-expanded={open}
-                          onClick={() => toggleItem(item.href)}
-                        >
-                          <Icon />
-                          <span>{item.label}</span>
-                          <ChevronRight
-                            className={`text-muted-foreground ml-auto size-4 shrink-0 transition-transform ${
-                              open ? 'rotate-90' : ''
-                            }`}
-                          />
-                        </SidebarMenuButton>
-                        {open && (
-                          <SidebarMenuSub>
-                            {item.items.map((sub) => (
-                              <SidebarMenuSubItem key={sub.href}>
-                                <SidebarMenuSubButton
-                                  render={<Link href={sub.href} />}
-                                  isActive={isActiveHref(sub.href)}
-                                >
-                                  <span>{sub.label}</span>
-                                </SidebarMenuSubButton>
-                              </SidebarMenuSubItem>
-                            ))}
-                          </SidebarMenuSub>
-                        )}
+                        <Link href={item.href}>
+                          <SidebarMenuButton
+                            tooltip={item.label}
+                            isActive={isActiveHref(item.href)}
+                            size={navItemSize}
+                          >
+                            <Icon />
+                            <span>{item.label}</span>
+                          </SidebarMenuButton>
+                        </Link>
                       </SidebarMenuItem>
                     );
-                  }
-
-                  // Plain link.
-                  return (
-                    <SidebarMenuItem key={item.href}>
-                      <Link href={item.href}>
-                        <SidebarMenuButton
-                          tooltip={item.label}
-                          isActive={isActiveHref(item.href)}
-                        >
-                          <Icon />
-                          <span>{item.label}</span>
-                        </SidebarMenuButton>
-                      </Link>
-                    </SidebarMenuItem>
-                  );
-                })}
-              </SidebarMenu>
+                  })}
+                </SidebarMenu>
+              )}
             </SidebarGroupContent>
           </SidebarGroup>
         ))}

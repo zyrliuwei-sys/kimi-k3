@@ -1,7 +1,9 @@
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { ArrowDownToLine, ArrowLeft, Loader2 } from 'lucide-react';
 
+import { useRouter } from '@/core/i18n/navigation';
 import { apiGet } from '@/lib/api-client';
 import { m } from '@/paraglide/messages.js';
 import { Button } from '@/components/ui/button';
@@ -38,6 +40,19 @@ function ImagePreviewPage() {
     [];
   const prompt: string = t?.prompt ?? '';
   const model: string = t?.model ?? '';
+
+  // ESC returns to the My Images grid (the page the user came from).
+  // Matches the "Back to grid" link in the top bar — used the same way
+  // a modal would dismiss. Not active when the user is typing in a
+  // form field, but there are no inputs on this page.
+  const router = useRouter();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') router.back();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [router]);
 
   return (
     <div className="bg-background min-h-svh">

@@ -25,12 +25,16 @@ import { respData } from '@/lib/resp';
 async function GET() {
   const configs = await getAllConfigs();
 
-  // Exposed in the composer menu are: gpt-image-2 (OpenAI flagship on
-  // Evolink) and gemini-3.1-flash-image-preview (Nano Banana 2). Both
-  // are reached through the same /v1/images/generations endpoint but
-  // have different request shapes — handled in evolink-image.submit().
-  // Admin can override the default via `evolink_image_model`.
-  const EXPOSED_MODELS = ['gpt-image-2', 'gemini-3.1-flash-image-preview'];
+  // Exposed in the composer menu are:
+  //   - gpt-image-2 (OpenAI flagship, ~15-25s typical) — DEFAULT
+  //   - gpt-image-1.5-lite (if the gateway serves it — filtered at runtime)
+  //
+  // Nano Banana 2 (gemini-3.1-flash-image-preview) is parked for now —
+  // the deployment's gateway returns empty imageUrls for it, so the user
+  // sees a submit succeed but no image land. Drop it back into the list
+  // when the upstream provider is fixed. Decide default vs. alt ordering
+  // via `evolink_image_model` in admin.
+  const EXPOSED_MODELS = ['gpt-image-2', 'gpt-image-1.5-lite'];
   const defaultModel = configs?.evolink_image_model || EXPOSED_MODELS[0];
 
   if (!configs?.evolink_api_key) {
@@ -58,7 +62,22 @@ async function GET() {
   // want them shown. If the listing call above dropped any model, it
   // won't appear in the menu — submit will silently reroute to the
   // default in that case.
-  return respData({ models: EXPOSED_MODELS, defaultModel });
+  return respData(
+    { models: EXPOSED_MODELS, defaultModel },
+    {
+      headers: {
+        // Public + 5min edge cache. The composer asks for this on every
+        // page load to populate the model menu; without an edge cache
+        // the request would always round-trip the origin (and on Workers
+        // that means a DB read + upstream gateway call every time). 5
+        // minutes is short enough that adding/removing a model in admin
+        // settings propagates quickly, long enough that repeat visitors
+        // never hit the origin.
+        'Cache-Control':
+          'public, max-age=300, s-maxage=300, stale-while-revalidate=60',
+      },
+    }
+  );
 }
 
 export const Route = createFileRoute('/api/ai-tasks/image-models')({

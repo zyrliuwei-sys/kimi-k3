@@ -65,6 +65,7 @@ import {
   InputGroupAddon,
   InputGroupTextarea,
 } from '@/components/ui/input-group';
+import { NoiseBackground } from '@/components/ui/noise-background';
 import {
   Popover,
   PopoverContent,
@@ -1761,7 +1762,11 @@ interface ImageTaskRow {
   status: string;
   model?: string | null;
   createdAt: string | Date;
+  /** First-frame thumbnail — kept for the sidebar chip preview. */
   thumbnailUrl?: string | null;
+  /** Every image the submission produced (1-4). Drives the row layout
+   *  in My Images: each batch is one row, all its images side-by-side. */
+  imageUrls?: string[] | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2026,25 +2031,37 @@ export function ChatPlayground() {
   const newChatMutation = useMutation({
     mutationFn: () => apiPost<{ chat: ChatRow }>('/api/chat', {}),
     onSuccess: (data) => {
-      playgroundStore.setActiveChatId(data.chat.id);
+      store.setActiveChatId(data.chat.id);
       queryClient.invalidateQueries({ queryKey: ['chats'] });
     },
   });
 
   async function handleSend() {
-    if (!requireAuth()) return;
+    // No client-side auth gate — the server-side `/api/playground/chat`
+    // already returns the right `gate` event for anonymous visitors
+    // (login_required) and signed-in users with no credits
+    // (payment_required). The previous client-side `requireAuth()`
+    // short-circuited to a dialog and confused users who expected the
+    // chat to "just work" with whatever gate the backend surfaces.
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     if (isThinking) return;
 
     let chatId = activeChatId;
-    if (!chatId) {
+    // Skip the lazy-create for anonymous visitors — `/api/chat` POST
+    // requires auth (returns `{code:-1, message:"Unauthorized"}`), which
+    // would toast an error and abort the send before the stream ever
+    // fires. The playground chat endpoint (`/api/playground/chat`) is
+    // auth-agnostic and will surface `login_required` via the gate
+    // event if the user is anonymous, so the auth dialog can take over
+    // from there.
+    if (!chatId && session?.user) {
       // Lazy-create. The mutation's onSuccess will set the id; we then
       // need to read it back from the store before posting the message.
       try {
         const created = await apiPost<{ chat: ChatRow }>('/api/chat', {});
         chatId = created.chat.id;
-        playgroundStore.setActiveChatId(chatId);
+        store.setActiveChatId(chatId);
         queryClient.invalidateQueries({ queryKey: ['chats'] });
       } catch (e) {
         toast.error((e as Error).message);
@@ -2118,10 +2135,17 @@ export function ChatPlayground() {
           onDelta: (delta) => pushOrAppend(delta),
           onGate: (status) => {
             setIsThinking(false);
-            const body =
-              status === 'login_required'
-                ? m['playground.gate.login']()
-                : m['playground.gate.pay']();
+            if (status === 'login_required') {
+              // Pop the sign-in dialog for anonymous visitors so they
+              // don't have to interpret a generic "you've used your
+              // free message" assistant bubble as their next step.
+              setAuthOpen(true);
+              // Drop the assistant bubble — the modal owns the
+              // conversation from here.
+              setMessages((prev) => prev.filter((mm) => mm.id !== assistantId));
+              return;
+            }
+            const body = m['playground.gate.pay']();
             setMessages((prev) => [
               ...prev,
               {
@@ -2359,7 +2383,11 @@ const GALLERY_ITEMS: Tile[] = (() => {
 // Column count per breakpoint, measured off the reference.
 const GALLERY_GAP = 4;
 function columnsForWidth(w: number) {
-  if (w >= 1024) return 5;
+  if (w >= 1800) return 10;
+  if (w >= 1500) return 8;
+  if (w >= 1280) return 7;
+  if (w >= 1024) return 6;
+  if (w >= 768) return 4;
   if (w >= 640) return 3;
   return 2;
 }
@@ -2714,20 +2742,20 @@ const IMAGE_MODEL_META: ImageModelMeta[] = [
     weight: 1,
   },
   {
-    test: /gpt-image-1\.5/,
-    name: 'GPT Image 1.5',
-    icon: Bot,
-    vendor: 'OpenAI',
-    desc: 'Stable 1.5 generation',
-    weight: 2,
-  },
-  {
     test: /gpt-image-1\.5-lite/,
     name: 'GPT Image 1.5 Lite',
     icon: Bot,
     vendor: 'OpenAI',
     badge: 'Lite',
     desc: 'Fast small variant',
+    weight: 2,
+  },
+  {
+    test: /gpt-image-1\.5/,
+    name: 'GPT Image 1.5',
+    icon: Bot,
+    vendor: 'OpenAI',
+    desc: 'Stable 1.5 generation',
     weight: 3,
   },
 
@@ -3268,16 +3296,30 @@ const GALLERY_TABS = [
  */
 
 /**
- * User's own generated images as a tidy equal-height grid.
+ * User's own generated images, grouped into **batch rows**: one row per
+ * submission, oldest at the top and newest at the bottom (caller passes
+ * the list pre-reversed). When the user picks `N=2` the row lays out two
+ * tiles side-by-side; `N=4` → four tiles. Multi-image submissions that
+ * used to lose every frame past the first now show all of them, and
+ * the batch they belong to is immediately readable as a unit.
  *
- * Each tile uses the image's NATURAL aspect ratio so 16:9 / 9:16 / etc.
- * picks actually look like the ratio the user chose — a fixed 1:1 tile
- * with `object-cover` would crop every non-square image and the user
- * couldn't tell whether their pick actually took effect. Until the
- * image's dimensions load we fall back to 1:1 to keep the grid stable,
- * then re-flow once the real aspect comes in.
+ * Each tile still uses the image's NATURAL aspect ratio (via
+ * `MyImageTile`) so 16:9 / 9:16 / etc. actually look like the ratio the
+ * user chose — a fixed 1:1 tile with `object-cover` would crop every
+ * non-square image and the user couldn't tell whether their pick took
+ * effect. Until the dimensions load we fall back to 1:1 to keep the
+ * grid stable, then re-flow once the real aspect comes in.
+ *
+ * Rows are **left-aligned** with a compact tile size (`w-36`) — not a
+ * spread-to-the-edges grid — so the gallery reads as a tidy column of
+ * batches instead of a full-width mosaic.
+ *
+ * Stale in-flight rows that never produce an image (timed-out, failed
+ * silently, evicted R2 URLs, etc.) are filtered out so the list doesn't
+ * fill up with eternal "Generating…" spinners; only a fresh submit's
+ * short-lived processing placeholder survives.
  */
-function MyImageMasonry({
+function MyImageRows({
   rows,
   onSelect,
   highlightId,
@@ -3286,48 +3328,107 @@ function MyImageMasonry({
   onSelect: (id: string) => void;
   highlightId?: string | null;
 }) {
-  if (rows.length === 0) {
-    return (
-      <div className="border-border bg-card/40 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed py-16 text-center">
-        <SparklesIcon className="text-foreground/30 size-10" />
-        <p className="text-muted-foreground text-sm">
-          {m['playground.image.result_empty']()}
-        </p>
-      </div>
-    );
+  // Force a re-render every 30s so the staleness filter below can drop
+  // an in-flight row the moment it crosses the 2-minute window. Without
+  // the tick the filter only re-evaluates when `rows` changes, leaving
+  // expired placeholders visible to whoever happens to be staring at
+  // the page.
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+  const now = Date.now();
+  // Show a processing placeholder at most 30s before giving up the
+  // slot — beyond that the task has almost certainly failed / timed
+  // out / lost its URL, and showing an eternal spinner is worse than
+  // silently dropping it (the row can still be reached via the
+  // sidebar history).
+  const FRESH_PROCESSING_MS = 30_000;
+
+  const visibleRows = rows.filter((r) => {
+    const urls = r.imageUrls ?? (r.thumbnailUrl ? [r.thumbnailUrl] : []);
+    // Any task that produced at least one image stays on the list.
+    if (urls.length > 0) return true;
+    // A task still in-flight AND just submitted → keep the spinner so
+    // the user sees their fresh attempt. Older than 2 minutes and
+    // still no image → hide (it timed out / failed / lost its URL).
+    const age = now - new Date(r.createdAt).getTime();
+    if (
+      (r.status === 'processing' || r.status === 'pending') &&
+      age < FRESH_PROCESSING_MS
+    ) {
+      return true;
+    }
+    return false;
+  });
+
+  if (visibleRows.length === 0) {
+    // The section header above still names "Your generated images" and
+    // the right-aligned "← Community" link is the way out, so the list
+    // area is deliberately left blank — no sparkles placeholder, no
+    // "your images will appear here" copy. The user knows where they
+    // are from the chrome.
+    return null;
   }
 
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {rows.map((r) => {
-        const url = r.thumbnailUrl;
+    <div className="flex flex-col items-start gap-3">
+      {visibleRows.map((r) => {
+        const urls = r.imageUrls ?? (r.thumbnailUrl ? [r.thumbnailUrl] : []);
+        const count = urls.length;
+        // In-flight batch (status='processing' with no URLs yet) keeps
+        // a single spinner tile inside the row so the latest submit is
+        // visible at the bottom of the list. Once the polling refetch
+        // brings the real images, the row swaps to the loaded tiles.
+        const isInFlight =
+          (r.status === 'processing' || r.status === 'pending') && count === 0;
+        // Highlight only the just-landed batch — the effect flips back
+        // to false ~2s after the submit settles.
         const highlight = r.id === highlightId;
-        // In-flight tasks (status='processing' with no imageUrls yet)
-        // show a spinner tile so the user can see their latest submit
-        // is still working at the top of the grid. Once the image
-        // lands, the row swaps to the real tile on the next refetch.
-        if (!url) {
-          if (r.status === 'processing' || r.status === 'pending') {
-            return (
-              <ProcessingTile
-                key={r.id}
-                prompt={r.prompt || 'Generating…'}
-                highlight={highlight}
-                taskId={r.id}
-              />
-            );
-          }
-          return null;
-        }
+
         return (
-          <MyImageTile
-            key={r.id}
-            url={url}
-            prompt={r.prompt || 'Generated image'}
-            onSelect={() => onSelect(r.id)}
-            highlight={highlight}
-            taskId={r.id}
-          />
+          <div key={r.id} className="flex flex-col items-start gap-1.5">
+            {/* Per-batch prompt header — sits above the image card so
+                the user can see what produced each submission without
+                hovering. Trims to 2 lines so a chat-log-style prompt
+                doesn't blow up the row height. */}
+            <p className="text-muted-foreground line-clamp-2 max-w-md px-1 text-xs">
+              <span className="text-foreground/70 mr-1 font-medium">
+                {m['playground.image.batch_prompt_label']()}
+              </span>
+              {r.prompt?.trim() || '—'}
+            </p>
+            <div
+              data-task-id={r.id}
+              className={cn(
+                'border-border bg-card/40 rounded-2xl border p-2',
+                highlight &&
+                  'ring-foreground ring-offset-background ring-4 ring-offset-2'
+              )}
+            >
+              <div className="flex flex-wrap items-start gap-2">
+                {isInFlight ? (
+                  <ProcessingTile
+                    prompt={r.prompt || 'Generating…'}
+                    highlight={false}
+                    taskId={r.id}
+                  />
+                ) : (
+                  urls.map((url, i) => (
+                    <MyImageTile
+                      key={`${r.id}-${i}`}
+                      url={url}
+                      prompt={r.prompt || 'Generated image'}
+                      onSelect={() => onSelect(r.id)}
+                      highlight={highlight && i === 0}
+                      taskId={`${r.id}-${i}`}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         );
       })}
     </div>
@@ -3336,8 +3437,11 @@ function MyImageMasonry({
 
 /**
  * Placeholder tile for an in-flight task. Shimmer animation so the user
- * can see their submit landed at the top of the grid — the row swaps
- * to the real image once the polling refetch brings imageUrls.
+ * can see their submit landed at the top of the grid, plus a thin
+ * progress bar that fills from 0% to 95% over ~60s — the API doesn't
+ * return a real percentage, so the bar is time-based (linear so it
+ * never stalls). The row swaps to the real image once the polling
+ * refetch brings imageUrls, so the bar never needs to actually hit 100%.
  */
 function ProcessingTile({
   prompt,
@@ -3352,7 +3456,10 @@ function ProcessingTile({
     <div
       data-task-id={taskId}
       className={cn(
-        'bg-foreground/5 relative aspect-square w-full overflow-hidden rounded-xl',
+        // Match MyImageTile's compact width so the spinner aligns with
+        // the loaded tiles in the same row — not a giant placeholder
+        // stretching across the whole card.
+        'bg-foreground/5 relative aspect-square w-36 shrink-0 overflow-hidden rounded-xl',
         highlight &&
           'ring-foreground ring-offset-background ring-4 ring-offset-2'
       )}
@@ -3372,6 +3479,12 @@ function ProcessingTile({
         <p className="text-muted-foreground relative line-clamp-2 text-center text-xs">
           {prompt}
         </p>
+      </div>
+      {/* Progress bar pinned to the bottom edge. Animates via the
+          `playground-progress-fill` keyframe in globals.css — see the
+          comment there for why it caps at 95%. */}
+      <div className="bg-foreground/10 absolute inset-x-0 bottom-0 h-1">
+        <div data-progress-bar className="brand-gradient h-full" />
       </div>
     </div>
   );
@@ -3401,7 +3514,10 @@ function MyImageTile({
       data-task-id={taskId}
       style={{ aspectRatio: ratio }}
       className={cn(
-        'group bg-foreground/5 hover:ring-foreground/30 relative w-full overflow-hidden rounded-xl hover:ring-2',
+        // Compact, fixed-width tile (instead of `w-full` stretching to
+        // fill the grid cell) so My Image rows read as tidy little
+        // cards rather than a max-width mosaic.
+        'group bg-foreground/5 hover:ring-foreground/30 relative w-36 shrink-0 overflow-hidden rounded-xl hover:ring-2',
         // Pulse ring on the tile that just landed (sync submit or
         // polling resolution). Fades out via the parent state — the
         // class is removed when `highlight` flips back to false.
@@ -3461,6 +3577,10 @@ export function ImagePlayground() {
   // Track when the current submit started so the LATEST RESULT panel
   // can show a live "Generating... Ns" counter. Reset on success.
   const [generatingSince, setGeneratingSince] = useState<number | null>(null);
+  // Gateway-provided ETA (seconds) — captured from the async submit
+  // response so the panel can show "Generating... Ns / ~Ms" instead of
+  // a blind spinner. Reset alongside `generatingSince`.
+  const [estimatedTotal, setEstimatedTotal] = useState<number | null>(null);
   // Inline preview modal — opens when the user clicks a "My Images"
   // thumbnail. We seed it with the row data already in `myImagesQuery`
   // so the image paints instantly (no route bundle, no task fetch),
@@ -3539,11 +3659,15 @@ export function ImagePlayground() {
     const MAX_ATTEMPTS = 120;
 
     const nextDelay = (n: number) => {
-      // First 12 polls: 500ms (covers sync-style models, ~6s window).
-      // Next 20: 1s. Then 2s up to attempt 62. Tail: 3s.
-      if (n <= 12) return 500;
-      if (n <= 32) return 1000;
-      if (n <= 62) return 2000;
+      // First 20 polls: 100ms — catches sync-style models (gpt-image-2
+      // returns inline in 5-15s) and the moment an async task flips to
+      // success on its first poll. Cuts the worst-case "submit → first
+      // byte" by ~400ms with no real cost (server round-trip is the
+      // dominant term anyway).
+      // Next 20: 500ms. Then 1.5s up to attempt 62. Tail: 3s.
+      if (n <= 20) return 100;
+      if (n <= 40) return 500;
+      if (n <= 62) return 1500;
       return 3000;
     };
 
@@ -3583,6 +3707,7 @@ export function ImagePlayground() {
           });
           setPollingTaskId(null);
           setGeneratingSince(null);
+          setEstimatedTotal(null);
           if (r.status === 'success') {
             toast.success(m['playground.image.generated']());
             // Surface the landing tile — scrolls into view and pulses
@@ -3598,6 +3723,14 @@ export function ImagePlayground() {
       if (attempts >= MAX_ATTEMPTS) {
         setPollingTaskId(null);
         setGeneratingSince(null);
+        setEstimatedTotal(null);
+        // Refresh the mine-list cache so the user no longer sees the
+        // stale "processing" spinner — the row will either reappear as
+        // a real image (if the upstream task eventually lands and the
+        // server marks it SUCCESS in the background) or stay filtered
+        // out (the MyImageRows' 30s-age filter hides it either way).
+        queryClient.invalidateQueries({ queryKey: ['image-tasks', 'mine'] });
+        queryClient.invalidateQueries({ queryKey: ['image-tasks'] });
         toast.error('Image generation timed out — check sidebar for status.');
         return;
       }
@@ -3609,6 +3742,23 @@ export function ImagePlayground() {
       cancelled = true;
     };
   }, [pollingTaskId, queryClient]);
+
+  // Short-circuit the polling loop the moment the task lands in the
+  // mine cache as terminal — without this, the submit button keeps
+  // spinning until the *next* poll tick (up to 3s away) even though
+  // the row is already showing the real image in My Images. Same fix
+  // applies to the failed case so the button un-disables instantly.
+  useEffect(() => {
+    if (!pollingTaskId) return;
+    const row = (myImagesQuery.data?.tasks ?? []).find(
+      (t) => t.id === pollingTaskId
+    );
+    if (row && (row.status === 'success' || row.status === 'failed')) {
+      setPollingTaskId(null);
+      setGeneratingSince(null);
+      setEstimatedTotal(null);
+    }
+  }, [pollingTaskId, myImagesQuery.data]);
 
   const submitMutation = useMutation({
     mutationFn: async () => {
@@ -3625,7 +3775,9 @@ export function ImagePlayground() {
             .map((r, i) => {
               const n = i + 1;
               const note = r.note.trim();
-              return note ? `图${n}: ${note}` : `图${n} (参考图 ${n})`;
+              return note
+                ? m['playground.image.reference_prompt_with_note']({ n, note })
+                : m['playground.image.reference_prompt_untyped']({ n });
             })
             .join(', ')
         : '';
@@ -3652,8 +3804,20 @@ export function ImagePlayground() {
         status: string;
         imageUrls?: string[];
         imageUrl?: string;
+        // Optional — only present on async submissions when the
+        // gateway supplied an ETA. The LATEST RESULT panel uses this
+        // to show a "Generating… Ns / ~Ms" countdown.
+        estimatedSeconds?: number;
         task?: any;
       }>('/api/ai-tasks', body);
+    },
+    // Switch to the My Images tab the moment the user clicks generate
+    // — before the API responds. The gallery is the default "result"
+    // surface for an image submit, so the user should land there
+    // immediately; otherwise they're stuck staring at the Community
+    // wall for a few seconds while the request flies.
+    onMutate: () => {
+      setTab('mine');
     },
     onSuccess: (data) => {
       // Sync submissions return status='success' with imageUrls inline —
@@ -3667,13 +3831,36 @@ export function ImagePlayground() {
       } else {
         setPollingTaskId(data.taskId);
       }
+      // Optimistic insert: prepend a synthetic row to the My Images
+      // cache *synchronously* so the new batch + progress bar / spinner
+      // appear in the grid on the same paint frame as the click —
+      // there's no need to wait for the invalidate-triggered refetch
+      // to round-trip to the server and back. The eventual real fetch
+      // (kept below for correctness) will reconcile any prompt /
+      // timestamp deltas with the authoritative server copy.
+      queryClient.setQueryData(['image-tasks', 'mine'], (old: any) => {
+        if (!old) return old;
+        const isImmediate = data.status === 'success';
+        const syntheticRow: any = {
+          id: data.taskId,
+          prompt,
+          status: isImmediate ? 'success' : 'processing',
+          model: data.task?.model ?? model ?? null,
+          createdAt: data.task?.createdAt ?? new Date().toISOString(),
+          // Sync returns taskResult.imageUrls populated. Async returns
+          // [] so the row renders as a ProcessingTile in MyImageRows.
+          imageUrls: isImmediate
+            ? (data.task?.taskResult?.imageUrls ?? data.imageUrls ?? [])
+            : [],
+          thumbnailUrl: isImmediate
+            ? (data.task?.taskResult?.imageUrls?.[0] ?? data.imageUrl ?? null)
+            : null,
+        };
+        if (old.tasks?.some((t: any) => t.id === data.taskId)) return old;
+        return { tasks: [syntheticRow, ...old.tasks] };
+      });
       store.setActiveImageId(data.taskId);
       setPrompt('');
-      // Auto-switch to the My Images tab so the user sees the new
-      // generation land at the top of their masonry (sorted newest
-      // first). This mirrors the Lora reference: the gallery is the
-      // default "result" surface for an image submit.
-      setTab('mine');
       // Clear any active inline preview — the user is moving to the
       // grid, so the previous focus shouldn't linger.
       setPreviewTaskId(null);
@@ -3683,7 +3870,10 @@ export function ImagePlayground() {
       // without scanning the whole grid. The setTimeout fires once;
       // subsequent submits cancel the prior one via a captured ref.
       setRecentlyLandedTaskId(data.taskId);
-      // keep reference for the next image — many users iterate on the same ref
+      // Reconcile against the server (covers prompt edits that the
+      // server may have re-shaped, and any imageUrls rehosted after
+      // submit). The synthetic row above is already painting by the
+      // time this refetch resolves, so the user perceives no delay.
       queryClient.invalidateQueries({ queryKey: ['image-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['image-tasks', 'mine'] });
       if (data.status === 'success') {
@@ -3693,12 +3883,23 @@ export function ImagePlayground() {
       // Async path: keep ticking — the polling effect will resolve it.
       if (data.status === 'success') {
         setGeneratingSince(null);
+        setEstimatedTotal(null);
+      } else {
+        // Async path: lock in the gateway ETA (if any) so the panel can
+        // show "Generating… Ns / ~Ms". Server only sends this on the
+        // initial submit response; subsequent polls don't include it.
+        setEstimatedTotal(
+          typeof data.estimatedSeconds === 'number' && data.estimatedSeconds > 0
+            ? data.estimatedSeconds
+            : null
+        );
       }
     },
     onError: (e: Error) => {
       // Always clear the timer on error so the panel doesn't stay stuck
       // on "Generating... Ns" forever when the request fails.
       setGeneratingSince(null);
+      setEstimatedTotal(null);
       const msg = e.message || '';
       const key = /insufficient/i.test(msg)
         ? 'playground.image.error_insufficient_credits'
@@ -3866,39 +4067,90 @@ export function ImagePlayground() {
   })();
   const previewUrl = previewUrls[0] || previewRow?.thumbnailUrl;
 
+  /**
+   * Save-as download — open the browser's native "Save As" dialog with
+   * a sensible default filename, all in one click.
+   *
+   * Done by navigating to the **server proxy**:
+   *   GET /api/ai-tasks/$id/image?download=1
+   *
+   * Why a proxy? Fetching the upstream provider URL directly from the
+   * browser fails with a CORS error (the provider does not set
+   * `Access-Control-Allow-Origin`), which was the previous behaviour the
+   * user hit. The proxy:
+   *
+   *   1. authenticates + authorizes ownership (no upstream URL leak),
+   *   2. streams the upstream image server-to-server (no CORS in node),
+   *   3. stamps `Content-Disposition: attachment; filename="..."`, which
+   *      is the standard header that pops the OS "Save As" picker
+   *      (folder + filename) regardless of `<a download>` quirks on
+   *      cross-origin URLs.
+   *
+   * We still pass `download` as a hint on the anchor so the browser
+   * uses the filename instead of just *opening* the stream.
+   */
+  function handleDownload() {
+    if (!previewTaskId) return;
+    const url = `/api/ai-tasks/${previewTaskId}/image?download=1`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener noreferrer';
+    // Filename + Content-Disposition header (set by the proxy) determine
+    // the saved file name + folder the user picks. `download=""` is just
+    // a hint so the browser doesn't navigate to the stream URL.
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   return (
     <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
-      {/* Floating segmented tab bar — sits above the wall, centered. */}
+      {/* Floating segmented tab bar — sits above the wall, centered.
+          Aceternity-style: a NoiseBackground pill wraps two cut-out
+          buttons that read as "windows" through the slab. The inactive
+          tab is darker because it sits under the coloured gradient;
+          the active tab uses a solid white background so it reads as
+          the pressed state. */}
       <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
-        <div className="bg-sidebar/80 pointer-events-auto relative inline-flex h-10 items-center rounded-3xl px-1 backdrop-blur-sm select-none">
-          {GALLERY_TABS.map((t) => {
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setTab(t.id)}
-                className={cn(
-                  'relative z-10 inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-3xl px-3.5 text-sm font-medium transition-colors outline-none',
-                  active
-                    ? 'text-foreground bg-background shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <t.icon className="size-4" />
-                {t.label()}
-              </button>
-            );
-          })}
-        </div>
+        <NoiseBackground
+          containerClassName="pointer-events-auto h-10 w-fit rounded-full p-1.5 select-none bg-sidebar/80"
+          gradientColors={[]}
+          noiseOpacity={0}
+          className="rounded-full"
+        >
+          <div className="relative z-10 flex h-7 items-center gap-1">
+            {GALLERY_TABS.map((t) => {
+              const active = tab === t.id;
+              return (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setTab(t.id)}
+                  className={cn(
+                    'inline-flex h-full cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-all outline-none',
+                    active
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
+                  )}
+                >
+                  <t.icon className="size-4" />
+                  {t.label()}
+                </button>
+              );
+            })}
+          </div>
+        </NoiseBackground>
       </div>
 
-      {/* Scroll track. `pb-32` clears the floating composer; the scrollbar
-          is hidden and overscroll contained, matching the reference. */}
+      {/* Scroll track. `pb-56` clears the floating composer (with
+          breathing room for the reference-image strip — its tallest
+          state can push the composer past 200px). The scrollbar is
+          hidden and overscroll contained, matching the reference. */}
       <div className="flex-1 overflow-hidden">
-        <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none pb-32">
+        <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none pb-56">
           {tab === 'community' ? (
-            <div className="mx-auto min-h-full w-full max-w-3xl px-4">
+            <div className="min-h-full w-full">
               <GalleryWall />
               {/* CTA end-cap — the payoff after scrolling the wall. */}
               <div className="flex flex-col items-center px-4 py-20">
@@ -3926,9 +4178,6 @@ export function ImagePlayground() {
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-6">
               <section>
                 <header className="mb-3 flex items-center justify-between">
-                  <h2 className="text-foreground text-sm font-semibold">
-                    {m['playground.image.my_images_title']()}
-                  </h2>
                   <button
                     type="button"
                     onClick={() => setPreviewTaskId(null)}
@@ -3937,6 +4186,21 @@ export function ImagePlayground() {
                     ← {m['playground.image.back_to_grid']()}
                   </button>
                 </header>
+                {/* Media-type badge above the preview. Shows a picture-
+                    frame icon + the image's prompt (its "content") so
+                    the user can tell at a glance what they're looking
+                    at without having to scroll down to the prompt
+                    block. Falls back to a generic label when the
+                    task hasn't loaded its prompt yet. */}
+                <div className="mb-3 flex items-center gap-2">
+                  <span className="bg-foreground/5 text-muted-foreground inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium">
+                    <ImageIcon className="size-3.5" />
+                    <span className="line-clamp-1 max-w-[calc(100vw-12rem)]">
+                      {(previewDetail?.prompt || previewRow?.prompt)?.trim() ||
+                        m['playground.image.preview_default_label']()}
+                    </span>
+                  </span>
+                </div>
                 <div className="border-border bg-card/40 overflow-hidden rounded-2xl border">
                   <div className="bg-foreground/5 flex max-h-[70vh] min-h-[18rem] items-center justify-center overflow-hidden">
                     {previewUrl ? (
@@ -3988,15 +4252,15 @@ export function ImagePlayground() {
                           </a>
                         ) : null}
                         {previewUrl ? (
-                          <a
-                            href={previewUrl}
-                            download
+                          <button
+                            type="button"
+                            onClick={handleDownload}
                             className={cn(
                               buttonVariants({ size: 'sm', variant: 'outline' })
                             )}
                           >
                             {m['playground.image.download']()}
-                          </a>
+                          </button>
                         ) : null}
                       </div>
                     </div>
@@ -4007,10 +4271,7 @@ export function ImagePlayground() {
           ) : (
             <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-6">
               <section>
-                <header className="mb-3 flex items-center justify-between">
-                  <h2 className="text-foreground text-sm font-semibold">
-                    {m['playground.image.my_images_title']()}
-                  </h2>
+                <header className="mb-3 flex items-center justify-end">
                   <button
                     type="button"
                     onClick={() => setTab('community')}
@@ -4019,11 +4280,11 @@ export function ImagePlayground() {
                     ← {m['playground.image.wall_cta_button']()}
                   </button>
                 </header>
-                <MyImageMasonry
-                  rows={myImagesQuery.data?.tasks ?? []}
+                <MyImageRows
+                  rows={[...(myImagesQuery.data?.tasks ?? [])].reverse()}
                   onSelect={(id) => {
                     // Inline preview — image paints immediately from
-                    // the row's cached thumbnailUrl (no fetch). The
+                    // the row's cached imageUrls[0] (no fetch). The
                     // grid is replaced by the preview view above; this
                     // 0-network-roundtrip path keeps the click snappy.
                     setPreviewTaskId(id);
@@ -4036,216 +4297,166 @@ export function ImagePlayground() {
         </div>
       </div>
 
-      {/* Active result panel — appears above the composer as soon as the
-          latest task produces an image. Renders a placeholder while
-          polling, the final image once it lands, or hides entirely
-          when there's no active task. Hidden on the My Images tab:
-          the new tile already lives at the top of the masonry, so
-          showing both would be redundant visual noise. */}
-      {activeImageId && tab !== 'mine' ? (
-        <div className="pointer-events-none absolute inset-x-0 bottom-[calc(theme(spacing.32)+0.5rem)] z-10 flex justify-center px-4">
-          <div className="bg-card/90 pointer-events-auto w-full max-w-3xl overflow-hidden rounded-2xl border border-white/10 shadow-lg backdrop-blur-md">
-            <div className="flex items-center justify-between gap-3 border-b border-white/5 px-4 py-2">
-              <span className="text-foreground/70 text-xs font-semibold tracking-[0.08em] uppercase">
-                {m['playground.image.active_title']()}
-              </span>
+      {/* Floating composer — shown in both Community and the My Images
+          grid view (but never during an image preview, where it would
+          cover the meta panel). The scroll track's bottom padding
+          (`pb-56`) compensates for the composer's height so the last
+          batch row stays fully visible above it — see the surrounding
+          `pb-56` on the scroll container. */}
+      {!previewTaskId ? (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-6">
+          <div
+            onPaste={handleReferencePaste}
+            className="border-border bg-sidebar/80 pointer-events-auto w-full max-w-3xl rounded-[28px] border p-1.5 shadow-xs backdrop-blur-sm"
+          >
+            {references.length > 0 ? (
+              // Strip of reference images. Each chip carries a tiny
+              // "图N" label (so the user can refer to "图3" in the
+              // prompt) and an inline note input ("图3 是海") — the
+              // note is what the model sees, the index is just for the
+              // human. Wraps onto a second row when 5+ are attached.
+              <div className="flex flex-wrap items-start gap-2 px-3 pt-2">
+                {references.map((r, i) => (
+                  <div
+                    key={r.previewUrl}
+                    className="group/reference relative shrink-0"
+                  >
+                    <div className="relative size-14 overflow-hidden rounded-lg">
+                      <img
+                        src={r.previewUrl}
+                        alt={r.filename}
+                        className="size-full object-cover"
+                      />
+                      {/* Always-visible 图N label — small dark chip in the
+                        top-left so the user can refer to it elsewhere. */}
+                      <span className="bg-foreground/80 text-background absolute top-0.5 left-0.5 rounded px-1 text-[10px] leading-4 font-medium">
+                        {m['playground.image.reference_chip_index']({
+                          n: i + 1,
+                        })}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          URL.revokeObjectURL(r.previewUrl);
+                          setReferences((prev) =>
+                            prev.filter((_, j) => j !== i)
+                          );
+                        }}
+                        className="bg-foreground/70 text-background absolute top-0.5 right-0.5 inline-flex size-4 items-center justify-center rounded-full"
+                        aria-label={m['playground.image.reference_remove']()}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                    {/* Per-image note. Sits under the chip; its text is
+                      injected into the prompt as "图N: <note>". */}
+                    <input
+                      type="text"
+                      value={r.note}
+                      onChange={(e) =>
+                        setReferences((prev) =>
+                          prev.map((x, j) =>
+                            j === i ? { ...x, note: e.target.value } : x
+                          )
+                        )
+                      }
+                      placeholder={m[
+                        'playground.image.reference_note_placeholder'
+                      ]()}
+                      className="placeholder:text-muted-foreground/60 text-foreground hover:border-border focus:border-foreground/30 mt-1.5 w-14 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] outline-none"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <textarea
+              ref={promptRef}
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  if (prompt.trim() && !submitMutation.isPending)
+                    submitMutation.mutate();
+                }
+              }}
+              placeholder={m['playground.image.prompt_placeholder']()}
+              rows={2}
+              className="placeholder:text-muted-foreground block w-full resize-none bg-transparent px-3 py-2.5 text-base leading-relaxed outline-none"
+            />
+
+            <div className="flex items-center gap-1 px-1 pb-1">
+              <label
+                // Hide only while a previous paste/upload is in flight.
+                // The + stays visible (disabled-looking) when the cap is
+                // hit so the user can still see the affordance.
+                className={cn(
+                  'inline-flex size-9 items-center justify-center rounded-full transition-colors',
+                  uploadingReference
+                    ? 'pointer-events-none hidden'
+                    : references.length >= MAX_REFERENCES
+                      ? 'text-muted-foreground/40 pointer-events-none cursor-not-allowed'
+                      : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground cursor-pointer'
+                )}
+                aria-label={m['playground.attachment.add']()}
+              >
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={references.length >= MAX_REFERENCES}
+                  onChange={(e) => handleReferenceUpload(e.target.files)}
+                />
+                <Plus className="size-4" />
+              </label>
+              {/* Image count + aspect ratio — two small popovers that
+                feed into the submit body. The model menu stays at the
+                far right of the toolbar so it doesn't shift around. */}
+              <ImageCountMenu value={imageCount} onChange={setImageCount} />
+              <AspectRatioMenu value={aspectRatio} onChange={setAspectRatio} />
+
+              <div className="ml-auto flex items-center gap-1">
+                {/* Model menu — always rendered so the user can see what's
+                  available, even on a deployment that doesn't expose a
+                  multi-model gateway (the list falls back to the single
+                  default id). "New image" lives in the sidebar CTA
+                  (route.tsx), which calls the same clearActive(). */}
+                {activeModel ? (
+                  <ImageModelMenu
+                    models={
+                      availableModels.length > 0
+                        ? availableModels
+                        : [activeModel]
+                    }
+                    selected={activeModel}
+                    onSelect={setModel}
+                  />
+                ) : null}
+              </div>
               <button
                 type="button"
-                onClick={() =>
-                  navigate({
-                    to: '/api-playground/image/$id',
-                    params: { id: activeImageId },
-                  })
+                // Disable on submit OR while a previous task is still
+                // polling. The previous code only checked isPending, which
+                // let the user fire a second submit mid-poll — that meant
+                // two credit deductions and two aiTask rows for one image.
+                disabled={
+                  !prompt.trim() || submitMutation.isPending || !!pollingTaskId
                 }
-                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
+                onClick={() => submitMutation.mutate()}
+                className="bg-foreground text-background inline-flex size-9 items-center justify-center rounded-full transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label={m['playground.image.submit']()}
               >
-                {m['playground.image.view_full']()}
-                <ArrowUp className="size-3 -rotate-45" />
+                {submitMutation.isPending || pollingTaskId ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <CornerDownLeft className="size-4" />
+                )}
               </button>
-            </div>
-            <div className="bg-foreground/5 flex max-h-[55vh] min-h-[18rem] items-center justify-center overflow-hidden">
-              {activeResultUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={activeResultUrl}
-                  alt={prompt || 'Latest generated image'}
-                  className="mx-auto max-h-[55vh] w-auto object-contain"
-                  decoding="async"
-                  loading="eager"
-                />
-              ) : (
-                // Animated placeholder — a slowly-shifting gradient plus
-                // a live elapsed counter so the panel never feels frozen.
-                // The counter resets on every new submit.
-                <div className="relative flex w-full flex-col items-center justify-center gap-3 px-6 py-10">
-                  <div
-                    className="absolute inset-0 opacity-60"
-                    style={{
-                      backgroundImage:
-                        'linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%)',
-                      backgroundSize: '200% 100%',
-                      animation: 'playground-shimmer 1.6s linear infinite',
-                    }}
-                  />
-                  <Loader2 className="text-muted-foreground relative size-5 animate-spin" />
-                  <span className="text-muted-foreground relative text-sm">
-                    {m['playground.image.generating']()}
-                    <span className="text-foreground/70 ml-1 font-mono tabular-nums">
-                      {elapsedSeconds}s
-                    </span>
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         </div>
       ) : null}
-
-      {/* Floating composer — glass panel over the wall. */}
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-6">
-        <div
-          onPaste={handleReferencePaste}
-          className="border-border bg-sidebar/80 pointer-events-auto w-full max-w-3xl rounded-[28px] border p-1.5 shadow-xs backdrop-blur-sm"
-        >
-          {references.length > 0 ? (
-            // Strip of reference images. Each chip carries a tiny
-            // "图N" label (so the user can refer to "图3" in the
-            // prompt) and an inline note input ("图3 是海") — the
-            // note is what the model sees, the index is just for the
-            // human. Wraps onto a second row when 5+ are attached.
-            <div className="flex flex-wrap items-start gap-2 px-3 pt-2">
-              {references.map((r, i) => (
-                <div
-                  key={r.previewUrl}
-                  className="group/reference relative shrink-0"
-                >
-                  <div className="relative size-14 overflow-hidden rounded-lg">
-                    <img
-                      src={r.previewUrl}
-                      alt={r.filename}
-                      className="size-full object-cover"
-                    />
-                    {/* Always-visible 图N label — small dark chip in the
-                        top-left so the user can refer to it elsewhere. */}
-                    <span className="bg-foreground/80 text-background absolute top-0.5 left-0.5 rounded px-1 text-[10px] leading-4 font-medium">
-                      图{i + 1}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        URL.revokeObjectURL(r.previewUrl);
-                        setReferences((prev) => prev.filter((_, j) => j !== i));
-                      }}
-                      className="bg-foreground/70 text-background absolute top-0.5 right-0.5 inline-flex size-4 items-center justify-center rounded-full"
-                      aria-label={m['playground.image.reference_remove']()}
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </div>
-                  {/* Per-image note. Sits under the chip; its text is
-                      injected into the prompt as "图N: <note>". */}
-                  <input
-                    type="text"
-                    value={r.note}
-                    onChange={(e) =>
-                      setReferences((prev) =>
-                        prev.map((x, j) =>
-                          j === i ? { ...x, note: e.target.value } : x
-                        )
-                      )
-                    }
-                    placeholder={m[
-                      'playground.image.reference_note_placeholder'
-                    ]()}
-                    className="placeholder:text-muted-foreground/60 text-foreground hover:border-border focus:border-foreground/30 mt-1.5 w-14 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[10px] outline-none"
-                  />
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          <textarea
-            ref={promptRef}
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (prompt.trim() && !submitMutation.isPending)
-                  submitMutation.mutate();
-              }
-            }}
-            placeholder={m['playground.image.prompt_placeholder']()}
-            rows={2}
-            className="placeholder:text-muted-foreground block w-full resize-none bg-transparent px-3 py-2.5 text-base leading-relaxed outline-none"
-          />
-
-          <div className="flex items-center gap-1 px-1 pb-1">
-            <label
-              // Hide only while a previous paste/upload is in flight.
-              // The + stays visible (disabled-looking) when the cap is
-              // hit so the user can still see the affordance.
-              className={cn(
-                'inline-flex size-9 items-center justify-center rounded-full transition-colors',
-                uploadingReference
-                  ? 'pointer-events-none hidden'
-                  : references.length >= MAX_REFERENCES
-                    ? 'text-muted-foreground/40 pointer-events-none cursor-not-allowed'
-                    : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground cursor-pointer'
-              )}
-              aria-label={m['playground.attachment.add']()}
-            >
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                disabled={references.length >= MAX_REFERENCES}
-                onChange={(e) => handleReferenceUpload(e.target.files)}
-              />
-              <Plus className="size-4" />
-            </label>
-            {/* Image count + aspect ratio — two small popovers that
-                feed into the submit body. The model menu stays at the
-                far right of the toolbar so it doesn't shift around. */}
-            <ImageCountMenu value={imageCount} onChange={setImageCount} />
-            <AspectRatioMenu value={aspectRatio} onChange={setAspectRatio} />
-
-            <div className="ml-auto flex items-center gap-1">
-              {/* Model menu — only rendered when the key actually serves
-                  more than one image model, so a single-model deployment
-                  doesn't get a dropdown with nothing to choose.
-                  "New image" lives in the sidebar CTA (route.tsx), which
-                  calls the same clearActive() — no need to repeat it here. */}
-              {availableModels.length > 0 && activeModel ? (
-                <ImageModelMenu
-                  models={availableModels}
-                  selected={activeModel}
-                  onSelect={setModel}
-                />
-              ) : null}
-            </div>
-            <button
-              type="button"
-              // Disable on submit OR while a previous task is still
-              // polling. The previous code only checked isPending, which
-              // let the user fire a second submit mid-poll — that meant
-              // two credit deductions and two aiTask rows for one image.
-              disabled={
-                !prompt.trim() || submitMutation.isPending || !!pollingTaskId
-              }
-              onClick={() => submitMutation.mutate()}
-              className="bg-foreground text-background inline-flex size-9 items-center justify-center rounded-full transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
-              aria-label={m['playground.image.submit']()}
-            >
-              {submitMutation.isPending || pollingTaskId ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <CornerDownLeft className="size-4" />
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
 
       <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
     </div>
@@ -4737,11 +4948,7 @@ export function PlaygroundSidebarList({
       );
 
     if (!list.length) {
-      return (
-        <p className="text-foreground/55 px-2 py-1 text-xs">
-          {m['playground.sidebar.no_chats']()}
-        </p>
-      );
+      return null;
     }
 
     return (
@@ -4750,8 +4957,11 @@ export function PlaygroundSidebarList({
           <SessionRow
             key={c.id}
             index={i + 1}
-            label={m['playground.sidebar.chat_label']({ n: i + 1 })}
-            title={c.title?.trim() || m['playground.sidebar.untitled']()}
+            // No `[Chat #N]` chip — chat rows don't need an extra
+            // marker when the row itself is identifiable by the
+            // (optional) conversation title on the right.
+            label=""
+            title={c.title?.trim() || ''}
             active={store.activeChatId === c.id}
             onClick={() => store.setActiveChatId(c.id)}
             onDelete={async () => {
@@ -4836,7 +5046,14 @@ function SessionRow({
   onDelete,
 }: {
   index: number;
-  label: string;
+  /** Tiny `[Chat #N]`-style chip rendered to the left of the row when
+   *  there's no thumbnail. Optional — pass `undefined` (or empty) to
+   *  hide it entirely (used by the chat-mode sidebar, where the
+   *  numeric index adds no information the user can act on). */
+  label?: string;
+  /** Main title text. Empty string renders an empty click-target; the
+   *  call site decides whether to show a placeholder like "Untitled"
+   *  or hide it altogether. */
   title: string;
   active: boolean;
   thumbnailUrl?: string;
@@ -4859,11 +5076,11 @@ function SessionRow({
           alt=""
           className="size-7 shrink-0 rounded object-cover"
         />
-      ) : (
+      ) : label ? (
         <span className="text-foreground/55 min-w-[5.5rem] shrink-0 font-mono text-[11px]">
           {label}
         </span>
-      )}
+      ) : null}
       <button
         type="button"
         onClick={onClick}

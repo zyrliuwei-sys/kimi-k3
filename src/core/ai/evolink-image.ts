@@ -19,6 +19,27 @@
 
 import { extractImageUrls } from './image-urls';
 
+/**
+ * Pull a completion-time estimate (seconds) out of an Evolink async submit
+ * response. The gateway has reshuffled this field across past versions —
+ * `task_info.estimated_time` is the canonical home but we've also seen it
+ * on the root as `estimated_time` / `eta_seconds`. Returns undefined when
+ * nothing matches so the UI can fall back to its heuristic countdown.
+ */
+function extractEstimatedSeconds(data: any): number | undefined {
+  const candidates = [
+    data?.task_info?.estimated_time,
+    data?.estimated_time,
+    data?.eta_seconds,
+    data?.task_info?.eta_seconds,
+  ];
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n > 0 && n < 600) return n;
+  }
+  return undefined;
+}
+
 export interface EvolinkImageConfigs {
   apiKey: string;
   baseUrl?: string; // default https://api.evolink.ai/v1
@@ -119,6 +140,9 @@ export class EvolinkImageProvider {
         mode: 'async';
         taskId: string; // remote polling id
         model: string;
+        /** Gateway-provided estimate of completion time in seconds. May be
+         *  undefined if the gateway didn't supply it (some models). */
+        estimatedSeconds?: number;
         raw: any;
       }
   > {
@@ -195,12 +219,17 @@ export class EvolinkImageProvider {
     }
 
     // Async path (HTTP 202): only the task id is in the response. The
-    // actual URLs come later via `queryStatus()`.
+    // actual URLs come later via `queryStatus()`. The gateway also hands
+    // back an estimated completion time in `task_info.estimated_time`
+    // (seconds) — surfaced to the UI so the user sees a real countdown
+    // instead of a generic "Generating…" spinner.
     if (data?.id) {
+      const estimatedSeconds = extractEstimatedSeconds(data);
       return {
         mode: 'async',
         taskId: data.id,
         model: data?.model || args.model,
+        estimatedSeconds,
         raw: data,
       };
     }
@@ -242,7 +271,40 @@ export class EvolinkImageProvider {
     return EvolinkImageProvider.CANDIDATE_POLL_PATHS[0];
   }
 
-  private discoveredPollPath: string | null = null;
+  /**
+   * Module-level cache of the working poll path per baseUrl.
+   *
+   * Previously this lived as `private discoveredPollPath` on the provider
+   * instance — but the provider is `new`'d on every request (in `-image.ts`
+   * and `$id.ts`), so the cache was cold on every poll and the
+   * `pickPollPathForTaskId` hint had to shoulder the load. Hoisting it
+   * here means once any request in the process discovers the right path,
+   * every subsequent request starts with it cached and skips the fallback
+   * sweep entirely. Capped per baseUrl so a stale entry can't linger if
+   * the gateway shuffles paths.
+   */
+  private static readonly DISCOVERED_TTL_MS = 10 * 60 * 1000; // 10 min
+  private static readonly discoveredCache = new Map<
+    string,
+    { path: string; expires: number }
+  >();
+
+  private get discoveredPollPath(): string | null {
+    const entry = EvolinkImageProvider.discoveredCache.get(this.baseUrl);
+    if (entry && entry.expires > Date.now()) return entry.path;
+    return null;
+  }
+
+  private set discoveredPollPath(path: string | null) {
+    if (path === null) {
+      EvolinkImageProvider.discoveredCache.delete(this.baseUrl);
+      return;
+    }
+    EvolinkImageProvider.discoveredCache.set(this.baseUrl, {
+      path,
+      expires: Date.now() + EvolinkImageProvider.DISCOVERED_TTL_MS,
+    });
+  }
 
   /**
    * Poll a previously-submitted task. Returns:

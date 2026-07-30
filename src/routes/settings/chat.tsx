@@ -283,11 +283,7 @@ function ChatPage() {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-3">
-          {chats.length === 0 ? (
-            <p className="text-muted-foreground px-3 py-6 text-center text-xs">
-              {m['settings.chat.no_chats']()}
-            </p>
-          ) : (
+          {chats.length > 0 &&
             chats.map((c) => (
               <div
                 key={c.id}
@@ -311,8 +307,7 @@ function ChatPage() {
                   }}
                 />
               </div>
-            ))
-          )}
+            ))}
         </div>
       </aside>
 
