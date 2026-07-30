@@ -33,12 +33,18 @@ const publicKeys = [
   // widget). The matching secret is NOT listed here: it ends in `_secret`,
   // so filterPublicConfigs() drops it automatically.
   'turnstile_sitekey',
+
   // Playground model selectors and feature toggles — non-sensitive, used by
   // the Image / Video composer to surface admin overrides to the client.
   'evolink_image_model',
   'evolink_video_model',
   'image_credit_cost',
   'seedance_video_enabled',
+
+  // Whether Turnstile verification is enabled. The widget renders only
+  // when both this is 'true' AND the site key is non-empty.
+  'turnstile_enabled',
+
 ];
 
 function isEmailSendingConfigured(configs: Record<string, string>): boolean {

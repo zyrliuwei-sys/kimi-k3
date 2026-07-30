@@ -114,8 +114,12 @@ export const envConfigs: Record<string, string> = {
   // the widget can render). The secret is server-only and is sent to
   // Cloudflare's siteverify endpoint — it never reaches the browser.
   // Reference the secret exclusively by its env var name TURNSTILE_SECRET.
+  // `enabled` is exposed to the client (publicEnv) so the widget can decide
+  // whether to render without an extra /api call; the admin panel still wins.
   turnstile_sitekey: publicEnv('VITE_TURNSTILE_SITE_KEY') ?? '',
   turnstile_secret: procEnv.TURNSTILE_SECRET ?? '',
+  turnstile_enabled:
+    publicEnv('VITE_TURNSTILE_ENABLED') ?? procEnv.TURNSTILE_ENABLED ?? '',
 
   // Locale (public)
   locale: publicEnv('VITE_DEFAULT_LOCALE') ?? 'en',

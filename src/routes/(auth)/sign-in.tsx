@@ -4,6 +4,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useSession } from '@/core/auth/client';
 import { useRouter } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
+import { m } from '@/paraglide/messages.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
 import { SignInForm } from '@/components/login/sign-in-form';
 import { SignInShell } from '@/components/login/sign-in-shell';
@@ -29,11 +30,25 @@ function SignInPage() {
   // callbackUrl: web page URL, goes directly after login
   const [redirectParam, setRedirectParam] = useState<string | null>(null);
   const [callbackUrl, setCallbackUrl] = useState<string | null>(null);
+  // Error code from the auth wrapper — e.g. `?error=ip_limit` when a
+  // Google / GitHub / magic-link sign-up was rolled back for exceeding
+  // the per-IP registration cap. Resolved to a translated string below
+  // and handed to <SignInForm> as the initial error banner.
+  const [initialError, setInitialError] = useState('');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setRedirectParam(params.get('redirect'));
     setCallbackUrl(params.get('callbackUrl'));
+    const err = params.get('error');
+    if (err === 'ip_limit') {
+      // Reuse the signup-side message — same user-facing meaning.
+      setInitialError(m['auth.signup.error_ip_limit']({ max: 3 }));
+    } else if (err === 'email_blocked') {
+      // OAuth account carrying a blocked domain (@qq.com / @foxmail.com);
+      // the wrapper rolled the user row back before this redirect.
+      setInitialError(m['auth.signup.error_qq_blocked']());
+    }
   }, []);
 
   // Already signed in (visited /sign-in directly, or a stale callbackUrl looped
@@ -86,7 +101,12 @@ function SignInPage() {
         googleEnabled={googleEnabled}
         githubEnabled={githubEnabled}
         passwordResetEnabled={passwordResetEnabled}
-        turnstileSiteKey={configs.turnstile_sitekey}
+        initialError={initialError}
+        turnstileSiteKey={
+          configs.turnstile_enabled === 'true' && configs.turnstile_sitekey
+            ? configs.turnstile_sitekey
+            : ''
+        }
       />
     </SignInShell>
   );

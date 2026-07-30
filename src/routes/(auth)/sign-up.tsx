@@ -98,13 +98,16 @@ function SignUpPage() {
   const emailVerificationEnabled =
     configs.email_verification_enabled === 'true';
   const inviteCodeRequired = configs.invite_code_required === 'true';
-  const turnstileSiteKey = configs.turnstile_sitekey;
+  const turnstileSiteKey =
+    configs.turnstile_enabled === 'true' && configs.turnstile_sitekey
+      ? configs.turnstile_sitekey
+      : '';
   const hasSocial = googleEnabled || githubEnabled;
   const hasAnyMethod = emailEnabled || hasSocial;
 
   // Signup bonus — drives the "{credits} credits on us" message that
-  // wraps the form. At 5 cr per PPT, 10 credits ≈ 2 decks. Hidden
-  // entirely when admin disables initial_credits_*.
+  // wraps the form. Granted at sign-up; 5 credits ≈ one PPT deck.
+  // Hidden entirely when admin disables initial_credits_*.
   const bonus = useSignupBonus();
   const showBonus = bonus.enabled && bonus.credits > 0;
 

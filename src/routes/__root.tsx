@@ -75,6 +75,7 @@ export const Route = createRootRoute({
         { title },
         { name: 'description', content: description },
         { name: 'saashub-verification', content: '0ew2a9pav93w' },
+        { name: 'stackscope-claim', content: '2fpl5ars' },
         // Open Graph (Facebook, LinkedIn, Slack, …)
         { property: 'og:type', content: 'website' },
         { property: 'og:site_name', content: envConfigs.app_name },

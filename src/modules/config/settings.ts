@@ -84,6 +84,13 @@ export function getSettingGroups(): SettingGroup[] {
       description: 'GitHub OAuth login',
       tab: 'auth',
     },
+    {
+      name: 'bot_protection',
+      title: 'Bot Protection',
+      description:
+        'Cloudflare Turnstile CAPTCHA on sign-up / sign-in / forgot-password',
+      tab: 'auth',
+    },
 
     // Payment
     {
@@ -283,11 +290,21 @@ export function getSettings(): Setting[] {
 
     // ─── General / Credits ───────────────────────────────────────────
     // Defaults are tuned for an overseas B2C AI product where Kimi K3 is
+
     // the model. 1 credit ≈ $0.015 of API cost, so 10 credits ≈ $0.15
     // CAC — well under industry freemium norms ($3-15). At 10 cr per
     // 1024×1024 image (current `image_credit_*` defaults), 10 credits
     // ≈ 1 free image generation — a tight demo that nudges toward
     // paywall without starving the first-run experience.
+
+    // the model. 1 credit ≈ $0.0148 of API cost, so 5 credits ≈ $0.07 CAC
+    // — far under industry freemium norms ($3-15). At 5 cr per PPT deck
+    // that's exactly one deck, or a handful of chat turns: enough to see
+    // the product work, tight enough to nudge toward the paywall.
+    // Granted at sign-up (src/routes/api/auth/$.ts); abuse is handled by
+    // the QQ/Foxmail domain block + 3-per-IP cap + Turnstile, not by
+    // withholding the bonus.
+
     {
       name: 'initial_credits_enabled',
       title: 'Grant credits on signup',
@@ -301,7 +318,7 @@ export function getSettings(): Setting[] {
       title: 'Credits amount',
       type: 'number',
       placeholder: '100',
-      defaultValue: '10',
+      defaultValue: '5',
       group: 'credit',
       tab: 'general',
     },
@@ -462,6 +479,39 @@ export function getSettings(): Setting[] {
       placeholder: 'xxx',
       group: 'github_auth',
       tab: 'auth',
+    },
+
+    // ─── Auth / Bot Protection (Cloudflare Turnstile) ────────────────
+    // Opt-in: defaults to off so existing deploys without Turnstile keys
+    // aren't broken. Both site key (public) and secret (server-only) must
+    // be configured before enabling — verification is a no-op when the
+    // secret is missing.
+    {
+      name: 'turnstile_enabled',
+      title: 'Enable Turnstile',
+      type: 'switch',
+      group: 'bot_protection',
+      tab: 'auth',
+      defaultValue: 'false',
+      tip: 'Off by default. Once on, sign-up / sign-in / forgot-password must pass Turnstile verification.',
+    },
+    {
+      name: 'turnstile_sitekey',
+      title: 'Site Key',
+      type: 'text',
+      placeholder: '0x4AAAAAAA...',
+      group: 'bot_protection',
+      tab: 'auth',
+      tip: 'Public site key from Cloudflare Dashboard → Turnstile → your site.',
+    },
+    {
+      name: 'turnstile_secret',
+      title: 'Secret Key',
+      type: 'password',
+      placeholder: '0x4AAAAAAA...',
+      group: 'bot_protection',
+      tab: 'auth',
+      tip: 'Server-only secret key. Encrypted at rest when CONFIG_ENCRYPTION_KEY is set.',
     },
 
     // ─── Payment / Basic ─────────────────────────────────────────────

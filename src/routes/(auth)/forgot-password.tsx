@@ -40,7 +40,10 @@ function ForgotPasswordPage() {
 
   const configsLoaded = configQuery.isSuccess;
   const passwordResetEnabled = configs.password_reset_enabled === 'true';
-  const turnstileSiteKey = configs.turnstile_sitekey;
+  const turnstileSiteKey =
+    configs.turnstile_enabled === 'true' && configs.turnstile_sitekey
+      ? configs.turnstile_sitekey
+      : '';
 
   const form = useForm({
     defaultValues: { email: '' },
