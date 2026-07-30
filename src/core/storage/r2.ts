@@ -54,11 +54,55 @@ export class R2Provider implements StorageProvider {
   getPublicUrl = (options: { key: string; bucket?: string }) => {
     const uploadBucket = options.bucket || this.configs.bucket;
     const uploadPath = this.getUploadPath();
-    const url = `${this.getEndpoint()}/${uploadBucket}/${uploadPath}/${options.key}`;
+    // R2 quirk: the bucket name is part of the object key itself
+    // (LIST returns `<bucket>/uploads/...`). The public r2.dev URL
+    // must mirror that path — the public CDN strips the bucket
+    // prefix only when the URL is rewritten through the custom
+    // domain, but for the r2.dev default the bucket is required.
     return this.configs.publicDomain
-      ? `${this.configs.publicDomain}/${uploadPath}/${options.key}`
-      : url;
+      ? `${this.configs.publicDomain}/${uploadBucket}/${uploadPath}/${options.key}`
+      : `${this.getEndpoint()}/${uploadBucket}/${uploadPath}/${options.key}`;
   };
+
+  /**
+   * Generate a presigned GET URL valid for `expiresInSeconds`.
+   *
+   * The custom `publicDomain` (e.g. `pub-…r2.dev`) only works when the
+   * bucket has public access enabled. When it doesn't (401 in practice),
+   * we fall back to signing a GET against the S3-compatible endpoint
+   * so the browser can fetch the image without auth headers.
+   *
+   * Default 7 days — long enough for the playground to keep working
+   * across user sessions, short enough that a leaked URL self-expires.
+   *
+   * Note: R2/S3 keys live under `<uploadPath>/<key>`, but the bucket
+   * name is NOT part of the URL path — the bucket is selected via the
+   * `Host:` header. Putting it in the path produces a 404.
+   */
+  async getSignedUrl(options: {
+    key: string;
+    bucket?: string;
+    expiresInSeconds?: number;
+  }): Promise<string> {
+    const uploadPath = this.getUploadPath();
+    const baseUrl = `${this.getEndpoint()}/${uploadPath}/${options.key}`;
+    const { AwsClient } = await import('aws4fetch');
+    const client = new AwsClient({
+      accessKeyId: this.configs.accessKeyId,
+      secretAccessKey: this.configs.secretAccessKey,
+      region: this.configs.region || 'auto',
+    });
+    const expires = options.expiresInSeconds ?? 7 * 24 * 60 * 60;
+    const signed = await client.sign(new Request(baseUrl, { method: 'GET' }), {
+      aws: { signQuery: true, appendSessionToken: false },
+    });
+    // aws4fetch sets expires via aws option; if not, manually append.
+    const url = new URL(signed.url);
+    if (!url.searchParams.has('X-Amz-Expires')) {
+      url.searchParams.set('X-Amz-Expires', String(expires));
+    }
+    return url.toString();
+  }
 
   exists = async (options: { key: string; bucket?: string }) => {
     try {

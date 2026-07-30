@@ -44,6 +44,21 @@ export const envConfigs: Record<string, string> = {
   ),
   auth_secret: procEnv.AUTH_SECRET ?? '',
 
+  // Social auth — env fallbacks. The admin DB still wins via the
+  // { ...envConfigs, ...dbConfigs } merge in modules/config/service.
+  // Adding them here fixes the doc/code mismatch in .env.example (which
+  // advertised GOOGLE_CLIENT_ID as a fallback that was never wired).
+  google_client_id: procEnv.GOOGLE_CLIENT_ID ?? '',
+  google_client_secret: procEnv.GOOGLE_CLIENT_SECRET ?? '',
+  github_client_id: procEnv.GITHUB_CLIENT_ID ?? '',
+  github_client_secret: procEnv.GITHUB_CLIENT_SECRET ?? '',
+  // Explicit "is this provider turned on" switches. The public-config
+  // route also auto-enables when *_client_id + *_client_secret are both
+  // present, so local dev only needs to set the creds and the toggle
+  // lights up by itself.
+  google_auth_enabled: procEnv.GOOGLE_AUTH_ENABLED ?? '',
+  github_auth_enabled: procEnv.GITHUB_AUTH_ENABLED ?? '',
+
   // Payment - Stripe
   stripe_secret_key: procEnv.STRIPE_SECRET_KEY ?? '',
   stripe_publishable_key: procEnv.STRIPE_PUBLISHABLE_KEY ?? '',

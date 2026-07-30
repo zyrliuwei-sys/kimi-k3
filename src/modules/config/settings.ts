@@ -290,6 +290,13 @@ export function getSettings(): Setting[] {
 
     // ─── General / Credits ───────────────────────────────────────────
     // Defaults are tuned for an overseas B2C AI product where Kimi K3 is
+
+    // the model. 1 credit ≈ $0.015 of API cost, so 10 credits ≈ $0.15
+    // CAC — well under industry freemium norms ($3-15). At 10 cr per
+    // 1024×1024 image (current `image_credit_*` defaults), 10 credits
+    // ≈ 1 free image generation — a tight demo that nudges toward
+    // paywall without starving the first-run experience.
+
     // the model. 1 credit ≈ $0.0148 of API cost, so 5 credits ≈ $0.07 CAC
     // — far under industry freemium norms ($3-15). At 5 cr per PPT deck
     // that's exactly one deck, or a handful of chat turns: enough to see
@@ -297,6 +304,7 @@ export function getSettings(): Setting[] {
     // Granted at sign-up (src/routes/api/auth/$.ts); abuse is handled by
     // the QQ/Foxmail domain block + 3-per-IP cap + Turnstile, not by
     // withholding the bonus.
+
     {
       name: 'initial_credits_enabled',
       title: 'Grant credits on signup',
@@ -938,6 +946,92 @@ export function getSettings(): Setting[] {
       type: 'text',
       placeholder: 'kimi-k3',
       tip: 'Kimi K3 is used by default (kimi-k3). You can set another EvoLink model id, e.g. claude-..., gemini-..., gpt-..., deepseek-...',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'evolink_image_model',
+      title: 'Image Model',
+      type: 'text',
+      placeholder: 'gpt-image-2',
+      tip: 'Model id sent to /v1/images/generations. Only `gpt-image-2` is exposed in the menu right now (single-model rollout). Other examples: doubao-seedream-5.0-pro, gemini-2.5-flash-image, wan2.5-text-to-image.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'evolink_image_models_allowlist',
+      title: 'Image Model Allowlist',
+      type: 'text',
+      placeholder: 'gpt-image-2',
+      tip: 'Currently unused — only `gpt-image-2` is shown in the menu during the single-model rollout. Re-enable this when bringing back the rest of the Evolink image models.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'evolink_video_model',
+      title: 'Video Model',
+      type: 'text',
+      placeholder: 'seedance-2.0-text-to-video',
+      tip: 'Model id sent to /v1/videos/generations. Default: seedance-2.0-text-to-video.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'evolink_video_models_allowlist',
+      title: 'Video Model Allowlist',
+      type: 'text',
+      placeholder: 'seedance-2.0-text-to-video',
+      tip: 'Comma-separated video model ids that clients may submit. Leave empty to accept any model the provider serves. Example: seedance-2.0-text-to-video,seedance-2.0-image-to-video.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'image_credit_cost',
+      title: 'Image Credit Cost (legacy)',
+      type: 'number',
+      placeholder: '5',
+      defaultValue: '5',
+      tip: 'Legacy flat cost per image, used when `image_credit_markup` is unset. Multiplied by n (= 1–4) at submit time. New deployments should set `image_credit_markup` instead and leave this at 5.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'image_credit_markup',
+      title: 'Image Markup Multiplier',
+      type: 'number',
+      placeholder: '5',
+      defaultValue: '5',
+      tip: 'Multiplier on the EvoLink wholesale token cost. Default 5× (chat uses 6×). Set to any positive number to enable the wholesale × markup pricing; leave at 0 to keep the legacy flat-cost behavior.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'image_credit_wholesale_per_1k_output',
+      title: 'EvoLink Output Wholesale (cr / 1K)',
+      type: 'number',
+      placeholder: '1.728',
+      defaultValue: '1.728',
+      tip: 'EvoLink wholesale price for Image Output tokens, in credits per 1K tokens. Update when the EvoLink plan or model pricing changes. Used by `computeImageCost` to compute per-image cost.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'image_credit_wholesale_per_1k_input',
+      title: 'EvoLink Input Wholesale (cr / 1K)',
+      type: 'number',
+      placeholder: '0.4608',
+      defaultValue: '0.4608',
+      tip: 'EvoLink wholesale price for Image Input tokens (img2img reference images), in credits per 1K tokens. ~3-4× cheaper than output.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'image_credit_tokens_per_image_1024',
+      title: 'Output Tokens per 1024×1024 Image',
+      type: 'number',
+      placeholder: '1050',
+      defaultValue: '1050',
+      tip: 'Output tokens consumed by a single 1024×1024 image. 1536×1024 / 1024×1536 use 1.4× this count; 1792×1024 / 1024×1792 use 1.8×. Update when switching to a different model family with different token economics.',
       group: 'evolink',
       tab: 'ai',
     },

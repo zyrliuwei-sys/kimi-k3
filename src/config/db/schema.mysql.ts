@@ -439,6 +439,16 @@ export const aiTask = table(
   (table) => [
     index('idx_ai_task_user_media_type').on(table.userId, table.mediaType),
     index('idx_ai_task_media_type_status').on(table.mediaType, table.status),
+    // Covers the My Images list query:
+    //   WHERE userId=? AND mediaType='image' ORDER BY createdAt DESC
+    // Without createdAt in the key, MySQL has to do a filesort after the
+    // index lookup. With it, MySQL walks the index in reverse and serves
+    // rows already in the right order.
+    index('idx_ai_task_user_media_type_created_at').on(
+      table.userId,
+      table.mediaType,
+      table.createdAt
+    ),
   ]
 );
 

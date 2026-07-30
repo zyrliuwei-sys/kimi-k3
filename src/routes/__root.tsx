@@ -95,6 +95,12 @@ export const Route = createRootRoute({
       links: [
         { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
         { rel: 'apple-touch-icon', href: '/favicon.svg' },
+        // Preconnect + DNS prefetch to the upstream image gateway. Saves
+        // ~200-400ms of TLS handshake on the very first generation submit
+        // (DNS + TCP + TLS round-trip otherwise happens inside the
+        // POST /api/ai-tasks request).
+        { rel: 'preconnect', href: 'https://api.evolink.ai' },
+        { rel: 'dns-prefetch', href: 'https://api.evolink.ai' },
         ...locales.map((loc) => ({
           rel: 'alternate',
           hrefLang: loc,

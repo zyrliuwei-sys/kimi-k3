@@ -295,17 +295,60 @@ export function getAuth(configs?: Record<string, string>) {
   const appUrl = configs?.app_url || envConfigs.app_url;
   const authUrl = configs?.auth_url || envConfigs.auth_url || appUrl;
 
+  // Resolve the auth base URL per-request so OAuth callbacks land on the
+  // port the user is actually on. VITE_APP_URL is often stale (especially
+  // in dev when 3000 is taken and vite moves to 3001), and a mismatch
+  // makes Google bounce back to a dead port, which surfaces as
+  // `invalid_code` after the callback.
+  //
+  // Strategy:
+  //   - If a real authUrl is configured (not the default localhost:3000),
+  //     use it. Production should never get dynamic resolution.
+  //   - Otherwise, derive from the request's Host header. The matcher
+  //     compares the *whole* `host:port` string, so the patterns must
+  //     include ports — `localhost` alone doesn't match `localhost:3001`.
+  //     Patterns are gated to the dev-only branch below, so a wildcard
+  //     for `localhost:*` is safe to ship; better-auth refuses any host
+  //     that doesn't match an allowed pattern.
+  const isDefaultDevUrl = !authUrl || authUrl === 'http://localhost:3000';
+  const baseURLConfig = isDefaultDevUrl
+    ? {
+        allowedHosts: [
+          // hostnames with any port — covers vite dev on 3000 / 3001 / 5173
+          'localhost:*',
+          '127.0.0.1:*',
+          '0.0.0.0:*',
+          // hostnames without explicit port (rare in dev but possible)
+          'localhost',
+          '127.0.0.1',
+          '0.0.0.0',
+        ],
+      }
+    : authUrl;
+
   const instance = betterAuth({
     appName,
-    baseURL: authUrl,
+    baseURL: baseURLConfig,
     secret: envConfigs.auth_secret,
     trustedOrigins: (request) => {
       const origins: string[] = [];
       if (appUrl) origins.push(appUrl);
       try {
+        // Accept whatever dev/preview origin the page is actually served
+        // from — covers localhost, 127.0.0.1, LAN IPs, preview hostnames.
         const origin = request?.headers?.get?.('origin');
-        if (origin && new URL(origin).hostname === 'localhost')
-          origins.push(origin);
+        if (origin) {
+          const { hostname } = new URL(origin);
+          if (
+            hostname === 'localhost' ||
+            hostname === '127.0.0.1' ||
+            hostname === '0.0.0.0' ||
+            hostname.endsWith('.localhost') ||
+            hostname.endsWith('.local')
+          ) {
+            origins.push(origin);
+          }
+        }
       } catch {}
       return origins;
     },
