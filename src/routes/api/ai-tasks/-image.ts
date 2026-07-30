@@ -4,6 +4,7 @@ import {
   listEvolinkImageModels,
   pickImageProvider,
 } from '@/core/ai';
+import { normalizeRatioToSize } from '@/core/ai/aspect-ratios';
 import {
   AITaskStatus,
   createTask,
@@ -11,6 +12,8 @@ import {
 } from '@/modules/ai-tasks/service';
 import { getAllConfigs } from '@/modules/config/service';
 import { respData, respErr } from '@/lib/resp';
+
+import { buildRehostSaveFiles } from './-shared';
 
 /**
  * Default per-image credit cost. Admins can override via
@@ -24,20 +27,23 @@ export const DEFAULT_IMAGE_CREDIT_COST = 5;
 /**
  * Image generation branch of `POST /api/ai-tasks`.
  *
- * Flow (mirrors the video path's createTask → updateTask pattern so the
- * existing `updateTask()` auto-refund on FAILED just works):
+ * Flow:
  *   1. validate `prompt` (required, ≤2000 chars)
  *   2. resolve provider via `pickImageProvider(configs)` (evolink-image)
  *   3. `createTask()` — single-tx insert aiTask row + consume credits
  *      (throws 'Insufficient credits' on failure → mapped to 402)
- *   4. `provider.generate({...async: true})` → returns a remote taskId
- *   5. `updateTask({ status: PROCESSING, taskResult: {...} })`
- *   6. respond `{ taskId, status: 'processing' }` — client polls
- *      `/api/ai-tasks/$id` every 2s.
+ *   4. `provider.submit({...})` — returns either:
+ *        a. `{ mode: 'sync', imageUrls }`  → the gateway answered the
+ *           final image inline. We rehost, mark the task SUCCESS in the
+ *           same request, and return SUCCESS to the caller (no polling).
+ *        b. `{ mode: 'async', taskId }`   → the gateway handed back a
+ *           polling id. We mark the task PROCESSING and return; the
+ *           caller polls `/api/ai-tasks/$id` every 2s.
  *
- * Reference image (img2img): when the client provides `referenceUrl`,
- * we pass it through `options.image` — the evolink-image provider maps
- * it to the underlying model's `image` field. When absent, plain txt2img.
+ * Reference image (img2img): img2img is intentionally not wired — the
+ * OpenAI-style `/images/generations` endpoint doesn't accept reference
+ * inputs. The UI still lets users attach up to 10 reference images with
+ * inline notes, but the server only consumes the first one's URL.
  */
 export async function postImageTask({
   request: _request,
@@ -66,25 +72,13 @@ export async function postImageTask({
   const n = Number.isFinite(nRaw)
     ? Math.min(4, Math.max(1, Math.floor(nRaw)))
     : 1;
-  // `size` is the aspect ratio encoded as "WIDTHxHEIGHT" (e.g. "16x9").
-  // Empty / missing = let the provider pick its default. Otherwise
-  // validate against a small allowlist so a client can't send an
-  // arbitrary size string to the provider.
-  const sizeRaw = typeof body?.size === 'string' ? body.size.trim() : '';
-  const ALLOWED_SIZES = new Set([
-    '1024x1024',
-    '1536x1024', // 3:2
-    '1024x1536', // 2:3
-    '1792x1024', // 16:9 landscape
-    '1024x1792', // 9:16 portrait
-    '1280x960', // 4:3
-    '960x1280', // 3:4
-    '2048x1024', // 2:1
-    '1024x2048', // 1:2
-    '1280x576', // 20:9
-    '576x1280', // 9:20
-  ]);
-  const size = ALLOWED_SIZES.has(sizeRaw) ? sizeRaw : '';
+  // Client now sends the raw aspect ratio token (`"16:9"`, `"3:4"`, …).
+  // Some upstream models want the ratio as-is (Nano Banana 2 / gemini),
+  // others want pixel dimensions (`"1792x1024"`). We defer the
+  // conversion to the model-aware submit call below — keep the raw
+  // ratio here so we can decide later.
+  const rawSize =
+    typeof body?.size === 'string' && body.size ? body.size : undefined;
 
   const configs = await getAllConfigs();
   const pick = await pickImageProvider(configs);
@@ -100,12 +94,12 @@ export async function postImageTask({
   // (including an expensive non-image one) through this endpoint. The
   // listing is cached for an hour, so this costs nothing per request.
   //
-  // Single-model rollout: only `gpt-image-2` is exposed right now, so
-  // the submit endpoint enforces the same single-model wall the menu
-  // shows. A client that hand-crafts any other model id gets silently
-  // rerouted to the default.
-  const ONLY_MODEL = 'gpt-image-2';
-  const allowlist = [ONLY_MODEL];
+  // Exposed in the composer menu are: gpt-image-2 (OpenAI flagship on
+  // Evolink) and gemini-3.1-flash-image-preview (Nano Banana 2). Both
+  // are reached through the same /v1/images/generations endpoint but
+  // have different request shapes — handled in evolink-image.submit().
+  const ALLOWED_MODELS = ['gpt-image-2', 'gemini-3.1-flash-image-preview'];
+  const allowlist = ALLOWED_MODELS;
   let model = pick.defaultModel;
   if (requestedModel && requestedModel !== pick.defaultModel) {
     const allowed = await listEvolinkImageModels(
@@ -120,6 +114,16 @@ export async function postImageTask({
     // rather than trusting the client or hard-failing the request.
     if (allowed.includes(requestedModel)) model = requestedModel;
   }
+  const lowerModel = model.toLowerCase();
+  const isNanoBanana =
+    lowerModel.includes('gemini') || lowerModel.includes('nano-banana');
+  // Nano Banana 2 wants the ratio string as-is (`"16:9"`); other
+  // models (gpt-image-2) want pixel dimensions (`"1792x1024"`).
+  const size = isNanoBanana
+    ? rawSize
+    : rawSize
+      ? normalizeRatioToSize(rawSize)
+      : undefined;
   const costCredits =
     Number(configs.image_credit_cost) || DEFAULT_IMAGE_CREDIT_COST;
 
@@ -156,12 +160,10 @@ export async function postImageTask({
     return respErr(message, init);
   };
 
-  // 2. Kick off the remote generation. The EvolinkImageProvider only
-  //    implements `submit()` — the generic `AIProvider.generate()` shape
-  //    in `pickImageProvider`'s return type is just an interface contract
-  //    that doesn't match this concrete provider, so we call submit()
-  //    directly. The image URL comes back later via /api/ai-tasks/$id
-  //    which polls queryStatus().
+  // 2. Kick off the remote generation. submit() returns either sync
+  //    (imageUrls inline) or async (remote taskId to poll). Both paths
+  //    land here; sync short-circuits to SUCCESS, async hands off to
+  //    the polling endpoint.
   try {
     // pick.provider is cast to AIProvider; the underlying instance is
     // an EvolinkImageProvider which exposes `submit` (not `generate`).
@@ -172,13 +174,90 @@ export async function postImageTask({
       prompt,
       model,
       n,
-      size: size || undefined,
-      // reference images aren't part of the OpenAI-style
-      // images/generations endpoint, so img2img is intentionally not
-      // wired through this path — clients use the /image-to-image
-      // endpoints for that.
+      size,
+      // Nano Banana 2 supports `image_urls` (array) for img2img +
+      // editing; older models take a single `image` string. The
+      // provider picks the right shape per model — see evolink-image
+      // submit() body construction.
+      referenceUrls: referenceUrl ? [referenceUrl] : undefined,
     });
 
+    // ── Sync path ────────────────────────────────────────────────────
+    // The gateway handed us the final image URLs inline (HTTP 200 +
+    // { data: [...] }). Mark the task SUCCESS and respond immediately
+    // with the provider URLs so the user sees the image right away
+    // (sub-second response — no waiting on the 3-5s R2 upload).
+    //
+    // The R2 rehost still happens, but in the BACKGROUND after the
+    // response is sent. Once it completes we patch the task row with
+    // the permanent URLs and bust the cache, so any later refresh
+    // sees the durable link instead of the (24h-TTL) provider URL.
+    if (result.mode === 'sync') {
+      const providerUrls = result.imageUrls;
+      const taskResult = {
+        remoteTaskId: result.taskId,
+        imageUrls: providerUrls,
+        provider: pick.name,
+      };
+      await updateTask({
+        taskId: task.id,
+        status: AITaskStatus.SUCCESS,
+        taskResult,
+      });
+
+      // Fire-and-forget R2 rehost. The user already has the image in
+      // their browser; this just upgrades the URL behind the scenes.
+      const saveFiles = await buildRehostSaveFiles();
+      if (saveFiles && providerUrls.length) {
+        void (async () => {
+          try {
+            const saved = await saveFiles(
+              providerUrls.map((url, i) => ({
+                url,
+                key: `evolink/image/${task.id}-${i}.png`,
+                contentType: 'image/png',
+                type: 'image',
+              }))
+            );
+            const finalUrls = saved
+              .map((s, i) => s.url || providerUrls[i])
+              .filter(Boolean);
+            await updateTask({
+              taskId: task.id,
+              status: AITaskStatus.SUCCESS,
+              taskResult: {
+                ...taskResult,
+                imageUrls: finalUrls,
+              },
+            });
+          } catch (err: any) {
+            console.warn(
+              '[evolink-image] background rehost failed:',
+              err?.message
+            );
+          }
+        })();
+      }
+
+      return respData({
+        taskId: task.id,
+        status: AITaskStatus.SUCCESS,
+        imageUrls: providerUrls,
+        imageUrl: providerUrls[0],
+        // Pass the task row we already have (model, prompt, etc.) so
+        // the client can render the active image without a follow-up
+        // GET — saves a DB round-trip on every sync generation.
+        task: {
+          ...task,
+          taskResult,
+        },
+      });
+    }
+
+    // ── Async path ───────────────────────────────────────────────────
+    // The gateway returned a polling id (HTTP 202 + { id }). Mark the
+    // task PROCESSING; the client will poll /api/ai-tasks/$id and
+    // /api/ai-tasks/$id will hit Evolink's queryStatus() until success.
     await updateTask({
       taskId: task.id,
       status: AITaskStatus.PROCESSING,

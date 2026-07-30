@@ -25,14 +25,13 @@ import { respData } from '@/lib/resp';
 async function GET() {
   const configs = await getAllConfigs();
 
-  // Single-model rollout: only `gpt-image-2` is exposed in the menu for
-  // now, so the wire-up is easy to debug before we re-enable the other
-  // Evolink image models. Admin can override via `evolink_image_model`,
-  // but the menu still lists just `gpt-image-2` (override applies to
-  // the default only). When we're ready to bring the rest back, delete
-  // this block and rely on the previous allowlist path.
-  const ONLY_MODEL = 'gpt-image-2';
-  const defaultModel = configs?.evolink_image_model || ONLY_MODEL;
+  // Exposed in the composer menu are: gpt-image-2 (OpenAI flagship on
+  // Evolink) and gemini-3.1-flash-image-preview (Nano Banana 2). Both
+  // are reached through the same /v1/images/generations endpoint but
+  // have different request shapes — handled in evolink-image.submit().
+  // Admin can override the default via `evolink_image_model`.
+  const EXPOSED_MODELS = ['gpt-image-2', 'gemini-3.1-flash-image-preview'];
+  const defaultModel = configs?.evolink_image_model || EXPOSED_MODELS[0];
 
   if (!configs?.evolink_api_key) {
     return respData({ models: [], defaultModel });
@@ -49,13 +48,17 @@ async function GET() {
     await listEvolinkImageModels(
       provider,
       `${configs.evolink_api_key}|${configs.evolink_base_url || ''}`,
-      [ONLY_MODEL]
+      EXPOSED_MODELS
     );
   } catch {
     // ignore — the menu still serves, submit will surface the real error
   }
 
-  return respData({ models: [ONLY_MODEL], defaultModel });
+  // Filter to only models the gateway actually serves, in the order we
+  // want them shown. If the listing call above dropped any model, it
+  // won't appear in the menu — submit will silently reroute to the
+  // default in that case.
+  return respData({ models: EXPOSED_MODELS, defaultModel });
 }
 
 export const Route = createFileRoute('/api/ai-tasks/image-models')({

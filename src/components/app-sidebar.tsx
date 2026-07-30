@@ -236,7 +236,7 @@ export function AppSidebar({
 
       <SidebarFooter>
         {upgradeCard && (
-          <div className="px-2 pb-2 group-data-[collapsible=icon]:hidden">
+          <div className="px-1 pb-1 group-data-[collapsible=icon]:hidden">
             {upgradeCard}
           </div>
         )}

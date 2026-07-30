@@ -59,6 +59,14 @@ export interface StorageProvider {
   // get public url for key (optional)
   getPublicUrl?: (options: { key: string; bucket?: string }) => string;
 
+  // get a signed (presigned) url for the key — useful when the bucket
+  // isn't public (optional).
+  getSignedUrl?: (options: {
+    key: string;
+    bucket?: string;
+    expiresInSeconds?: number;
+  }) => Promise<string>;
+
   // upload file
   uploadFile(options: StorageUploadOptions): Promise<StorageUploadResult>;
 
@@ -157,6 +165,17 @@ export class StorageManager {
     const provider = this.ensureDefaultProvider();
     if (!provider.getPublicUrl) return undefined;
     return provider.getPublicUrl(options);
+  }
+
+  // get a signed url using default provider (if supported)
+  async getSignedUrl(options: {
+    key: string;
+    bucket?: string;
+    expiresInSeconds?: number;
+  }): Promise<string | undefined> {
+    const provider = this.ensureDefaultProvider();
+    if (!provider.getSignedUrl) return undefined;
+    return provider.getSignedUrl(options);
   }
 
   // download and upload using specific provider

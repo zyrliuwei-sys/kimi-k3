@@ -6,6 +6,9 @@ import { AIFile, AIMediaType, AIProvider, SaveFilesFunction } from './types';
 export * from './evolink-image';
 export * from './evolink-video';
 
+export * from './aspect-ratios';
+export * from './image-urls';
+
 export * from './types';
 
 /**

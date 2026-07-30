@@ -227,6 +227,54 @@ export function Footer() {
                 height={54}
               />
             </a>
+            <a
+              href="https://showmebest.ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://showmebest.ai/badge/feature-badge-white.webp"
+                alt="Featured on ShowMeBestAI"
+                width={220}
+                height={60}
+              />
+            </a>
+            <a
+              href="https://twelve.tools"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://twelve.tools/badge1-dark.svg"
+                alt="Featured on Twelve Tools"
+                width={200}
+                height={54}
+              />
+            </a>
+            <a
+              href="https://mossai.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="MossAI Tools"
+              className="inline-block rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 transition-colors hover:border-neutral-500 hover:text-neutral-100"
+            >
+              MossAI Tools
+            </a>
+            <a
+              href="https://topaitoolsreview.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block cursor-pointer transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://cdn.topaitoolsreview.com/defaults/featured-on_dark.svg"
+                alt="Featured on TopAIToolsReview"
+                width={200}
+                height={50}
+              />
+            </a>
           </div>
           <LocaleSelector
             variant="pill"

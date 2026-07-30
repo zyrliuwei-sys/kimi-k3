@@ -1,12 +1,5 @@
 import { createFileRoute, Outlet, useLocation } from '@tanstack/react-router';
-import {
-  History,
-  Image,
-  MessageSquarePlus,
-  Search,
-  Video,
-  Wrench,
-} from 'lucide-react';
+import { Image, MessageSquarePlus, Search, Video, Wrench } from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
 import { usePlaygroundStore } from '@/lib/playground-store';
@@ -71,12 +64,21 @@ function PlaygroundLayout() {
     </button>
   );
 
+  // Image mode intentionally drops the left session list — generated
+  // images live on the right (My Images tab + the active-result panel
+  // that pops above the composer), so a separate history column is
+  // duplicate UI. Chat mode keeps the list because multi-session chat
+  // genuinely needs it.
+  const showHistorySidebar = mode !== 'image';
+
   return (
     <PlaygroundShell
       brand="Kimi K3"
       brandHref="/api-playground"
       headerCta={cta}
-      sessionList={<PlaygroundSidebarList mode={mode} />}
+      sessionList={
+        showHistorySidebar ? <PlaygroundSidebarList mode={mode} /> : undefined
+      }
       upgradeCard={<PlaygroundUpgradeCard />}
       navItems={[
         {
@@ -103,11 +105,6 @@ function PlaygroundLayout() {
           href: '/api-playground/tools',
           label: m['playground.nav.tools'](),
           icon: Wrench,
-        },
-        {
-          href: '/api-playground/history',
-          label: m['playground.nav.history'](),
-          icon: History,
         },
       ]}
     >
