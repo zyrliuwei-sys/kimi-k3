@@ -215,18 +215,19 @@ export function Footer() {
               />
             </a>
             <a
-
               href="https://saasgrow.app?ref=kimik3.net"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block transition-opacity hover:opacity-80"
             >
               <img
-                src="https://saasgrow.app/api/badge?type=featured&style=dark"
+                src="/badges/saasgrow-badge.svg"
                 alt="kimik3 on SaaSGrow"
                 width={240}
                 height={54}
-
+              />
+            </a>
+            <a
               href="https://startupfa.st"
               target="_blank"
               rel="noopener noreferrer"
@@ -251,7 +252,6 @@ export function Footer() {
                 alt="PeterIndia — IT Knowledge Portal"
                 width={200}
                 height={26}
-
               />
             </a>
             <a
@@ -261,44 +261,20 @@ export function Footer() {
               className="inline-block transition-opacity hover:opacity-80"
             >
               <img
-
-                src="https://showmebest.ai/badge/feature-badge-white.webp"
-
                 src="/badges/showmebestai-badge.webp"
-
                 alt="Featured on ShowMeBestAI"
                 width={220}
                 height={60}
               />
             </a>
             <a
-
-
-              href="https://saasgrow.app?ref=kimik3.net"
-              target="_blank"
-              rel="noopener"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/saasgrow-badge.svg"
-                alt="kimik3 on SaaSGrow"
-                width={240}
-                height={54}
-              />
-            </a>
-            <a
-
               href="https://twelve.tools"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-block transition-opacity hover:opacity-80"
             >
               <img
-
-                src="https://twelve.tools/badge1-dark.svg"
-
                 src="/badges/twelvetools-badge.svg"
-
                 alt="Featured on Twelve Tools"
                 width={200}
                 height={54}
@@ -309,11 +285,7 @@ export function Footer() {
               target="_blank"
               rel="noopener noreferrer"
               title="MossAI Tools"
-
-              className="inline-block rounded-md border border-neutral-700 px-3 py-1.5 text-sm text-neutral-300 transition-colors hover:border-neutral-500 hover:text-neutral-100"
-
               className="inline-flex h-[44px] items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-300 transition-all hover:border-neutral-500 hover:text-neutral-100"
-
             >
               MossAI Tools
             </a>
@@ -321,17 +293,10 @@ export function Footer() {
               href="https://topaitoolsreview.com"
               target="_blank"
               rel="noopener noreferrer"
-
-              className="inline-block cursor-pointer transition-opacity hover:opacity-80"
-            >
-              <img
-                src="https://cdn.topaitoolsreview.com/defaults/featured-on_dark.svg"
-
               className="inline-block transition-opacity hover:opacity-80"
             >
               <img
                 src="/badges/topaitoolsreview-badge.svg"
-
                 alt="Featured on TopAIToolsReview"
                 width={200}
                 height={50}
