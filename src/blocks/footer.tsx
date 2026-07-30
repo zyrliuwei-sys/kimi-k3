@@ -241,6 +241,67 @@ export function Footer() {
                 height={26}
               />
             </a>
+            <a
+              href="https://showmebest.ai"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/showmebestai-badge.webp"
+                alt="Featured on ShowMeBestAI"
+                width={220}
+                height={60}
+              />
+            </a>
+            <a
+              href="https://saasgrow.app?ref=kimik3.net"
+              target="_blank"
+              rel="noopener"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/saasgrow-badge.svg"
+                alt="kimik3 on SaaSGrow"
+                width={240}
+                height={54}
+              />
+            </a>
+            <a
+              href="https://twelve.tools"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/twelvetools-badge.svg"
+                alt="Featured on Twelve Tools"
+                width={200}
+                height={54}
+              />
+            </a>
+            <a
+              href="https://mossai.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="MossAI Tools"
+              className="inline-flex h-[44px] items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-300 transition-all hover:border-neutral-500 hover:text-neutral-100"
+            >
+              MossAI Tools
+            </a>
+            <a
+              href="https://topaitoolsreview.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/topaitoolsreview-badge.svg"
+                alt="Featured on TopAIToolsReview"
+                width={200}
+                height={50}
+              />
+            </a>
           </div>
           <LocaleSelector
             variant="pill"
