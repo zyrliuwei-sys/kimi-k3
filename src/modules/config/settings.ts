@@ -290,10 +290,13 @@ export function getSettings(): Setting[] {
 
     // ─── General / Credits ───────────────────────────────────────────
     // Defaults are tuned for an overseas B2C AI product where Kimi K3 is
-    // the model. 1 credit ≈ $0.0148 of API cost, so 10 credits ≈ $0.15
-    // CAC — well under industry freemium norms ($3-15). At 5 cr per PPT
-    // deck, 10 credits ≈ 2 decks — a tight demo that nudges toward
-    // paywall without starving the first-run experience.
+    // the model. 1 credit ≈ $0.0148 of API cost, so 5 credits ≈ $0.07 CAC
+    // — far under industry freemium norms ($3-15). At 5 cr per PPT deck
+    // that's exactly one deck, or a handful of chat turns: enough to see
+    // the product work, tight enough to nudge toward the paywall.
+    // Granted at sign-up (src/routes/api/auth/$.ts); abuse is handled by
+    // the QQ/Foxmail domain block + 3-per-IP cap + Turnstile, not by
+    // withholding the bonus.
     {
       name: 'initial_credits_enabled',
       title: 'Grant credits on signup',
@@ -307,7 +310,7 @@ export function getSettings(): Setting[] {
       title: 'Credits amount',
       type: 'number',
       placeholder: '100',
-      defaultValue: '10',
+      defaultValue: '5',
       group: 'credit',
       tab: 'general',
     },

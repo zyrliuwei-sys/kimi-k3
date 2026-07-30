@@ -5,6 +5,7 @@ import { getAuth, sendWelcomeEmail } from '@/core/auth';
 import { db } from '@/core/db';
 import { account, credit, user } from '@/config/db/schema';
 import { getConfig, getDbConfigs } from '@/modules/config/service';
+import { grantForNewUser } from '@/modules/credits/service';
 import { grantRoleForNewUser } from '@/modules/rbac/service';
 import {
   enforceMinIntervalRateLimit,
@@ -17,14 +18,27 @@ import { m } from '@/paraglide/messages.js';
 
 /**
  * Wraps better-auth handler to:
- *   1. Auto-grant the default RBAC role after a successful email sign-up.
- *   2. Send the welcome email on every successful sign-up.
+ *   1. Auto-grant the default RBAC role after a successful sign-up.
+ *   2. Grant the signup bonus (5 credits by default, `initial_credits_*`).
+ *   3. Send the welcome email on every successful sign-up.
  *
- * The signup bonus (5 credits) is NOT granted here. It lives in
- * `maybeClaimSignupBonus` in modules/credits/service.ts, which fires
- * lazily on the user's first chat message — and only if their email
- * is verified. Spammed accounts that never verify or never chat earn
- * no bonus.
+ * The bonus is granted HERE, right after `auth.handler` returns, on all
+ * three account-creating paths — credential, OAuth callback, magic-link
+ * verify. It is deliberately NOT in `databaseHooks.user.create.after`:
+ * better-auth 1.6.x queues that hook via `queueAfterTransactionHook` and
+ * doesn't reliably flush it before the OAuth callback redirects, which
+ * silently skipped the grant for every Google signup (prod incident,
+ * 2026-07-29).
+ *
+ * It was also briefly deferred to "first chat message with a verified
+ * email", which deadlocked: `streamMessage` debits credits BEFORE it
+ * persists the message, so a 0-credit user was rejected at the debit and
+ * never reached the grant. Sign-up is the only point where the user is
+ * guaranteed to have neither credits nor a reason to be blocked.
+ *
+ * Abuse control is therefore up front, not behind the bonus: QQ/Foxmail
+ * domains are rejected, per-IP registrations are capped at 3, Turnstile
+ * guards the credential endpoints, and a 3s/IP floor throttles scripts.
  *
  * SECURITY: better-auth already includes per-endpoint brute-force protection,
  * but it does not stop a script that hammers `/sign-up/email` to fill the
@@ -50,6 +64,15 @@ const TURNSTILE_PROTECTED_PATHS = [
 // live under @qq.com). The IP cap counts rows in `user.ip`; the wrapper
 // persists the client IP for every new account below so subsequent
 // signups from the same IP see the running total.
+//
+// The domain block is enforced on THREE paths, because each creates an
+// account a different way:
+//   1. `POST /sign-up/email`      — preflight, before better-auth runs.
+//   2. `POST /sign-in/magic-link` — preflight, so we never even send the
+//                                   link to a blocked address.
+//   3. OAuth callback / magic-link verify — post-hoc rollback, since the
+//      user row already exists by the time we can read the email (a
+//      Google account can carry an @qq.com address).
 const BLOCKED_EMAIL_REGEX = /@(?:qq|foxmail)\.com$/i;
 const MAX_REGISTRATIONS_PER_IP = 3;
 
@@ -90,6 +113,8 @@ async function handle(request: Request) {
 
   const url = new URL(request.url);
   const isSignUp = url.pathname.endsWith('/sign-up/email');
+  const isMagicLinkRequest =
+    request.method === 'POST' && url.pathname.endsWith('/sign-in/magic-link');
   const isNewUserCreating = isNewUserCreatingPath(url.pathname);
   const needsCaptcha =
     request.method === 'POST' &&
@@ -131,17 +156,38 @@ async function handle(request: Request) {
 
   const auth = getAuth(configs);
 
+  // Magic-link preflight — a blocked domain must not even receive the
+  // link. Without this, `/sign-in/magic-link` is a side door around the
+  // credential-path QQ block: request a link to an @qq.com address,
+  // click it, and better-auth creates the account at `/magic-link/verify`.
+  if (isMagicLinkRequest) {
+    try {
+      const body = await request
+        .clone()
+        .json()
+        .catch(() => null);
+      const email = String(body?.email || '').trim();
+      if (email && BLOCKED_EMAIL_REGEX.test(email)) {
+        recordQqAttempt(request);
+        return Response.json(
+          { message: m['auth.signup.error_qq_blocked']() },
+          { status: 403 }
+        );
+      }
+    } catch (e) {
+      console.error('[auth] magic-link preflight failed:', e);
+    }
+  }
+
   // Signup policy preflight — only on POST /sign-up/email. The QQ / IP-cap
   // checks live in front of better-auth so we reject *before* a user row
   // is inserted. The body is cloned so the original request stream is
   // still readable by `auth.handler` below.
   //
-  // Scope note: the QQ block is credential-only by design (OAuth / magic
-  // link users can't pick a different email). The IP cap, on the other
-  // hand, applies to ALL new-account creation — for OAuth + magic-link
-  // we run the same check AFTER `auth.handler` and roll back the just-
-  // inserted user if the IP is already at the limit. See the `newSignups`
-  // loop below.
+  // The IP cap applies to ALL new-account creation — for OAuth +
+  // magic-link we run the same check AFTER `auth.handler` and roll back
+  // the just-inserted user if the IP is already at the limit. See the
+  // `newSignups` loop below, which also re-checks the email domain.
   if (isSignUp && request.method === 'POST') {
     // Cooldown gate first — if this IP has been hammering with QQ
     // aliases, short-circuit before even parsing the body. The 24h
@@ -247,6 +293,27 @@ async function handle(request: Request) {
         );
 
       for (const newUser of newSignups) {
+        // Blocked-domain rollback. The credential and magic-link request
+        // paths reject @qq.com / @foxmail.com before a row exists, but an
+        // OAuth account can carry one of those addresses and we only
+        // learn about it here. Same rollback shape as the IP cap: delete
+        // the fresh user (cascade takes the session + account with it)
+        // and bounce to sign-in with an error code.
+        if (BLOCKED_EMAIL_REGEX.test(newUser.userEmail || '')) {
+          await db()
+            .delete(user)
+            .where(eq(user.id, newUser.userId))
+            .catch((e) =>
+              console.error(
+                `[auth] blocked-domain rollback failed (user=${newUser.userId}):`,
+                e
+              )
+            );
+          return Response.redirect(
+            new URL('/sign-in?error=email_blocked', request.url),
+            302
+          );
+        }
         // Per-IP registration cap — applies to OAuth / magic-link as
         // well as credential sign-ups. better-auth has already inserted
         // the user row by the time we get here, so the check has to be
@@ -287,10 +354,21 @@ async function handle(request: Request) {
           userId: newUser.userId,
           configs,
         }).catch((e) => console.error('[auth] auto-grant role failed:', e));
-        // Signup bonus is no longer granted here — new users earn 5
-        // credits the FIRST time they have a verified email AND have
-        // sent a chat message (see maybeClaimSignupBonus in
-        // modules/credits/service.ts, fired from the chat insert path).
+        // Signup bonus — awaited, not fire-and-forget. On Workers the
+        // isolate can be frozen the moment we return the response, and a
+        // dangling promise would be dropped mid-INSERT. The grant is one
+        // insert; the added latency is negligible against an OAuth
+        // round-trip. Idempotent, so a retried callback grants once.
+        await grantForNewUser({
+          userId: newUser.userId,
+          userEmail: newUser.userEmail,
+          configs,
+        }).catch((e) =>
+          console.error(
+            `[auth] signup bonus failed (user=${newUser.userId}):`,
+            e
+          )
+        );
         // Best-effort welcome email. sendWelcomeEmail swallows its own
         // errors and runs against the email provider in the background.
         void sendWelcomeEmail({
@@ -310,16 +388,27 @@ async function handle(request: Request) {
 
   try {
     const body = await response.clone().json();
-    if (body?.user?.id && body?.token) {
+    // `token` is null when email verification is required (autoSignIn is
+    // off), so we key off the user id alone — the bonus and the welcome
+    // email belong to the account, not to the session it may or may not
+    // have been handed.
+    if (body?.user?.id) {
       // Persist the client IP so future /sign-up/email attempts from
       // this IP see this account in their quota count.
       recordSignupIp(body.user.id, clientIp);
-      // Fire-and-forget: don't delay the auth response. The signup
-      // bonus is no longer granted here — it now lives in
-      // maybeClaimSignupBonus, fired lazily on the user's first chat
-      // message (only when their email is verified).
+      // Role is fire-and-forget (a missing role degrades gracefully —
+      // RBAC falls back to the default), but the credit grant is awaited
+      // so the balance is live by the time the client redirects to the
+      // playground and immediately asks for it.
       grantRoleForNewUser({ userId: body.user.id, configs }).catch((e) =>
         console.error('[auth] auto-grant role failed:', e)
+      );
+      await grantForNewUser({
+        userId: body.user.id,
+        userEmail: body.user.email,
+        configs,
+      }).catch((e) =>
+        console.error(`[auth] signup bonus failed (user=${body.user.id}):`, e)
       );
       void sendWelcomeEmail({
         id: body.user.id,

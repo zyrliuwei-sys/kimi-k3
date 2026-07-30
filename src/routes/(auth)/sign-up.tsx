@@ -106,8 +106,8 @@ function SignUpPage() {
   const hasAnyMethod = emailEnabled || hasSocial;
 
   // Signup bonus — drives the "{credits} credits on us" message that
-  // wraps the form. At 5 cr per PPT, 10 credits ≈ 2 decks. Hidden
-  // entirely when admin disables initial_credits_*.
+  // wraps the form. Granted at sign-up; 5 credits ≈ one PPT deck.
+  // Hidden entirely when admin disables initial_credits_*.
   const bonus = useSignupBonus();
   const showBonus = bonus.enabled && bonus.credits > 0;
 

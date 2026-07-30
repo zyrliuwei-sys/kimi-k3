@@ -3,7 +3,7 @@
  * the landing / sign-up / pricing pages stays in sync with whatever the
  * admin sets in Admin → Settings → General → Credits.
  *
- * Falls back to sensible defaults (20 cr, 30 days) when the config is
+ * Falls back to sensible defaults (5 cr, 30 days) when the config is
  * still loading or the keys are missing — these mirror the defaults in
  * src/modules/config/settings.ts and src/modules/credits/service.ts.
  *
@@ -22,10 +22,9 @@ export interface SignupBonus {
 
 const DEFAULT_BONUS: SignupBonus = {
   enabled: true,
-  credits: 10,
+  credits: 5,
   validDays: 30,
-  description:
-    'Welcome to kimik3 — 10 free credits (≈ 2 PPT decks) to try it out 🎉',
+  description: 'Welcome to kimik3 — 5 free credits to try it out 🎉',
 };
 
 export function useSignupBonus(): SignupBonus {

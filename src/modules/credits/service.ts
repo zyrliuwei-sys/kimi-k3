@@ -1,18 +1,7 @@
-import {
-  and,
-  asc,
-  count,
-  desc,
-  eq,
-  gt,
-  isNull,
-  or,
-  sql,
-  sum,
-} from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, or, sql, sum } from 'drizzle-orm';
 
 import { db } from '@/core/db';
-import { chatMessage, credit, user } from '@/config/db/schema';
+import { credit } from '@/config/db/schema';
 import { getSnowId, getUuid } from '@/lib/hash';
 
 // --- Enums ---
@@ -274,24 +263,14 @@ export async function revoke(consumeCreditId: string) {
 // --- Auto-grant for new user ---
 
 /**
- * Lazy signup bonus. New users earn 5 free credits the first time they
- * BOTH have a verified email AND have sent at least one chat message.
- * Replaces the old at-signup grant (`grantForNewUser`) — bot signups
- * no longer harvest credits by registering, only real users who verify
- * and actually use the playground do.
+ * True when the user already holds a signup-gift credit row.
  *
- * Idempotent: a user with any existing `transactionScene = 'gift'` row
- * is a no-op. Safe to call on every chat message; the first call that
- * finds the conditions satisfied inserts the grant, every subsequent
- * call short-circuits.
- *
- * Race note: two concurrent chat sends from the same brand-new user
- * could both pass the existence check before either inserts, resulting
- * in 10 credits instead of 5. The window is microseconds and matches
- * the safety bar of the previous at-signup grant — accept it.
+ * The gift scene is the idempotency key for the whole signup-bonus
+ * feature: every path that can grant it checks here first, so a user
+ * who signs up with Google, verifies their email, and re-runs the
+ * callback still ends up with exactly one gift row.
  */
-export async function maybeClaimSignupBonus(userId: string): Promise<void> {
-  // Bail fast if a gift credit already exists.
+async function hasSignupBonus(userId: string): Promise<boolean> {
   const [existing] = await db()
     .select({ id: credit.id })
     .from(credit)
@@ -302,56 +281,30 @@ export async function maybeClaimSignupBonus(userId: string): Promise<void> {
       )
     )
     .limit(1);
-  if (existing) return;
-
-  // Email must be verified — bot signups with throwaway addresses stay
-  // unverified and never earn the bonus.
-  const [u] = await db()
-    .select({ emailVerified: user.emailVerified, email: user.email })
-    .from(user)
-    .where(eq(user.id, userId))
-    .limit(1);
-  if (!u?.emailVerified) return;
-
-  // At least one chat message must exist. The caller hooks this on the
-  // user-message insert path, so by the time we run the row is live.
-  const [{ c: msgCount }] = await db()
-    .select({ c: count() })
-    .from(chatMessage)
-    .where(eq(chatMessage.userId, userId));
-  if (!msgCount) return;
-
-  const expiresAt = calculateCreditExpirationTime({
-    creditsValidDays: SIGNUP_BONUS_VALID_DAYS,
-  });
-
-  try {
-    await grant({
-      userId,
-      userEmail: u.email,
-      credits: SIGNUP_BONUS_AMOUNT,
-      description: SIGNUP_BONUS_DESCRIPTION,
-      scene: CreditTransactionScene.GIFT,
-      expiresAt,
-    });
-  } catch (e) {
-    // Don't let a bonus-grant failure bubble up into the chat handler —
-    // the user is mid-conversation and a credit-row hiccup shouldn't
-    // break their message persistence. The next chat message retries.
-    console.error(
-      `[credits] lazy signup bonus grant failed (user=${userId}):`,
-      e
-    );
-  }
+  return Boolean(existing);
 }
 
-// Constants live next to the function that uses them so it's obvious
-// where the "5 credits / 30 days" numbers come from.
-const SIGNUP_BONUS_AMOUNT = 5;
-const SIGNUP_BONUS_VALID_DAYS = 30;
-const SIGNUP_BONUS_DESCRIPTION =
-  'Welcome bonus — 5 free credits to try kimik3 🎉';
-
+/**
+ * Grant the signup bonus, config-driven (`initial_credits_*` in the
+ * `config` table, editable at Admin → Settings → General → Credits).
+ * The same keys feed `useSignupBonus()` on the marketing surfaces and
+ * the welcome email, so what we advertise is what we grant.
+ *
+ * Called from `src/routes/api/auth/$.ts` on every path that can create
+ * a user — OAuth callback, magic-link verify, credential sign-up, and
+ * email verification. Never from `databaseHooks.user.create.after`:
+ * better-auth 1.6.x queues that hook via `queueAfterTransactionHook`
+ * and doesn't reliably flush it before the OAuth callback redirects,
+ * which silently skipped the grant for every Google signup.
+ *
+ * Idempotent — a user with an existing gift row is a no-op, so callers
+ * can fire it defensively without double-granting.
+ *
+ * Race note: two concurrent auth requests for the same brand-new user
+ * could both pass `hasSignupBonus` before either inserts. The window is
+ * microseconds and the blast radius is one extra bonus; not worth a
+ * transaction or a unique index on (user_id, transaction_scene).
+ */
 export async function grantForNewUser(params: {
   userId: string;
   userEmail?: string;
@@ -359,20 +312,23 @@ export async function grantForNewUser(params: {
 }) {
   const { userId, userEmail, configs } = params;
 
-  // Defaults (must mirror src/modules/config/settings.ts for fresh installs
-  // that never opened Admin → Settings): 10 credits expiring in 30 days.
-  // Tuned for Kimi K3 economics — at 5 cr per PPT, 10 credits ≈ 2 decks.
-  // See the comment block in settings.ts.
+  // Defaults (must mirror src/modules/config/settings.ts and
+  // src/hooks/use-signup-bonus.ts for fresh installs that never opened
+  // Admin → Settings): 5 credits expiring in 30 days — enough for one
+  // PPT deck or a short chat session, so a new account can actually try
+  // the product instead of hitting a paywall on its first click.
   if (configs.initial_credits_enabled === 'false') return;
 
   const parsed = parseInt(configs.initial_credits_amount);
-  const credits = Number.isNaN(parsed) ? 10 : parsed;
+  const credits = Number.isNaN(parsed) ? 5 : parsed;
   if (credits <= 0) return;
+
+  if (await hasSignupBonus(userId)) return;
 
   const validDays = parseInt(configs.initial_credits_valid_days) || 30;
   const description =
     configs.initial_credits_description ||
-    'Welcome to kimik3 — 10 free credits (≈ 2 PPT decks) to try it out 🎉';
+    'Welcome to kimik3 — 5 free credits to try it out 🎉';
 
   const expiresAt = calculateCreditExpirationTime({
     creditsValidDays: validDays,

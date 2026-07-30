@@ -168,7 +168,7 @@ async function sendWelcomeEmail(user: {
     // Mirror the keys used by grantForNewUser() in modules/credits so the
     // bonus value shown in the email matches what's actually granted.
     const bonusEnabled = all.initial_credits_enabled !== 'false';
-    const bonus = bonusEnabled ? Number(all.initial_credits_amount) || 10 : 0;
+    const bonus = bonusEnabled ? Number(all.initial_credits_amount) || 5 : 0;
     const baseUrl = all.app_url || envConfigs.app_url || '';
     const ctaUrl = `${baseUrl.replace(/\/$/, '')}/api-playground`;
 
@@ -434,8 +434,6 @@ export function getAuth(configs?: Record<string, string>) {
           },
         }
       : {}),
-    // New users get no free credits. They must sign up/login, then purchase a
-    // credit pack to use the playground or any AI feature.
     logger: { disabled: true },
   } satisfies BetterAuthOptions);
 

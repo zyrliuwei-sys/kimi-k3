@@ -44,6 +44,10 @@ function SignInPage() {
     if (err === 'ip_limit') {
       // Reuse the signup-side message — same user-facing meaning.
       setInitialError(m['auth.signup.error_ip_limit']({ max: 3 }));
+    } else if (err === 'email_blocked') {
+      // OAuth account carrying a blocked domain (@qq.com / @foxmail.com);
+      // the wrapper rolled the user row back before this redirect.
+      setInitialError(m['auth.signup.error_qq_blocked']());
     }
   }, []);
 
