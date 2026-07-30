@@ -11,6 +11,7 @@ import {
   updateTask,
 } from '@/modules/ai-tasks/service';
 import { getAllConfigs } from '@/modules/config/service';
+import { computeImageCost } from '@/lib/image-billing';
 import { respData, respErr } from '@/lib/resp';
 
 import { buildRehostSaveFiles } from './-shared';
@@ -126,8 +127,16 @@ export async function postImageTask({
     : rawSize
       ? normalizeRatioToSize(rawSize)
       : undefined;
-  const costCredits =
-    Number(configs.image_credit_cost) || DEFAULT_IMAGE_CREDIT_COST;
+  // Credit cost = wholesale × markup × n, with img2img surcharge. See
+  // `src/lib/image-billing.ts` for the formula and config keys. The
+  // legacy `image_credit_cost` flat config is honored when
+  // `image_credit_markup` is unset — see the helper's "legacy fallback".
+  const costCredits = computeImageCost({
+    n,
+    size,
+    hasReference: !!referenceUrl,
+    configs,
+  });
 
   // 1. Insert aiTask + consume credits (single transaction).
   let task;

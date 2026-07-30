@@ -25,7 +25,7 @@ const DEFAULT_BONUS: SignupBonus = {
   credits: 10,
   validDays: 30,
   description:
-    'Welcome to kimik3 — 10 free credits (≈ 2 PPT decks) to try it out 🎉',
+    'Welcome to kimik3 — 10 free credits (≈ 1 free image generation) to try it out 🎨',
 };
 
 export function useSignupBonus(): SignupBonus {
