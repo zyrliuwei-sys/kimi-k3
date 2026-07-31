@@ -5132,6 +5132,7 @@ function MyVideoTile({
   // often defer first-frame paint for muted videos wrapped inside
   // interactive parents (button), so this is the bypass.
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [hasFrame, setHasFrame] = useState(false);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -5163,6 +5164,15 @@ function MyVideoTile({
         loop
         playsInline
         preload="metadata"
+        onLoadedData={(e) => {
+          // Once the first frame is decodable, drop the placeholder
+          // so the gradient/fade is replaced with the real first
+          // frame. We're using opacity rather than display so the
+          // canvas keeps decoding under the hood.
+          const v = e.currentTarget;
+          if (v.videoWidth && v.videoHeight) setHasFrame(true);
+        }}
+        onPlay={(e) => setHasFrame(true)}
         onError={(e) => {
           // Mirror MyImageTile's fallback: hide the broken element so
           // the duration badge still shows over the gray placeholder,
@@ -5170,7 +5180,10 @@ function MyVideoTile({
           // leaving a forever-loading spinner.
           e.currentTarget.style.display = 'none';
         }}
-        className="absolute inset-0 size-full object-cover"
+        className={cn(
+          'bg-foreground/95 absolute inset-0 size-full object-cover transition-opacity duration-300',
+          hasFrame ? 'opacity-100' : 'opacity-0'
+        )}
       />
       <span className="bg-foreground/80 text-background pointer-events-none absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-tight">
         <Film className="size-3" />
