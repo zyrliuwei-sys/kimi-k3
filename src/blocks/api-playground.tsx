@@ -5107,33 +5107,44 @@ export function ImagePlayground() {
 
 /**
  * Renders the user's generated videos as a packed masonry of video tiles.
- * Mirrors `ImagePlayground`'s My Images tab in spirit but kept minimal:
- * each tile is a clickable `<img>` poster (server-extracted first frame)
- * with a duration badge. Clicking a tile lifts it into the active-video
- * panel (`activeVideoId`) and focuses the composer so the user can keep
- * iterating on prompts.
- *
- * Why an `<img>` and not a `<video>` for the tile preview: Chrome's
- * autoplay heuristic refuses to paint the first frame of a muted video
- * wrapped inside an interactive parent (`<button>`) until the autoplay
- * decision is resolved — even with `autoPlay muted loop playsInline`
- * the canvas stayed gray across multiple "Refresh" cycles. The image
- * gallery (`MyImageTile`) uses `<img>` and always works; we mirror that
- * pattern here — a server-extracted JPEG of the first frame as
- * `posterUrl`, which the list endpoint surfaces. The real `<video>`
- * plays when the user clicks through to the active-video panel.
+ * Mirrors `ImagePlayground`'s My Images tab in spirit but keeps the
+ * `<video>` element on the tile (instead of `<img>`) so that when
+ * Chrome's autoplay heuristic cooperates the tile plays inline. The
+ * server-extracted `posterUrl` is wired as the `<video poster>` so the
+ * tile always paints SOMETHING — first-frame JPEG shows even when
+ * playback is blocked. Clicking the tile still lifts into the
+ * active-video panel (`activeVideoId`) for audio + scrub.
  */
 function MyVideoTile({
+  videoUrl,
   posterUrl,
   duration,
   onSelect,
   taskId,
 }: {
+  videoUrl: string;
   posterUrl: string;
   duration: number | null;
   onSelect: () => void;
   taskId: string;
 }) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  // Bypass Chrome's autoplay heuristic on muted videos inside a
+  // `<button>` parent by explicitly calling `.play()` after
+  // `loadeddata`. If the browser declines, the `poster` keeps the
+  // tile visible — so the user always sees at least a still frame.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    const tryPlay = () => {
+      v.play().catch(() => {});
+    };
+    if (v.readyState >= 2) tryPlay();
+    else v.addEventListener('loadeddata', tryPlay, { once: true });
+    return () => v.removeEventListener('loadeddata', tryPlay);
+  }, [videoUrl]);
+
   return (
     <button
       type="button"
@@ -5142,19 +5153,18 @@ function MyVideoTile({
       className="group bg-foreground/5 hover:ring-foreground/30 relative w-full max-w-[320px] shrink-0 overflow-hidden rounded-xl transition-all hover:opacity-90 sm:max-w-[280px]"
       style={{ aspectRatio: '16 / 9' }}
     >
-      {/* `loading="lazy"` mirrors MyImageTile — the row gets tiles
-          lazily as they enter the viewport, so a 30-task history
-          doesn't spike 30 mp4 mp4 decodes on mount. */}
-      <img
-        src={posterUrl}
-        alt="Video preview"
-        loading="lazy"
-        decoding="async"
+      <video
+        ref={videoRef}
+        src={videoUrl}
+        poster={posterUrl}
+        muted
+        loop
+        playsInline
+        preload="metadata"
         onError={(e) => {
-          // Same fallback as MyImageTile: hide the broken img so the
-          // duration badge still shows over the gray placeholder,
-          // making it obvious a tile is unplayable rather than
-          // leaving a forever-loading spinner.
+          // Hide the element on hard failure so the placeholder +
+          // duration badge stay readable instead of showing
+          // forever-loading garbage.
           e.currentTarget.style.display = 'none';
         }}
         className="absolute inset-0 size-full object-cover"
@@ -5271,6 +5281,7 @@ function MyVideosGrid({
               {urls.map((url, idx) => (
                 <MyVideoTile
                   key={url + idx}
+                  videoUrl={url}
                   posterUrl={
                     (task as any).posterUrl || url.replace('/file', '/jpg') // soft-fallback
                   }
