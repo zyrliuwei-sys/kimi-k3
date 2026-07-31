@@ -290,6 +290,19 @@ export function Footer() {
               MossAI Tools
             </a>
             <a
+              href="https://collectai.tools/item/liuwei"
+              target="_blank"
+              rel="noopener"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/collectai-badge.svg"
+                alt="Listed on CollectAI"
+                width={220}
+                height={40}
+              />
+            </a>
+            <a
               href="https://topaitoolsreview.com"
               target="_blank"
               rel="noopener noreferrer"

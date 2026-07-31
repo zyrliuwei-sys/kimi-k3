@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="40" viewBox="0 0 220 40" fill="none">
+  <rect width="220" height="40" rx="8" fill="#F8FAFC"/>
+  <rect x="0.5" y="0.5" width="219" height="39" rx="7.5" stroke="#CBD5E1" stroke-opacity="0.8"/>
+  <text x="12" y="16" fill="#64748B" font-family="system-ui, -apple-system, sans-serif" font-size="10" font-weight="500">Listed on</text>
+  <text x="12" y="30" fill="#0F172A" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700">CollectAI.Tools</text>
+  <path d="M190 12 L198 20 L190 28" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <path d="M198 12 L206 20 L198 28" stroke="#3B82F6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity="0.5"/>
+</svg>
