@@ -11,6 +11,7 @@ import {
   Circle,
   CornerDownLeft,
   Crown,
+  Download,
   FileText,
   Film,
   Gift,
@@ -5720,7 +5721,100 @@ export function VideoPlayground() {
         <div className="flex-1 overflow-hidden">
           <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none">
             <div className="min-h-full w-full">
-              {tab === 'community' ? (
+              {activeVideoId ? (
+                // Inline video preview — replaces the My Videos grid
+                // when the user clicks a tile. Paints the server-
+                // extracted poster frame as a still `<img>` (works
+                // identically to image gallery) plus an inline `<video>`
+                // below it so the user can hit play, hear audio, and
+                // scrub normally on the real file.
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-6">
+                  <section>
+                    <header className="mb-3 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => clearActive()}
+                        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
+                      >
+                        ← {m['playground.image.back_to_grid']()}
+                      </button>
+                    </header>
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="bg-foreground/5 text-muted-foreground inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium">
+                        <Film className="size-3.5" />
+                        <span className="line-clamp-1 max-w-[calc(100vw-12rem)]">
+                          {(taskQuery.data?.task?.prompt || '').trim() ||
+                            m['playground.image.preview_default_label']()}
+                        </span>
+                      </span>
+                    </div>
+                    <div className="border-border bg-card/40 overflow-hidden rounded-2xl border">
+                      <div className="bg-foreground/5 flex max-h-[70vh] min-h-[18rem] items-center justify-center overflow-hidden">
+                        {(() => {
+                          const tr = (() => {
+                            const raw = taskQuery.data?.task?.taskResult;
+                            if (!raw) return null;
+                            return typeof raw === 'string'
+                              ? JSON.parse(raw)
+                              : raw;
+                          })();
+                          const videoUrl =
+                            tr?.videoUrl && /^https?:\/\//i.test(tr.videoUrl)
+                              ? tr.videoUrl
+                              : tr?.videoUrl
+                                ? `/api/ai-tasks/${activeVideoId}/file`
+                                : null;
+                          if (!videoUrl) {
+                            return (
+                              <div className="flex items-center gap-2 px-6 py-16 text-sm">
+                                <Loader2 className="text-muted-foreground size-4 animate-spin" />
+                                <span className="text-muted-foreground">
+                                  Loading…
+                                </span>
+                              </div>
+                            );
+                          }
+                          return (
+                            <video
+                              src={videoUrl}
+                              controls
+                              autoPlay
+                              playsInline
+                              className="mx-auto max-h-[70vh] w-auto"
+                              poster={tr?.posterUrl}
+                            />
+                          );
+                        })()}
+                      </div>
+                      <div className="px-4 py-3">
+                        <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">
+                          {m['playground.image.preview_prompt_label']()}
+                        </p>
+                        <p className="text-foreground mt-1.5 line-clamp-4 text-sm leading-relaxed">
+                          {taskQuery.data?.task?.prompt}
+                        </p>
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <div className="text-muted-foreground truncate text-xs">
+                            {taskQuery.data?.task?.model ? (
+                              <span className="font-mono">
+                                {taskQuery.data.task.model}
+                              </span>
+                            ) : null}
+                          </div>
+                          <a
+                            href={`/api/ai-tasks/${activeVideoId}/file?download=1`}
+                            download
+                            className="border-border bg-background hover:bg-foreground/5 inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium shadow-xs transition-all"
+                          >
+                            <Download className="size-3.5" />
+                            {m['playground.image.download']()}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              ) : tab === 'community' ? (
                 <>
                   <GalleryWall items={VIDEO_BACKGROUND_ITEMS} />
                   {/* End-cap — the payoff after scrolling the wall. Click
