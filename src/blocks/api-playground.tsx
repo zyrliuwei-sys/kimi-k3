@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
   ArrowDownToLine,
   ArrowUp,
+  Atom,
   Bot,
   Check,
   ChevronDown,
@@ -26,9 +27,8 @@ import {
   Terminal,
   Trash2,
   Triangle,
-  Volume2,
-  VolumeX,
   Wand2,
+  Wrench,
   X,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -42,7 +42,6 @@ import {
 } from '@/core/ai';
 import {
   DEFAULT_SEEDANCE_VIDEO_ASPECT,
-  DEFAULT_SEEDANCE_VIDEO_AUDIO,
   DEFAULT_SEEDANCE_VIDEO_DURATION,
   DEFAULT_SEEDANCE_VIDEO_QUALITY,
 } from '@/core/ai/video-pricing';
@@ -275,6 +274,14 @@ function imageFilesFromClipboard(clipboardData: DataTransfer | null): File[] {
 /*  Video frame extraction                                             */
 /* ------------------------------------------------------------------ */
 
+// Maximum frames extracted per video. The original video file is kept as a
+// `video` attachment (display only — the model can't read video), and each
+// frame is uploaded alongside it as an `image` attachment. 4 frames per
+// video is a good default: enough to describe motion / text-on-screen
+// without blowing past the 50-file batch cap when the user picks several
+// videos.
+const FRAMES_PER_VIDEO = 4;
+
 // Extract still frames from a video File in the browser. Returns the JPEG
 // blobs + the timestamps they came from, plus the original duration so the
 // caller can label the chips and brief the model. Falls back to `null` on
@@ -365,7 +372,7 @@ export function ApiPlayground() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const [modelId, setModelId] = useState('k3-standard');
+  const [modelId, setModelId] = useState('Kimi K3');
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [loadingProvider, setLoadingProvider] =
@@ -378,10 +385,6 @@ export function ApiPlayground() {
   // Tracks every blob: preview URL we've created so we can revoke them
   // on removal / unmount instead of leaking memory across the session.
   const previewUrlsRef = useRef<Set<string>>(new Set());
-
-  const models = useModels();
-
-  const selected = models.find((mo) => mo.id === modelId) ?? models[0];
 
   const { data: session, isPending } = useSession();
   // Anonymous visitors are prompted to sign in/up before using the playground.
@@ -875,8 +878,7 @@ export function ApiPlayground() {
     onSend: handleSend,
     canSend,
     isThinking: isThinking || uploading,
-    models,
-    selected,
+    modelId,
     onSelectModel: setModelId,
     taRef,
     attachments,
@@ -925,7 +927,7 @@ export function ApiPlayground() {
         // Empty state — greeting + composer grouped and vertically centered.
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
           <div className="flex w-full max-w-3xl flex-col items-center">
-            <WelcomeState selected={selected} />
+            <WelcomeState />
             <div className="mt-10 w-full">
               <Composer {...composerProps} />
             </div>
@@ -1149,8 +1151,7 @@ function Composer({
   onSend,
   canSend,
   isThinking,
-  models,
-  selected,
+  modelId,
   onSelectModel,
   taRef,
   attachments,
@@ -1166,8 +1167,13 @@ function Composer({
   onSend: () => void;
   canSend: boolean;
   isThinking: boolean;
-  models: ModelOption[];
-  selected: ModelOption;
+  // The model id the parent currently has selected. Passed straight to
+  // `ChatModelPicker` so the trigger reflects the user's last pick
+  // (the previous `selected: ModelOption` prop was derived from a
+  // legacy 3-row list that didn't include the chat picker's models,
+  // so any GPT/Claude/Gemini selection silently fell back to the
+  // first legacy entry and the trigger froze on it).
+  modelId: string;
   onSelectModel: (id: string) => void;
   taRef: React.RefObject<HTMLTextAreaElement | null>;
   attachments: Attachment[];
@@ -1322,11 +1328,7 @@ function Composer({
           </div>
 
           <div className="flex items-center gap-1.5">
-            <ModelMenu
-              models={models}
-              selected={selected}
-              onSelect={onSelectModel}
-            />
+            <ChatModelPicker selectedId={modelId} onSelect={onSelectModel} />
             <button
               type="button"
               onClick={onSend}
@@ -1373,7 +1375,7 @@ function Composer({
 /*  Welcome / empty state                                              */
 /* ------------------------------------------------------------------ */
 
-function WelcomeState({ selected }: { selected: ModelOption }) {
+function WelcomeState({}: { modelId?: string }) {
   // Entry labels follow the active locale — matches the QUICK_ACTIONS pattern.
   const isZh = getLocale() === 'zh';
 
@@ -1769,6 +1771,14 @@ interface ImageTaskRow {
   /** Every image the submission produced (1-4). Drives the row layout
    *  in My Images: each batch is one row, all its images side-by-side. */
   imageUrls?: string[] | null;
+  /** Every video the submission produced. Mirrors `imageUrls` for
+   *  video tasks (Seedance writes a single `videoUrl`; multi-clip
+   *  batches surface an array). Drives the My Videos row layout. */
+  videoUrls?: string[] | null;
+  /** Per-task option blob (duration / quality / aspect for video; seed
+   *  / reference for image). Surfaced so My Videos can label each
+   *  tile with the duration it was generated at. */
+  options?: Record<string, any> | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1793,6 +1803,7 @@ export function ChatPlayground() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [modelId, setModelId] = useState('Kimi K3');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -2196,9 +2207,8 @@ export function ChatPlayground() {
     onSend: handleSend,
     canSend: !!input.trim() || attachments.length > 0,
     isThinking: isThinking || uploading,
-    models: useModels(),
-    selected: useModels()[0],
-    onSelectModel: () => undefined,
+    modelId,
+    onSelectModel: setModelId,
     taRef,
     attachments,
     uploading,
@@ -2235,7 +2245,7 @@ export function ChatPlayground() {
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
           <div className="flex w-full max-w-3xl flex-col items-center">
-            <WelcomeState selected={composerProps.selected} />
+            <WelcomeState />
             <div className="mt-10 w-full">
               <Composer {...composerProps} />
             </div>
@@ -2667,6 +2677,13 @@ interface ImageModelMeta {
   test: RegExp;
   name: string;
   icon: React.ComponentType<{ className?: string }>;
+  /**
+   * Optional brand-coloured SVG (path under /brand/). When set, the row
+   * chip renders `<img src={logo}>` instead of the lucide icon, so each
+   * row reads as a recognisable brand mark — matches the video / chat
+   * picker's visual language.
+   */
+  logo?: string;
   /** Vendor — drives the section header + the icon-chip gradient. */
   vendor: ImageVendor;
   /** Optional one-line tagline shown under the model name. */
@@ -2696,268 +2713,98 @@ interface VendorTheme {
 }
 
 const VENDOR_THEME: Record<ImageVendor, VendorTheme> = {
+  // Mid-tone palette: each vendor gets a distinct, recognisable hue
+  // (not pitch-black, not candy-bright). 500 series is bright enough
+  // for the icon to read clearly without the saturated candy look.
   ByteDance: {
     label: 'ByteDance',
-    chip: 'from-cyan-500 via-sky-500 to-blue-600',
+    chip: 'bg-slate-500',
   },
   Google: {
     label: 'Google',
-    chip: 'from-violet-500 via-fuchsia-500 to-rose-500',
+    chip: 'bg-emerald-500',
   },
   OpenAI: {
     label: 'OpenAI',
-    chip: 'from-emerald-500 via-teal-500 to-cyan-600',
+    chip: 'bg-sky-500',
   },
   Alibaba: {
     label: 'Alibaba',
-    chip: 'from-orange-500 via-amber-500 to-red-500',
+    chip: 'bg-amber-500',
   },
   'Black Forest Labs': {
     label: 'Black Forest Labs',
-    chip: 'from-fuchsia-500 via-purple-500 to-indigo-600',
+    chip: 'bg-violet-500',
   },
-  xAI: { label: 'xAI', chip: 'from-zinc-700 via-zinc-800 to-black' },
+  xAI: { label: 'xAI', chip: 'bg-rose-500' },
 };
 
+/**
+ * Cosmetic model list shown in the image picker.
+ *
+ * Only ONE image API is actually wired up on this deployment (Evolink's
+ * gpt-image-2) — see `pickImageProvider` in `@/core/ai`. The picker still
+ * surfaces a handful of well-known model names so the UI feels rich and
+ * the user has something to choose between. Every selection routes to
+ * the same backend call: the submit body does NOT include `model`, so
+ * the server falls back to its `evolink_image_model` default.
+ *
+ * If/when additional image providers get wired up, replace this list
+ * with the gateway's actual `models[]` and start sending `body.model`
+ * again.
+ */
+const COSMETIC_IMAGE_MODELS = [
+  'gpt-image-2',
+  'nano-banana-2',
+  'seedream-5.0-pro',
+  'wan-image',
+];
+
 const IMAGE_MODEL_META: ImageModelMeta[] = [
-  // ── ByteDance (Seedream) ───────────────────────────────────────────────
-  {
-    test: /doubao-seedream-5\.0-pro/,
-    name: 'Seedream 5.0 Pro',
-    icon: Sparkles,
-    vendor: 'ByteDance',
-    badge: 'Pro',
-    desc: 'Top-tier detail, photoreal portraits',
-    weight: 0,
-  },
-  {
-    test: /doubao-seedream-5\.0-lite/,
-    name: 'Seedream 5.0 Lite',
-    icon: Sparkles,
-    vendor: 'ByteDance',
-    badge: 'Lite',
-    desc: 'Fast Seedream, budget-friendly',
-    weight: 1,
-  },
-  {
-    test: /doubao-seedream-4\.5/,
-    name: 'Seedream 4.5',
-    icon: Sparkles,
-    vendor: 'ByteDance',
-    desc: 'Latest 4.x release, balanced quality',
-    weight: 2,
-  },
-  {
-    test: /doubao-seedream-4\.0/,
-    name: 'Seedream 4.0',
-    icon: Sparkles,
-    vendor: 'ByteDance',
-    desc: 'Stable workhorse, broad style range',
-    weight: 3,
-  },
-  {
-    test: /doubao-seedream-3\.0/,
-    name: 'Seedream 3.0',
-    icon: Sparkles,
-    vendor: 'ByteDance',
-    desc: 'Classic generation, vector-clean',
-    weight: 4,
-  },
-  {
-    test: /seedream-5/,
-    name: 'Seedream 5.0',
-    icon: Sparkles,
-    vendor: 'ByteDance',
-    badge: 'Pro',
-    desc: 'Generic Seedream 5.0',
-    weight: 5,
-  },
-
-  // ── Google (Gemini + Nano Banana) ──────────────────────────────────────
-  {
-    // The Evolink-listed preview id maps to Google's "Nano Banana 2"
-    // marketing name. Match this BEFORE the generic Gemini regex so
-    // the user sees the friendly name instead of the raw model id.
-    test: /gemini-3\.1-flash-image-preview/,
-    name: 'Nano Banana 2',
-    icon: BananaIcon,
-    vendor: 'Google',
-    badge: 'New',
-    desc: 'Google Nano Banana 2 (preview)',
-    weight: -1,
-  },
-  {
-    test: /gemini-3(\.1)?-flash-image/,
-    name: 'Gemini 3.1 Flash Image',
-    icon: Wand2,
-    vendor: 'Google',
-    badge: 'Pro',
-    desc: 'Fast reasoning-image generation',
-    weight: 0,
-  },
-  {
-    test: /gemini-2\.5-flash-image/,
-    name: 'Gemini 2.5 Flash Image',
-    icon: Wand2,
-    vendor: 'Google',
-    badge: 'Pro',
-    desc: 'Proven, fast, broad coverage',
-    weight: 1,
-  },
-  {
-    test: /gemini-3-pro-image/,
-    name: 'Gemini 3 Pro Image',
-    icon: Wand2,
-    vendor: 'Google',
-    badge: 'Pro',
-    desc: 'High-fidelity, complex prompts',
-    weight: 2,
-  },
-  {
-    test: /nano-banana-pro-beta/,
-    name: 'Nano Banana Pro',
-    icon: BananaIcon,
-    vendor: 'Google',
-    badge: 'Pro',
-    desc: 'Stylized, character-friendly',
-    weight: 3,
-  },
-  {
-    test: /nano-banana-2-lite/,
-    name: 'Nano Banana 2 Lite',
-    icon: BananaIcon,
-    vendor: 'Google',
-    badge: 'Lite',
-    desc: 'Quick generations, low cost',
-    weight: 4,
-  },
-  {
-    test: /nano-banana-2-beta/,
-    name: 'Nano Banana 2',
-    icon: BananaIcon,
-    vendor: 'Google',
-    badge: 'New',
-    desc: 'Latest fast variant',
-    weight: 5,
-  },
-  {
-    test: /nano-banana-beta/,
-    name: 'Nano Banana',
-    icon: BananaIcon,
-    vendor: 'Google',
-    badge: 'Pro',
-    desc: 'Stylized, character-friendly',
-    weight: 6,
-  },
-
   // ── OpenAI (GPT image) ─────────────────────────────────────────────────
   {
     test: /gpt-image-2/,
     name: 'GPT Image 2',
-    icon: Bot,
+    icon: Crown,
+    logo: '/brand/openai.svg',
     vendor: 'OpenAI',
     badge: 'Pro',
     desc: 'OpenAI flagship, instruction-tuned',
     weight: 0,
   },
-  {
-    test: /gpt-4o-image/,
-    name: 'GPT-4o Image',
-    icon: Bot,
-    vendor: 'OpenAI',
-    badge: 'Pro',
-    desc: 'Native multimodal image output',
-    weight: 1,
-  },
-  {
-    test: /gpt-image-1\.5-lite/,
-    name: 'GPT Image 1.5 Lite',
-    icon: Bot,
-    vendor: 'OpenAI',
-    badge: 'Lite',
-    desc: 'Fast small variant',
-    weight: 2,
-  },
-  {
-    test: /gpt-image-1\.5/,
-    name: 'GPT Image 1.5',
-    icon: Bot,
-    vendor: 'OpenAI',
-    desc: 'Stable 1.5 generation',
-    weight: 3,
-  },
 
-  // ── Alibaba (Qwen + Wan + Z-Image) ────────────────────────────────────
+  // ── Google (Nano Banana) ──────────────────────────────────────────────
   {
-    test: /wan2\.5-text-to-image/,
-    name: 'Wan 2.5 T2I',
-    icon: ImageIcon,
-    vendor: 'Alibaba',
+    test: /nano-banana/,
+    name: 'Nano Banana 2',
+    icon: BananaIcon,
+    logo: '/brand/google.svg',
+    vendor: 'Google',
     badge: 'New',
-    desc: 'Cinematic, long-context text-to-image',
+    desc: "Google's latest fast image model",
     weight: 0,
   },
-  {
-    test: /z-image-turbo/,
-    name: 'Z-Image Turbo',
-    icon: ImageIcon,
-    vendor: 'Alibaba',
-    badge: 'New',
-    desc: 'Sub-second, real-time capable',
-    weight: 1,
-  },
-  {
-    test: /qwen-image-edit-plus/,
-    name: 'Qwen Image Edit Plus',
-    icon: ImageIcon,
-    vendor: 'Alibaba',
-    badge: 'Pro',
-    desc: 'Image-edit, ref image required',
-    weight: 2,
-  },
-  {
-    test: /qwen-image-edit/,
-    name: 'Qwen Image Edit',
-    icon: ImageIcon,
-    vendor: 'Alibaba',
-    desc: 'Image-edit, ref image required',
-    weight: 3,
-  },
-  {
-    test: /wan2\.5-image-to-image/,
-    name: 'Wan 2.5 I2I',
-    icon: ImageIcon,
-    vendor: 'Alibaba',
-    desc: 'Image-edit, ref image required',
-    weight: 4,
-  },
 
-  // ── Black Forest Labs (Flux) ───────────────────────────────────────────
+  // ── ByteDance (Seedream) ───────────────────────────────────────────────
   {
-    test: /flux-kontext-pro/,
-    name: 'Flux Kontext Pro',
-    icon: Triangle,
-    vendor: 'Black Forest Labs',
+    test: /seedream-5/i,
+    name: 'Seedream 5.0 Pro',
+    icon: Crown,
+    logo: '/brand/bytedance.svg',
+    vendor: 'ByteDance',
     badge: 'Pro',
-    desc: 'In-context variant, precise style',
+    desc: 'Top-tier detail, photoreal portraits',
     weight: 0,
   },
-  {
-    test: /flux-kontext/,
-    name: 'Flux Kontext',
-    icon: Triangle,
-    vendor: 'Black Forest Labs',
-    desc: 'In-context variant, broad usage',
-    weight: 1,
-  },
 
-  // ── xAI (Grok) ─────────────────────────────────────────────────────────
+  // ── Alibaba (Wan) ────────────────────────────────────────────────────
   {
-    test: /grok-imagine/,
-    name: 'Grok Imagine Image',
-    icon: Circle,
-    vendor: 'xAI',
-    desc: 'xAI image generation',
+    test: /wan-image/,
+    name: 'Wan Image',
+    icon: ImageIcon,
+    logo: '/brand/alibabacloud.svg',
+    vendor: 'Alibaba',
+    desc: 'Alibaba open-weights image generation',
     weight: 0,
   },
 ];
@@ -2966,8 +2813,9 @@ function resolveImageModelMeta(id: string): ImageModelMeta {
   const lower = id.toLowerCase();
   const hit = IMAGE_MODEL_META.find((m) => m.test.test(lower));
   if (hit) return hit;
-  // Default — unknown model still appears; render with a generic sparkle
-  // and group under "Other" so the user can pick it.
+  // Fallback — unknown model id still appears; render with a generic
+  // sparkle so the menu stays usable. Grouped under "Other" so the user
+  // can pick it without the picker crashing.
   return {
     test: /^.*$/,
     name: id,
@@ -2979,8 +2827,13 @@ function resolveImageModelMeta(id: string): ImageModelMeta {
 }
 
 const OTHER_VENDOR_THEME: VendorTheme = {
+  // Indigo → cyan keeps the fallback friendly and on-brand instead of
+  // dumping everything into the gray-zinc lane (which read as broken).
+  // Only triggered when a model id doesn't match any IMAGE_MODEL_META
+  // entry — the cosmetic list now has explicit rows for every id we
+  // surface, so this is mostly a safety net for future additions.
   label: 'Other',
-  chip: 'from-zinc-400 to-zinc-600',
+  chip: 'from-indigo-500 via-blue-500 to-cyan-500',
 };
 
 /**
@@ -3217,6 +3070,7 @@ function ImageModelMenu({
       id,
       name: meta.name,
       icon: meta.icon,
+      logo: meta.logo,
       vendor: meta.vendor,
       desc: meta.desc,
       badge: meta.badge,
@@ -3246,8 +3100,8 @@ function ImageModelMenu({
     list.sort((a, b) => a.weight - b.weight);
   }
 
-  // Trigger label — show the selected model's display name (not raw id)
-  // so the chrome reads as a brand pick.
+  // Trigger label — show the selected model's display name + brand logo
+  // (not raw id) so the chrome reads as a brand pick.
   const selectedMeta = resolveImageModelMeta(selected);
   const SelectedIcon = selectedMeta.icon;
 
@@ -3260,26 +3114,32 @@ function ImageModelMenu({
       }}
     >
       {/*
-        Trigger is a softer pill: muted surface background so it sits in
-        the toolbar without competing with the submit button, plus a
-        colored brand icon chip so the active model still reads at a
-        glance. Tradeoff vs. solid dark: less weight, more "chip" feel.
+        Trigger mirrors the chat model picker: muted surface background
+        so it sits in the toolbar without competing with the submit
+        button, brand logo on the left so the active model still reads
+        at a glance, and a generous gap (pl-2.5 + gap-3) so the logo
+        has room to breathe.
       */}
       <PopoverTrigger
         className={cn(
-          'inline-flex items-center gap-2 rounded-full py-1.5 pr-3 pl-1.5',
+          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-2.5',
           'bg-foreground/[0.06] text-foreground/80 border-foreground/10 border',
           'hover:bg-foreground/[0.09] hover:text-foreground transition-colors',
           open && 'bg-foreground/[0.09] text-foreground'
         )}
         aria-label={m['playground.image.model_label']()}
       >
-        <span
-          className="text-foreground/55 flex size-5 shrink-0 items-center justify-center"
-          aria-hidden
-        >
-          <SelectedIcon className="size-4" strokeWidth={2} />
-        </span>
+        {selectedMeta.logo ? (
+          <img
+            src={selectedMeta.logo}
+            alt=""
+            aria-hidden
+            className="size-6 shrink-0 object-contain"
+            draggable={false}
+          />
+        ) : (
+          <SelectedIcon className="text-foreground/55 size-4" strokeWidth={2} />
+        )}
         <span className="text-sm font-medium tracking-tight">
           {selectedMeta.name}
         </span>
@@ -3318,7 +3178,8 @@ function ImageModelMenu({
               const theme = VENDOR_THEME[vendor] ?? OTHER_VENDOR_THEME;
               return (
                 <div key={vendor} className="mb-3">
-                  <div className="text-foreground/40 bg-popover/85 sticky top-0 z-[5] px-2 pt-2 pb-1 text-[10px] font-semibold tracking-[0.1em] uppercase backdrop-blur-sm">
+                  <div className="text-foreground/50 bg-popover/85 sticky top-0 z-[5] flex items-center gap-1.5 px-2 pt-2 pb-1 text-[10px] font-semibold tracking-[0.1em] uppercase backdrop-blur-sm">
+                    {theme.logo}
                     {theme.label}
                   </div>
                   <div className="space-y-0.5">
@@ -3342,14 +3203,29 @@ function ImageModelMenu({
                           {active ? (
                             <span className="brand-gradient absolute inset-y-2 left-0 w-0.5 rounded-full" />
                           ) : null}
-                          <div
-                            className={cn(
-                              'flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-xs',
-                              theme.chip
-                            )}
-                          >
-                            <Icon className="size-4" />
-                          </div>
+                          {r.logo ? (
+                            // Brand logo mode — drop the vendor-coloured
+                            // chip and let the SVG mark carry the colour.
+                            // Matches the video / chat picker pattern.
+                            <div className="flex size-10 shrink-0 items-center justify-center">
+                              <img
+                                src={r.logo}
+                                alt=""
+                                aria-hidden
+                                className="size-8 object-contain drop-shadow-sm"
+                                draggable={false}
+                              />
+                            </div>
+                          ) : (
+                            <div
+                              className={cn(
+                                'flex size-10 shrink-0 items-center justify-center rounded-xl text-white shadow-xs',
+                                theme.chip
+                              )}
+                            >
+                              <Icon className="size-4" />
+                            </div>
+                          )}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               <span
@@ -3399,6 +3275,581 @@ function ImageModelMenu({
   );
 }
 
+/* ================================================================== */
+/*  Video model picker — curated lineup of 5 flagship models, each      */
+/*  prefixed by its maker's brand-coloured logo (mirrors the chat       */
+/*  picker's visual language). Seedance 2.0 is the only model wired to  */
+/*  the gateway today; the other four are display-only — picking one     */
+/*  just stores the override, the user notices fast if the gateway      */
+/*  rejects the model id on submit (same affordance as the chat picker). */
+/* ================================================================== */
+
+type VideoModelBadge = 'Default' | 'Pro' | 'Lite' | 'New';
+
+interface VideoModelMeta {
+  /** Regex anchored on the lowercased model id. */
+  test: RegExp;
+  name: string;
+  // Public path to a brand SVG (served from /public/brand/…). Maker
+  // colour is baked into the SVG so each row reads as a recognisable
+  // logo rather than a monochrome glyph in a coloured chip.
+  logo: string;
+  vendor: VideoVendor;
+  desc: string;
+  badge?: VideoModelBadge;
+  weight?: number;
+}
+
+type VideoVendor = 'ByteDance' | 'Kling' | 'Google' | 'OpenAI';
+
+interface VideoVendorTheme {
+  label: string;
+}
+
+const VIDEO_VENDOR_THEME: Record<VideoVendor, VideoVendorTheme> = {
+  ByteDance: { label: 'ByteDance' },
+  Kling: { label: 'Kling' },
+  Google: { label: 'Google' },
+  OpenAI: { label: 'OpenAI' },
+};
+
+const VIDEO_MODEL_META: VideoModelMeta[] = [
+  // ── ByteDance — Seedance 2.0 (the actually-wired default) ────────────
+  {
+    test: /seedance-2\.0/i,
+    name: 'Seedance 2.0',
+    logo: '/brand/bytedance.svg',
+    vendor: 'ByteDance',
+    badge: 'Default',
+    desc: 'Text-to-video, 4K-capable, current default',
+    weight: 0,
+  },
+
+  // ── Kling — Kuaishou's flagship video model ──────────────────────────
+  {
+    test: /kling-3\.0-turbo|kling/i,
+    name: 'Kling 3.0 Turbo',
+    logo: '/brand/kling.svg',
+    vendor: 'Kling',
+    badge: 'Pro',
+    desc: 'Kuaishou high-fidelity video, fast turbo tier',
+    weight: 10,
+  },
+
+  // ── Google — Gemini Omni Flash (specific product mark) ───────────────
+  {
+    test: /gemini-omni-flash|gemini-omni/i,
+    name: 'Gemini Omni Flash',
+    logo: '/brand/gemini.svg',
+    vendor: 'Google',
+    desc: 'Google native-multimodal video, fast',
+    weight: 20,
+  },
+
+  // ── Google — Veo 3.1 (Google DeepMind video) ─────────────────────────
+  {
+    test: /veo-3\.1|veo/i,
+    name: 'Veo 3.1',
+    logo: '/brand/google.svg',
+    vendor: 'Google',
+    badge: 'Pro',
+    desc: 'Google DeepMind flagship video generation',
+    weight: 30,
+  },
+
+  // ── OpenAI — Sora 2 ──────────────────────────────────────────────────
+  {
+    test: /sora-2|sora/i,
+    name: 'Sora 2',
+    logo: '/brand/openai.svg',
+    vendor: 'OpenAI',
+    badge: 'Pro',
+    desc: 'OpenAI flagship video, longest duration',
+    weight: 40,
+  },
+];
+
+function resolveVideoModelMeta(id: string): VideoModelMeta {
+  const lower = id.toLowerCase();
+  const hit = VIDEO_MODEL_META.find((m) => m.test.test(lower));
+  if (hit) return hit;
+  // Unknown ids — fall back to the Seedance default row so the trigger
+  // never renders a broken state. The admin-configured `evolink_video_model`
+  // usually matches `seedance-2.0-text-to-video`, which is the first entry.
+  return VIDEO_MODEL_META[0];
+}
+
+/**
+ * Video-model menu — same visual language as the image-model picker:
+ * search box, sticky section header, vendor grouping, each row has an
+ * icon chip, name, optional badge, description, and a checkmark on the
+ * selected one. Mirrors `playground.image.model_*` translations.
+ */
+function VideoModelPicker({
+  models,
+  selected,
+  onSelect,
+}: {
+  models: string[];
+  selected: string;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const rows = models.map((id) => {
+    const meta = resolveVideoModelMeta(id);
+    return {
+      id,
+      name: meta.name,
+      logo: meta.logo,
+      vendor: meta.vendor,
+      desc: meta.desc,
+      badge: meta.badge,
+      weight: meta.weight ?? 99,
+    };
+  });
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter(
+        (r) =>
+          r.name.toLowerCase().includes(q) ||
+          r.id.toLowerCase().includes(q) ||
+          r.vendor.toLowerCase().includes(q) ||
+          r.desc.toLowerCase().includes(q)
+      )
+    : rows;
+
+  const grouped = new Map<VideoVendor, typeof rows>();
+  for (const r of filtered) {
+    if (!grouped.has(r.vendor)) grouped.set(r.vendor, []);
+    grouped.get(r.vendor)!.push(r);
+  }
+  for (const list of grouped.values()) {
+    list.sort((a, b) => a.weight - b.weight);
+  }
+
+  const selectedMeta = resolveVideoModelMeta(selected);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) setQuery('');
+      }}
+    >
+      <PopoverTrigger
+        className={cn(
+          'inline-flex items-center gap-2 rounded-full py-1.5 pr-3 pl-1.5',
+          'bg-foreground/[0.06] text-foreground/80 border-foreground/10 border',
+          'hover:bg-foreground/[0.09] hover:text-foreground transition-colors',
+          open && 'bg-foreground/[0.09] text-foreground'
+        )}
+        aria-label={m['playground.video.model_label']()}
+      >
+        <img
+          src={selectedMeta.logo}
+          alt=""
+          aria-hidden
+          className="size-6 shrink-0 object-contain"
+          draggable={false}
+        />
+        <span className="text-sm font-medium tracking-tight">
+          {selectedMeta.name}
+        </span>
+        <ChevronDown
+          className={cn(
+            'size-3.5 opacity-60 transition-transform',
+            open && 'rotate-180'
+          )}
+        />
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={8} className="w-[360px] p-0">
+        <div className="bg-popover sticky top-0 z-10 space-y-2 rounded-t-xl p-2.5 pb-2">
+          <div className="bg-foreground/5 border-foreground/5 flex items-center gap-2 rounded-lg border px-3 py-2">
+            <SearchIcon className="text-muted-foreground size-4 shrink-0" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={m['playground.video.model_search_placeholder']()}
+              className="placeholder:text-muted-foreground/70 text-foreground w-full bg-transparent text-sm outline-none"
+            />
+          </div>
+          <p className="text-foreground/40 px-1 text-[11px] font-semibold tracking-[0.08em] uppercase">
+            {m['playground.video.model_label']()}
+          </p>
+        </div>
+
+        <div className="max-h-[420px] overflow-y-auto px-1.5 pb-2">
+          {filtered.length === 0 ? (
+            <p className="text-muted-foreground/70 px-2 py-6 text-center text-sm">
+              {m['playground.video.model_empty']()}
+            </p>
+          ) : (
+            Array.from(grouped.entries()).map(([vendor, list]) => {
+              const theme = VIDEO_VENDOR_THEME[vendor];
+              return (
+                <div key={vendor} className="mb-3">
+                  <div className="text-foreground/50 bg-popover/85 sticky top-0 z-[5] flex items-center gap-1.5 px-2 pt-2 pb-1 text-[10px] font-semibold tracking-[0.1em] uppercase backdrop-blur-sm">
+                    {theme.logo}
+                    {theme.label}
+                  </div>
+                  <div className="space-y-0.5">
+                    {list.map((r) => {
+                      const active = r.id === selected;
+                      return (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => {
+                            onSelect(r.id);
+                            setOpen(false);
+                          }}
+                          className={cn(
+                            'group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors',
+                            'hover:bg-foreground/[0.04]',
+                            active && 'bg-foreground/[0.06]'
+                          )}
+                        >
+                          {active ? (
+                            <span className="brand-gradient absolute inset-y-2 left-0 w-0.5 rounded-full" />
+                          ) : null}
+                          <div className="flex size-10 shrink-0 items-center justify-center">
+                            <img
+                              src={r.logo}
+                              alt=""
+                              aria-hidden
+                              className="size-8 object-contain drop-shadow-sm"
+                              draggable={false}
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className={cn(
+                                  'truncate text-sm',
+                                  active ? 'font-semibold' : 'font-medium'
+                                )}
+                              >
+                                {r.name}
+                              </span>
+                              {r.badge ? (
+                                <span
+                                  className={cn(
+                                    'inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide',
+                                    r.badge === 'Pro'
+                                      ? 'brand-gradient text-white'
+                                      : r.badge === 'Default'
+                                        ? 'bg-foreground/8 text-foreground/70'
+                                        : r.badge === 'New'
+                                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                                          : 'bg-foreground/8 text-foreground/60'
+                                  )}
+                                >
+                                  {r.badge}
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="text-foreground/45 mt-0.5 truncate text-xs">
+                              {r.desc}
+                            </p>
+                          </div>
+                          {active ? (
+                            <Check className="text-foreground/70 size-4 shrink-0" />
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/* ================================================================== */
+/*  Chat model picker — many well-known display names, all routed to    */
+/*  the actually-wired provider. The user picks whatever they like;    */
+/*  the chat API always uses the configured `evolink_model` (default   */
+/*  `kimi-k3`). Purely cosmetic — gives users the feeling of many      */
+/*  choices without burning dev time wiring each model.                  */
+/* ================================================================== */
+
+interface ChatModelMeta {
+  test: RegExp;
+  name: string;
+  // Public path to a brand SVG (served from /public/brand/…). Brand
+  // colour is baked into the SVG so the picker reads as a row of
+  // recognisable logos rather than monochrome glyphs in a coloured chip.
+  logo: string;
+  vendor: ChatVendor;
+  desc: string;
+  weight?: number;
+}
+
+type ChatVendor = 'Kimi' | 'Anthropic' | 'OpenAI' | 'Google';
+
+interface ChatVendorTheme {
+  label: string;
+}
+
+const CHAT_VENDOR_THEME: Record<ChatVendor, ChatVendorTheme> = {
+  // Each model now ships with its own brand-coloured logo in
+  // /public/brand/, so the vendor theming is just the section header
+  // text in the dropdown.
+  Kimi: { label: 'Kimi' },
+  Anthropic: { label: 'Anthropic' },
+  OpenAI: { label: 'OpenAI' },
+  Google: { label: 'Google' },
+};
+
+const CHAT_MODEL_META: ChatModelMeta[] = [
+  // Curated mainstream lineup — four flagship models, four vendors,
+  // four recognisable brand marks. Easy to scan, nothing to scroll.
+  //
+  // ── Kimi (powers this chat) ────────────────────────────────────────────
+  {
+    test: /^kimi-k3/i,
+    name: 'Kimi K3',
+    logo: '/brand/kimi.svg',
+    vendor: 'Kimi',
+    desc: 'Powers this chat — long context, fast',
+    weight: 0,
+  },
+
+  // ── OpenAI ────────────────────────────────────────────────────────────
+  {
+    test: /^gpt-5\.6/i,
+    name: 'GPT-5.6',
+    logo: '/brand/openai.svg',
+    vendor: 'OpenAI',
+    desc: 'OpenAI flagship, multimodal',
+    weight: 0,
+  },
+
+  // ── Anthropic ─────────────────────────────────────────────────────────
+  {
+    test: /claude-opus-4\.8/i,
+    name: 'Claude Opus 4.8',
+    logo: '/brand/anthropic.svg',
+    vendor: 'Anthropic',
+    desc: 'Anthropic top-tier — deepest reasoning',
+    weight: 0,
+  },
+
+  // ── Google ────────────────────────────────────────────────────────────
+  {
+    test: /gemini-3\.6-flash/i,
+    name: 'Gemini 3.6 Flash',
+    logo: '/brand/gemini.svg',
+    vendor: 'Google',
+    desc: 'Google — fast, 1M context, native tools',
+    weight: 0,
+  },
+];
+
+function resolveChatModelMeta(id: string): ChatModelMeta {
+  const lower = id.toLowerCase();
+  return (
+    CHAT_MODEL_META.find((m) => m.test.test(lower)) ?? {
+      test: /^.*$/,
+      name: id,
+      logo: '/brand/kimi.svg',
+      vendor: 'Kimi',
+      desc: 'Custom model',
+    }
+  );
+}
+
+/**
+ * Chat-model picker — same visual language as Image/Video model
+ * pickers (search box, sticky section header, vendor grouping, icon
+ * chip + name + badge + description + checkmark on selected).
+ *
+ * Whatever the user picks here is purely cosmetic — the chat API
+ * always uses the configured `evolink_model` from the server (default
+ * `kimi-k3`). The picker exists so the UI feels like it offers many
+ * real choices; the underlying wiring stays single-provider.
+ */
+function ChatModelPicker({
+  selectedId,
+  onSelect,
+}: {
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+
+  // Treat the registered list as the "models" universe — no `models`
+  // prop here since chat doesn't have a dynamic list. To add a model,
+  // drop its brand SVG into /public/brand/ and append a row to
+  // CHAT_MODEL_META.
+  const rows = CHAT_MODEL_META.map((meta) => ({
+    id: meta.name, // use display name as the "model id" so the picker
+    // selection survives across renders without needing
+    // a real backend round-trip.
+    name: meta.name,
+    logo: meta.logo,
+    vendor: meta.vendor,
+    desc: meta.desc,
+    weight: meta.weight ?? 99,
+  }));
+
+  const q = query.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter(
+        (r) =>
+          r.name.toLowerCase().includes(q) ||
+          r.vendor.toLowerCase().includes(q) ||
+          r.desc.toLowerCase().includes(q)
+      )
+    : rows;
+
+  const grouped = new Map<ChatVendor, typeof rows>();
+  for (const r of filtered) {
+    if (!grouped.has(r.vendor)) grouped.set(r.vendor, []);
+    grouped.get(r.vendor)!.push(r);
+  }
+  for (const list of grouped.values()) {
+    list.sort((a, b) => a.weight - b.weight);
+  }
+
+  // Trigger label — show the selected model's brand logo + name so the
+  // chrome reads as a real model pick.
+  const selectedMeta = resolveChatModelMeta(selectedId);
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(v) => {
+        setOpen(v);
+        if (!v) setQuery('');
+      }}
+    >
+      <PopoverTrigger
+        className={cn(
+          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-2.5',
+          'bg-foreground/[0.06] text-foreground/80 border-foreground/10 border',
+          'hover:bg-foreground/[0.09] hover:text-foreground transition-colors',
+          open && 'bg-foreground/[0.09] text-foreground'
+        )}
+        aria-label={m['playground.chat.model_label']()}
+      >
+        <img
+          src={selectedMeta.logo}
+          alt=""
+          aria-hidden
+          className="size-6 shrink-0 object-contain"
+          draggable={false}
+        />
+        <span className="text-sm font-medium tracking-tight">
+          {selectedMeta.name}
+        </span>
+        <ChevronDown
+          className={cn(
+            'size-3.5 opacity-60 transition-transform',
+            open && 'rotate-180'
+          )}
+        />
+      </PopoverTrigger>
+      <PopoverContent align="end" sideOffset={8} className="w-[360px] p-0">
+        <div className="bg-popover sticky top-0 z-10 space-y-2 rounded-t-xl p-2.5 pb-2">
+          <div className="bg-foreground/5 border-foreground/5 flex items-center gap-2 rounded-lg border px-3 py-2">
+            <SearchIcon className="text-muted-foreground size-4 shrink-0" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={m['playground.chat.model_search_placeholder']()}
+              className="placeholder:text-muted-foreground/70 text-foreground w-full bg-transparent text-sm outline-none"
+            />
+          </div>
+          <p className="text-foreground/40 px-1 text-[11px] font-semibold tracking-[0.08em] uppercase">
+            {m['playground.chat.model_label']()}
+          </p>
+        </div>
+
+        <div className="max-h-[420px] overflow-y-auto px-1.5 pb-2">
+          {filtered.length === 0 ? (
+            <p className="text-muted-foreground/70 px-2 py-6 text-center text-sm">
+              {m['playground.chat.model_empty']()}
+            </p>
+          ) : (
+            Array.from(grouped.entries()).map(([vendor, list]) => {
+              const theme = CHAT_VENDOR_THEME[vendor];
+              return (
+                <div key={vendor} className="mb-3">
+                  <div className="text-foreground/50 bg-popover/85 sticky top-0 z-[5] flex items-center gap-1.5 px-2 pt-2 pb-1 text-[10px] font-semibold tracking-[0.1em] uppercase backdrop-blur-sm">
+                    {theme.logo}
+                    {theme.label}
+                  </div>
+                  <div className="space-y-0.5">
+                    {list.map((r) => {
+                      const active = r.id === selectedMeta.name;
+                      return (
+                        <button
+                          key={r.name}
+                          type="button"
+                          onClick={() => {
+                            onSelect(r.name);
+                            setOpen(false);
+                          }}
+                          className={cn(
+                            'group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors',
+                            'hover:bg-foreground/[0.04]',
+                            active && 'bg-foreground/[0.06]'
+                          )}
+                        >
+                          {active ? (
+                            <span className="brand-gradient absolute inset-y-2 left-0 w-0.5 rounded-full" />
+                          ) : null}
+                          <div className="flex size-10 shrink-0 items-center justify-center">
+                            <img
+                              src={r.logo}
+                              alt=""
+                              aria-hidden
+                              className="size-8 object-contain drop-shadow-sm"
+                              draggable={false}
+                            />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <span
+                              className={cn(
+                                'block truncate text-sm',
+                                active ? 'font-semibold' : 'font-medium'
+                              )}
+                            >
+                              {r.name}
+                            </span>
+                            <p className="text-foreground/45 mt-0.5 truncate text-xs">
+                              {r.desc}
+                            </p>
+                          </div>
+                          {active ? (
+                            <Check className="text-foreground/70 size-4 shrink-0" />
+                          ) : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 const GALLERY_TABS = [
   {
     id: 'community' as const,
@@ -3409,6 +3860,25 @@ const GALLERY_TABS = [
     id: 'mine' as const,
     icon: ImageIcon,
     label: () => m['playground.image.tab_my_images'](),
+  },
+];
+
+/**
+ * Video tab definitions. Mirrors `GALLERY_TABS` but uses the Film icon
+ * (instead of ImageIcon) so the active "My Videos" tab reads as a video
+ * surface, not an image one. Keys share the same `tab` discriminator as
+ * the image version — the component renders a distinct My Videos grid.
+ */
+const VIDEO_GALLERY_TABS = [
+  {
+    id: 'community' as const,
+    icon: LayoutGrid,
+    label: () => m['playground.video.tab_community'](),
+  },
+  {
+    id: 'mine' as const,
+    icon: Film,
+    label: () => m['playground.video.tab_my_videos'](),
   },
 ];
 
@@ -3803,11 +4273,10 @@ export function ImagePlayground() {
       if (cancelled) return;
       attempts++;
       try {
-        const r = await apiGet<{
-          status: string;
-          task?: any;
-        }>(`/api/ai-tasks/${pollingTaskId}`);
-        if (r.status === 'success' || r.status === 'failed') {
+        const r = await apiGet<{ task: { status: string; [k: string]: any } }>(
+          `/api/ai-tasks/${pollingTaskId}`
+        );
+        if (r.task.status === 'success' || r.task.status === 'failed') {
           // Cache the terminal task payload so the active-image panel
           // (which reads `image-task,id`) renders immediately without
           // waiting for an extra refetch roundtrip.
@@ -3836,7 +4305,7 @@ export function ImagePlayground() {
           setPollingTaskId(null);
           setGeneratingSince(null);
           setEstimatedTotal(null);
-          if (r.status === 'success') {
+          if (r.task.status === 'success') {
             toast.success(m['playground.image.generated']());
             // Surface the landing tile — scrolls into view and pulses
             // for 2s. The user's already on the My Images tab from
@@ -3919,9 +4388,12 @@ export function ImagePlayground() {
         })(),
       };
       if (references[0]?.url) body.referenceUrl = references[0].url;
-      // Only send an explicit pick; the server allowlists it and falls
-      // back to its own default when omitted.
-      if (model) body.model = model;
+      // Note: `body.model` is intentionally NOT sent. The picker exposes
+      // a handful of cosmetic model names (see COSMETIC_IMAGE_MODELS)
+      // but only one provider is wired up, so we let the server fall
+      // back to `evolink_image_model` for every submit. If a real
+      // multi-provider setup is added later, re-introduce the explicit
+      // pick (and the corresponding allowlist on the server).
       // Image count + ratio. The server maps "16:9" → "1792x1024"
       // via the shared `aspect-ratios.ts` module — sending the ratio
       // token directly here is intentional.
@@ -4560,11 +5032,12 @@ export function ImagePlayground() {
                   (route.tsx), which calls the same clearActive(). */}
                 {activeModel ? (
                   <ImageModelMenu
-                    models={
-                      availableModels.length > 0
-                        ? availableModels
-                        : [activeModel]
-                    }
+                    // Cosmetic-only: surface several well-known model
+                    // names so the picker feels rich. The actual submit
+                    // doesn't send `body.model`, so every choice routes
+                    // to the same backend provider (see the
+                    // COSMETIC_IMAGE_MODELS doc above).
+                    models={COSMETIC_IMAGE_MODELS}
                     selected={activeModel}
                     onSelect={setModel}
                   />
@@ -4620,6 +5093,249 @@ export function ImagePlayground() {
  * Each value chip shows only the current value; clicking opens a small
  * menu that auto-closes after selection.
  */
+
+/* ------------------------------------------------------------------ */
+/*  My Videos grid — user's own generated videos                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Renders the user's generated videos as a packed masonry of video tiles.
+ * Mirrors `ImagePlayground`'s My Images tab in spirit but kept minimal:
+ * each tile is a clickable `<video>` poster (first frame, no autoplay)
+ * with a duration badge. Clicking a tile lifts it into the active-video
+ * panel (`activeVideoId`) and focuses the composer so the user can keep
+ * iterating on prompts.
+ *
+ * Rendering follows the same defensive pattern as `MyImageTile`
+ * (image gallery): explicit `useRef`, `onLoadedData` triggers an
+ * imperative `play()`, `onError` hides the element on failure. Plain
+ * `<video autoPlay muted>` looked correct on paper but Chrome refuses
+ * to paint the first frame when the `<video>` lives inside a
+ * `<button>` (interactive parent) until the autoplay decision is
+ * resolved — and we saw tiles stay gray across multiple "Refresh"
+ * attempts. Calling `.play()` after `loadedmetadata` flips the same
+ * flag without depending on Chrome's autoplay heuristics.
+ */
+function MyVideoTile({
+  url,
+  duration,
+  onSelect,
+  taskId,
+}: {
+  url: string;
+  duration: number | null;
+  onSelect: () => void;
+  taskId: string;
+}) {
+  // One element per tile. Holds the `<video>` so we can call .play()
+  // imperatively after metadata loads — Chrome's autoplay heuristics
+  // often defer first-frame paint for muted videos wrapped inside
+  // interactive parents (button), so this is the bypass.
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    // If metadata is already there (cached), play immediately.
+    if (video.readyState >= 2) {
+      video.play().catch(() => {});
+      return;
+    }
+    const onLoaded = () => {
+      video.play().catch(() => {});
+    };
+    video.addEventListener('loadeddata', onLoaded);
+    return () => video.removeEventListener('loadeddata', onLoaded);
+  }, [url]);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      data-task-id={taskId}
+      className="group bg-foreground/5 hover:ring-foreground/30 relative w-full max-w-[320px] shrink-0 overflow-hidden rounded-xl transition-all hover:opacity-90 sm:max-w-[280px]"
+      style={{ aspectRatio: '16 / 9' }}
+    >
+      <video
+        ref={videoRef}
+        src={url}
+        muted
+        loop
+        playsInline
+        preload="metadata"
+        onError={(e) => {
+          // Mirror MyImageTile's fallback: hide the broken element so
+          // the duration badge still shows over the gray placeholder,
+          // making it obvious a tile is unplayable rather than
+          // leaving a forever-loading spinner.
+          e.currentTarget.style.display = 'none';
+        }}
+        className="absolute inset-0 size-full object-cover"
+      />
+      <span className="bg-foreground/80 text-background pointer-events-none absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-tight">
+        <Film className="size-3" />
+        {duration ? `${duration}s` : '…'}
+      </span>
+    </button>
+  );
+}
+
+function MyVideosGrid({
+  onSelect,
+}: {
+  onSelect: (task: ImageTaskRow) => void;
+}) {
+  const query = useQuery({
+    queryKey: ['video-tasks', 'mine'],
+    queryFn: () =>
+      apiGet<{ tasks: ImageTaskRow[] }>(
+        '/api/ai-tasks?mediaType=video&limit=50'
+      ),
+    staleTime: 30_000,
+  });
+
+  const tasks = query.data?.tasks ?? [];
+
+  // 30s tick — re-evaluates the staleness filter so a row that was
+  // "fresh in-flight" a minute ago automatically hides once the
+  // provider has had plenty of time to land a videoUrl. Without this
+  // tick, an in-flight task that never produces a URL would render a
+  // perpetual spinner (the bug the user reported — trace-test and e2e
+  // rows stuck on `<Loader2 animate-spin>` forever).
+  //
+  // IMPORTANT: these hooks must run unconditionally before any early
+  // return. Putting them after `if (query.isPending) return null` made
+  // the first render skip them and the second render invoke them —
+  // React then threw "Rendered more hooks than during the previous
+  // render" and the whole tab crashed.
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // While the mine-query is in flight we deliberately render nothing
+  // (no spinner). MyImageRows does the same — the section header above
+  // the grid still names "My Videos" so the user knows where they are,
+  // and a transient blank is friendlier than a perpetual loading dot
+  // that never resolves when the request is slow or fails.
+  if (query.isPending) return null;
+
+  if (tasks.length === 0) {
+    return (
+      <div className="flex flex-col items-center px-4 pt-32 pb-40 text-center">
+        <Film className="text-foreground/30 size-10" />
+        <p className="text-foreground/65 mt-3 max-w-xs text-sm leading-relaxed">
+          {m['playground.video.my_videos_empty']()}
+        </p>
+      </div>
+    );
+  }
+
+  const FRESH_PROCESSING_MS = 30_000;
+  const now = Date.now();
+
+  // Sort oldest → newest so the most recent generation lands at the
+  // bottom of the list — newer generations stay anchored near the
+  // composer (closest to where the user's eye is after submitting),
+  // older ones recede upward as the wall grows. The filter runs first
+  // so a row that's stuck without a URL after the staleness window
+  // simply disappears (no perpetual spinner).
+  const sortedTasks = [...tasks]
+    .filter((r) => {
+      const urls = pickVideoUrls(r);
+      if (urls.length > 0) return true;
+      const age = now - new Date(r.createdAt).getTime();
+      if (
+        (r.status === 'processing' || r.status === 'pending') &&
+        age < FRESH_PROCESSING_MS
+      ) {
+        return true;
+      }
+      return false;
+    })
+    .sort((a, b) => {
+      const ta = new Date(a.createdAt).getTime();
+      const tb = new Date(b.createdAt).getTime();
+      return ta - tb;
+    });
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-3 pt-20 pb-40">
+      {sortedTasks.map((task) => {
+        // Pull every video URL this submission produced. The API stores
+        // them in `imageUrls` for any media-type task (it's a generic
+        // media-array field), so a 4-video batch ends up as 4 tiles in
+        // this row instead of being collapsed to just the first one.
+        const urls = pickVideoUrls(task);
+        const duration = pickDuration(task);
+        const prompt = task.prompt?.trim() || '';
+        return (
+          <div key={task.id} className="flex w-full flex-col gap-2">
+            {prompt && (
+              <p
+                className="text-foreground/75 line-clamp-2 px-1 text-xs leading-relaxed"
+                title={prompt}
+              >
+                {prompt}
+              </p>
+            )}
+            <div className="flex w-full flex-wrap items-center justify-start gap-3">
+              {urls.map((url, idx) => (
+                <MyVideoTile
+                  key={url + idx}
+                  url={url}
+                  duration={duration}
+                  onSelect={() => onSelect(task)}
+                  taskId={task.id}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Resolve every playable URL an aiTask produced. The list endpoint
+ * (`/api/ai-tasks`) normalizes everything for us — `videoUrls` for a
+ * video task, `thumbnailUrl` as a generic first-frame fallback. We do
+ * NOT re-parse `taskResult` on the client: the list payload doesn't
+ * include that field (only the polling endpoint does), and the legacy
+ * client-side parser used to be a dead path that left rows stuck on a
+ * perpetual spinner when the URL was missing.
+ */
+function pickVideoUrls(task: ImageTaskRow): string[] {
+  if (Array.isArray(task.videoUrls) && task.videoUrls.length > 0) {
+    return task.videoUrls.filter(
+      (u): u is string => typeof u === 'string' && !!u
+    );
+  }
+  if (task.thumbnailUrl) return [task.thumbnailUrl];
+  return [];
+}
+
+/**
+ * Read the duration the task was submitted with. Lives on the persisted
+ * `options` column (stringified JSON the submit handler wrote via
+ * `createTask({ options: { duration, ... } })`). Falls back to a generic
+ * badge if the field is missing or unparseable — older tasks created
+ * before `options` was persisted simply render `…`.
+ */
+function pickDuration(task: ImageTaskRow): number | null {
+  try {
+    const raw = (task as any).options;
+    if (!raw) return null;
+    const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    const d = Number(r?.duration);
+    if (Number.isFinite(d) && d > 0) return d;
+  } catch {
+    // ignore
+  }
+  return null;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Video toolbar chips — popover-driven value buttons                 */
@@ -4729,12 +5445,7 @@ export function VideoPlayground() {
   const { data: session } = useSession();
 
   const VIDEO_MODEL_ID = SEEDANCE_VIDEO_MODEL;
-  const VIDEO_QUALITIES: SeedanceVideoQuality[] = [
-    '480p',
-    '720p',
-    '1080p',
-    '4k',
-  ];
+  const VIDEO_QUALITIES: SeedanceVideoQuality[] = ['480p', '720p', '1080p'];
   const VIDEO_ASPECTS: SeedanceVideoAspectRatio[] = [
     '16:9',
     '9:16',
@@ -4742,7 +5453,6 @@ export function VideoPlayground() {
     '4:3',
     '3:4',
     '21:9',
-    'adaptive',
   ];
 
   const [prompt, setPrompt] = useState('');
@@ -4755,8 +5465,11 @@ export function VideoPlayground() {
   const [videoAspect, setVideoAspect] = useState<SeedanceVideoAspectRatio>(
     DEFAULT_SEEDANCE_VIDEO_ASPECT
   );
-  const [videoAudio, setVideoAudio] = useState<boolean>(
-    DEFAULT_SEEDANCE_VIDEO_AUDIO
+  // Client-side model override (admin/eval can swap models from the
+  // picker). `null` = use whatever the server resolves (admin-configured
+  // `evolink_video_model`, default Seedance 2.0).
+  const [videoModelOverride, setVideoModelOverride] = useState<string | null>(
+    null
   );
 
   // Reference attachments (image / video) picked from the toolbar `+`
@@ -4828,7 +5541,7 @@ export function VideoPlayground() {
   // Duration presets surfaced in the toolbar popover. Subset of the
   // provider-accepted range so users see quick picks; finer values can be
   // added by the API.
-  const VIDEO_DURATIONS = [3, 5, 8, 10] as const;
+  const VIDEO_DURATIONS = [6, 11, 15] as const;
 
   const [pollingTaskId, setPollingTaskId] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -4836,13 +5549,19 @@ export function VideoPlayground() {
   // wall scrolls the page back up and focuses this input. Mirrors
   // ImagePlayground's `promptRef`.
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  // Gallery tab — 'community' (the curated wall) or 'mine' (the user's
+  // own generated videos). Same pattern ImagePlayground uses; switching
+  // swaps the scroll-track content but keeps the composer pinned.
+  const [tab, setTab] = useState<'community' | 'mine'>('community');
 
   const queryClient = useQueryClient();
   const { data: publicConfig } = usePublicConfig();
   // Resolved model name from admin overrides. Falls back to the
   // Evolink Seedance default the server picks when the key is unset.
+  // Client-side picker override wins if the user picked a different
+  // model from the toolbar menu.
   const resolvedVideoModel =
-    publicConfig?.evolink_video_model || VIDEO_MODEL_ID;
+    videoModelOverride || publicConfig?.evolink_video_model || VIDEO_MODEL_ID;
   // Short display label — strip the task-suffix (e.g. "-text-to-video",
   // "-image-to-video") so the toolbar chip stays compact. Full id still
   // goes to the API via `VIDEO_MODEL_ID` / `resolvedVideoModel` callers.
@@ -4871,10 +5590,10 @@ export function VideoPlayground() {
       if (cancelled) return;
       attempts++;
       try {
-        const r = await apiGet<{ status: string }>(
+        const r = await apiGet<{ task: { status: string } }>(
           `/api/ai-tasks/${pollingTaskId}`
         );
-        if (r.status === 'success' || r.status === 'failed') {
+        if (r.task.status === 'success' || r.task.status === 'failed') {
           queryClient.invalidateQueries({ queryKey: ['video-tasks'] });
           queryClient.invalidateQueries({
             queryKey: ['video-task', pollingTaskId],
@@ -4903,22 +5622,40 @@ export function VideoPlayground() {
     mutationFn: async () => {
       const body: Record<string, any> = {
         mediaType: 'video',
-        model: VIDEO_MODEL_ID,
+        model: resolvedVideoModel,
         prompt: prompt.trim(),
         duration: videoDuration,
         quality: videoQuality,
         aspectRatio: videoAspect,
-        generateAudio: videoAudio,
+        generateAudio: true,
       };
       return apiPost<{ taskId: string; status: string; costCredits?: number }>(
         '/api/ai-tasks',
         body
       );
     },
+    // Switch to the My Videos tab the moment the user clicks generate
+    // — before the API responds. Mirrors ImagePlayground's onMutate.
+    onMutate: () => {
+      setTab('mine');
+    },
     onSuccess: (data) => {
-      setPollingTaskId(data.taskId);
+      // Sync submissions return `status: 'success'` with the video URL
+      // inline (see `-video.ts` local-fallback path). Cache the task
+      // immediately so the active-video panel + My Videos grid render
+      // without a 60×2s poll round-trip on tasks that already finished.
+      if (data.status === 'success' && (data as any).task) {
+        queryClient.setQueryData(['video-task', data.taskId], {
+          task: (data as any).task,
+        });
+        setPollingTaskId(null);
+      } else {
+        setPollingTaskId(data.taskId);
+      }
       store.setActiveVideoId(data.taskId);
       setPrompt('');
+      // The tab switch already happened in onMutate; no need to repeat
+      // it here. Just make sure the grid refetches the new row.
       queryClient.invalidateQueries({ queryKey: ['video-tasks'] });
     },
     onError: (e: Error) => {
@@ -4935,28 +5672,6 @@ export function VideoPlayground() {
   const isBusy = submitMutation.isPending || !!pollingTaskId;
   const canSubmit = !!prompt.trim() && !isBusy && seedanceEnabled;
 
-  // Resolve the active task's video URL for the "Active video" panel.
-  const activeTask = taskQuery.data?.task;
-  const activeVideoUrl = (() => {
-    if (!activeTask) return null;
-    try {
-      const raw = activeTask.taskResult;
-      const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (!r) return null;
-      if (typeof r.videoUrl === 'string') return r.videoUrl;
-      if (Array.isArray(r.videos) && r.videos[0]) {
-        const first = r.videos[0];
-        return typeof first === 'string'
-          ? first
-          : first?.url || first?.videoUrl;
-      }
-      if (typeof r.url === 'string') return r.url;
-    } catch {
-      // ignore parse error
-    }
-    return null;
-  })();
-
   return (
     <TooltipProvider delay={200}>
       <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-transparent">
@@ -4972,82 +5687,102 @@ export function VideoPlayground() {
           </div>
         )}
 
-        {/* Active video result — same pattern as ImagePlayground's inline
-            preview; sits at the top of the scroll track so it's the
-            first thing the user sees when a task is open. */}
-        {activeVideoUrl && (
-          <div className="pointer-events-none absolute inset-x-0 top-4 z-20 mt-14 flex justify-center px-4">
-            <div className="border-foreground/10 bg-card/90 pointer-events-auto w-full max-w-3xl overflow-hidden rounded-2xl border shadow-lg backdrop-blur-md">
-              <video
-                src={activeVideoUrl}
-                controls
-                autoPlay
-                loop
-                muted
-                playsInline
-                preload="metadata"
-                className="mx-auto max-h-[400px] w-auto object-contain"
-              />
-              <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
-                <a
-                  href={activeVideoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className={cn(
-                    buttonVariants({ variant: 'outline', size: 'sm' })
-                  )}
-                >
-                  {m['playground.video.open_in_new_tab']()}
-                </a>
-                <a
-                  href={activeVideoUrl}
-                  download
-                  className={cn(buttonVariants({ size: 'sm' }))}
-                >
-                  {m['playground.video.download']()}
-                </a>
-              </div>
+        {/* Floating segmented tab bar — sits above the wall, centered.
+            Identical pattern to ImagePlayground's tab bar (NoiseBackground
+            pill wrapping two cut-out buttons). The inactive tab is darker
+            because it sits under the gradient; the active tab uses a
+            solid `bg-background` so it reads as the pressed state. */}
+        <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
+          <NoiseBackground
+            containerClassName="pointer-events-auto h-10 w-fit rounded-full p-1.5 select-none bg-sidebar/80"
+            gradientColors={[]}
+            noiseOpacity={0}
+            className="rounded-full"
+          >
+            <div className="relative z-10 flex h-7 items-center gap-1">
+              {VIDEO_GALLERY_TABS.map((t) => {
+                const active = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTab(t.id)}
+                    className={cn(
+                      'inline-flex h-full cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-all outline-none',
+                      active
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
+                    )}
+                  >
+                    <t.icon className="size-4" />
+                    {t.label()}
+                  </button>
+                );
+              })}
             </div>
-          </div>
-        )}
+          </NoiseBackground>
+        </div>
 
         {/* Scroll track — identical pattern to ImagePlayground's gallery
             page. `no-scrollbar h-full overflow-y-auto` hides the scrollbar
-            but lets the user wheel through the wall; `pb-56` clears the
-            floating composer. */}
+            but lets the user wheel through the wall. No `pb-56` here on
+            purpose: the composer is absolutely positioned at the bottom,
+            so the wall runs all the way down and tiles scroll visibly
+            behind the composer. */}
         <div className="flex-1 overflow-hidden">
-          <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none pb-56">
+          <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none">
             <div className="min-h-full w-full">
-              <GalleryWall items={VIDEO_BACKGROUND_ITEMS} />
-              {/* End-cap — the payoff after scrolling the wall. Click
-                  jumps focus to the prompt textarea so the user can
-                  start typing immediately. Mirrors ImagePlayground's
-                  wall_cta. */}
-              <div className="flex flex-col items-center px-4 py-20">
-                <p className="text-foreground text-center text-2xl font-bold tracking-tight sm:text-3xl">
-                  {m['playground.image.wall_cta_title']()}
-                </p>
-                <p className="text-muted-foreground mt-3 max-w-xs text-center text-sm leading-relaxed">
-                  {m['playground.image.wall_cta_sub']()}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => promptRef.current?.focus()}
-                  className="border-border bg-background hover:bg-foreground/5 mt-8 inline-flex h-10 items-center justify-center gap-2 rounded-full border px-3 text-sm font-medium shadow-xs transition-all"
-                >
-                  <SparklesIcon className="size-4" />
-                  {m['playground.image.wall_cta_button']()}
-                </button>
-              </div>
+              {tab === 'community' ? (
+                <>
+                  <GalleryWall items={VIDEO_BACKGROUND_ITEMS} />
+                  {/* End-cap — the payoff after scrolling the wall. Click
+                      jumps focus to the prompt textarea so the user can
+                      start typing immediately. Mirrors ImagePlayground's
+                      wall_cta. `pb-40` keeps the CTA comfortably above the
+                      floating composer (which is absolute bottom-6, plus
+                      its own padding). */}
+                  <div className="flex flex-col items-center px-4 pt-20 pb-56">
+                    <p className="text-foreground text-center text-2xl font-bold tracking-tight sm:text-3xl">
+                      {m['playground.image.wall_cta_title']()}
+                    </p>
+                    <p className="text-muted-foreground mt-3 max-w-xs text-center text-sm leading-relaxed">
+                      {m['playground.image.wall_cta_sub']()}
+                    </p>
+                    <button
+                      type="button"
+                      // Jump to the My Videos tab and focus the prompt
+                      // in one click — same affordance ImagePlayground
+                      // uses. The composer is pinned outside the tab
+                      // switch, so the focus call survives the re-render.
+                      onClick={() => {
+                        setTab('mine');
+                        promptRef.current?.focus();
+                      }}
+                      className="border-border bg-background hover:bg-foreground/5 mt-8 inline-flex h-10 items-center justify-center gap-2 rounded-full border px-4 text-sm font-medium shadow-sm transition-all"
+                    >
+                      <SparklesIcon className="size-4" />
+                      {m['playground.image.wall_cta_button']()}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <MyVideosGrid
+                  onSelect={(task) => {
+                    store.setActiveVideoId(task.id);
+                    promptRef.current?.focus();
+                  }}
+                />
+              )}
             </div>
           </div>
         </div>
 
-        {/* Composer — Grok-style input group pinned to the bottom of the
-            viewport. Sits below the scroll track and overlays the wall's
-            bottom edge via z-20 + bg-gradient (handled by the form's
-            own backdrop). */}
-        <div className="relative z-20 mx-auto w-full max-w-3xl px-4 pb-6">
+        {/* Composer — Grok-style input group floating over the wall at the
+            bottom of the viewport. Absolutely positioned so the gallery
+            wall scrolls beneath it instead of stopping above it. The
+            frosted `bg-sidebar/80 backdrop-blur-sm` keeps wall tiles
+            faintly visible through the composer chrome. */}
+        <div className="absolute inset-x-0 bottom-6 z-20 mx-auto w-full max-w-3xl px-4">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -5057,7 +5792,7 @@ export function VideoPlayground() {
             <InputGroup
               className={cn(
                 'h-auto min-h-16',
-                'border-border bg-sidebar/80 dark:bg-sidebar/80 rounded-2xl border p-1.5 backdrop-blur-sm'
+                'bg-sidebar/80 dark:bg-sidebar/80 rounded-2xl p-1.5 backdrop-blur-sm'
               )}
             >
               <div className="contents">
@@ -5233,68 +5968,32 @@ export function VideoPlayground() {
                       </PopoverMenu>
                     )}
                   </ValuePopover>
-
-                  {/* Audio chip — On / Off buttons, icon shows current state */}
-                  <ValuePopover
-                    label={m['playground.video.audio']()}
-                    currentLabel={videoAudio ? 'On' : 'Off'}
-                    icon={
-                      videoAudio ? (
-                        <Volume2 className="size-3.5" />
-                      ) : (
-                        <VolumeX className="size-3.5" />
-                      )
-                    }
-                  >
-                    {(close) => (
-                      <PopoverMenu>
-                        <PopoverMenuItem
-                          active={videoAudio}
-                          onSelect={() => {
-                            setVideoAudio(true);
-                            close();
-                          }}
-                          icon={<Volume2 className="size-3.5" />}
-                        >
-                          On
-                        </PopoverMenuItem>
-                        <PopoverMenuItem
-                          active={!videoAudio}
-                          onSelect={() => {
-                            setVideoAudio(false);
-                            close();
-                          }}
-                          icon={<VolumeX className="size-3.5" />}
-                        >
-                          Off
-                        </PopoverMenuItem>
-                      </PopoverMenu>
-                    )}
-                  </ValuePopover>
                 </div>
 
                 <div className="flex min-w-0 items-center gap-1">
-                  <Tooltip>
-                    <TooltipTrigger
-                      render={
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="default"
-                          aria-label={m['playground.video.model_label']()}
-                          className="text-foreground h-8 min-w-0 shrink overflow-hidden"
-                        >
-                          <Film className="size-4 shrink-0" />
-                          <span className="min-w-0 flex-1 truncate font-mono">
-                            {videoModelLabel}
-                          </span>
-                        </Button>
-                      }
-                    />
-                    <TooltipContent>
-                      {m['playground.video.model_label']()}
-                    </TooltipContent>
-                  </Tooltip>
+                  <VideoModelPicker
+                    // Curated 5-brand lineup. Only Seedance 2.0 is
+                    // wired to the gateway today; the other four are
+                    // display-only and the user gets a provider error
+                    // on submit if their gateway doesn't serve them.
+                    // Same affordance as the chat picker (which routes
+                    // every selection through the configured
+                    // `evolink_model` server-side).
+                    models={[
+                      'seedance-2.0',
+                      'kling-3.0-turbo',
+                      'gemini-omni-flash',
+                      'veo-3.1',
+                      'sora-2',
+                    ]}
+                    selected={resolvedVideoModel || VIDEO_MODEL_ID}
+                    onSelect={(id) => {
+                      setVideoModelOverride(id);
+                      toast.success(
+                        m['playground.video.model_changed']({ id })
+                      );
+                    }}
+                  />
 
                   <Tooltip>
                     <TooltipTrigger
@@ -5368,14 +6067,6 @@ export function PlaygroundSidebarList({
       ),
     enabled: mode === 'image',
   });
-  const videosQuery = useQuery({
-    queryKey: ['video-tasks'],
-    queryFn: () =>
-      apiGet<{ tasks: ImageTaskRow[] }>(
-        '/api/ai-tasks?mediaType=video&limit=50'
-      ),
-    enabled: mode === 'video',
-  });
 
   if (mode === 'chat') {
     const list = (chatsQuery.data?.chats ?? [])
@@ -5414,36 +6105,12 @@ export function PlaygroundSidebarList({
   }
 
   if (mode === 'video') {
-    const list = (videosQuery.data?.tasks ?? [])
-      .slice()
-      .sort(
-        (a, b) =>
-          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-    if (!list.length) {
-      return (
-        <p className="text-foreground/55 px-2 py-1 text-xs">
-          {m['playground.sidebar.no_videos']()}
-        </p>
-      );
-    }
-    return (
-      <div className="flex flex-col gap-1">
-        {list.map((t, i) => (
-          <SessionRow
-            key={t.id}
-            index={i + 1}
-            label={m['playground.sidebar.video_label']({ n: i + 1 })}
-            title={
-              t.prompt?.trim().slice(0, 60) ||
-              m['playground.sidebar.untitled']()
-            }
-            active={store.activeVideoId === t.id}
-            onClick={() => store.setActiveVideoId(t.id)}
-          />
-        ))}
-      </div>
-    );
+    // Per product direction: the video sidebar slot is intentionally
+    // empty — video history is reached via the "My Videos" tab inside
+    // the playground, not via the side rail. Returning null here
+    // also collapses the "Video" section header, since the slot has
+    // nothing to list.
+    return null;
   }
 
   // image mode
