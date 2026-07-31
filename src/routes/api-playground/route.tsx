@@ -110,13 +110,11 @@ function PlaygroundLayout() {
           label: m['playground.nav.image'](),
           icon: Image,
         },
-        // Video tab is hidden for now — feature is parked for later. The
-        // route + block still exist; just not wired into the sidebar.
-        // {
-        //   href: '/api-playground/video',
-        //   label: m['playground.nav.video'](),
-        //   icon: Video,
-        // },
+        {
+          href: '/api-playground/video',
+          label: m['playground.nav.video'](),
+          icon: Video,
+        },
         // Search tab is parked for later development.
         // {
         //   href: '/api-playground/search',

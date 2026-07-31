@@ -1055,6 +1055,8 @@
   "playground.video.error_no_provider": "视频生成服务未配置。",
   "playground.video.error_insufficient_credits": "积分不足，无法生成视频。",
   "playground.video.disabled_notice": "管理员已停用 Seedance 视频生成。",
+  "playground.video.attachment_video_badge": "视频",
+  "playground.video.attachment_remove": "删除附件",
   "playground.coming_soon.pill": "即将推出",
   "playground.coming_soon.back_home": "返回聊天",
   "playground.coming_soon.video.eyebrow": "视频",

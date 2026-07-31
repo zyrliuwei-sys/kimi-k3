@@ -1055,6 +1055,8 @@
   "playground.video.error_no_provider": "Video provider is not configured.",
   "playground.video.error_insufficient_credits": "Not enough credits to generate a video.",
   "playground.video.disabled_notice": "Seedance video is currently disabled by the administrator.",
+  "playground.video.attachment_video_badge": "Video",
+  "playground.video.attachment_remove": "Remove attachment",
   "playground.coming_soon.pill": "Coming soon",
   "playground.coming_soon.back_home": "Back to chat",
   "playground.coming_soon.video.eyebrow": "Video",

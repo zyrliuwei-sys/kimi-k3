@@ -26,6 +26,8 @@ import {
   Terminal,
   Trash2,
   Triangle,
+  Volume2,
+  VolumeX,
   Wand2,
   X,
 } from 'lucide-react';
@@ -2380,6 +2382,94 @@ const GALLERY_ITEMS: Tile[] = (() => {
   }));
 })();
 
+/**
+ * Pure-video catalog for the video-page background wall. Videos the user
+ * uploaded into `public/gallery/` cycle across enough slots to fill a
+ * full-screen masonry (varies by viewport — the packer stops at
+ * `viewportHeight`). The browser caches each unique mp4 by URL, so the
+ * payload is just the listed source files regardless of how many cells
+ * show them.
+ *
+ * Source-index list excludes every dog-containing source (pure-dog
+ * `v-02, v-03, v-05, v-14, v-15, v-16` and mixed cat+dog `v-00, v-11,
+ * v-17`) so the wall is now dog-free. Each remaining source contributes
+ * exactly one clip (the `a` cut) so the wall never repeats the same
+ * shot — different timestamps from the same source video look too
+ * similar and read as visual duplication to the user.
+ *
+ * To add more variety, drop new mp4s into `public/gallery/` named
+ * `v-XX.mp4` (next free index after 17), append the index here, and
+ * re-run `ffmpeg -ss 0.5 -i v-XX.mp4 -vframes 1 -vf "scale=720:-1"
+ * v-XX.jpg` to mint its poster.
+ */
+const VIDEO_BACKGROUND_ITEMS: Tile[] = (() => {
+  // One clip per dog-free source. Each source's `a` clip is the canonical
+  // shot — `b` / `c` cuts from the same source read as duplicates even
+  // when the timestamps differ.
+  const clipFileNames = [
+    'clip-01-a',
+    'clip-03-a',
+    'clip-04-a',
+    'clip-06-a',
+    'clip-07-a',
+    'clip-08-a',
+    'clip-09-a',
+    'clip-10-a',
+    'clip-12-a',
+    'clip-13-a',
+    'clip-16-a',
+  ];
+  // Ratio mix tuned for AI-generated video content (mostly 16:9 / 9:16 /
+  // 1:1 / 3:4). Cycled across slots so adjacent cells vary in height and
+  // the packed rhythm doesn't repeat obviously.
+  const VIDEO_TILE_RATIOS = [9 / 16, 16 / 9, 1, 3 / 4, 2 / 3, 3 / 2];
+  // The wall is the page's only video content — it has to be tall enough
+  // that scrolling never reaches a "below the wall" region (which would
+  // show the body background through). With ~10 cols × ~5 rows per cycle
+  // and each tile 100-220px tall, one cycle of the 43 clips ≈ 1000px.
+  // Cycling 6× gives ~6000px — covers any 1080p viewport with 5+ screens
+  // of scroll, so the user always sees wall behind everything (including
+  // the end-cap CTA and the empty `pb-56` tail). The shuffled order below
+  // + the ratio cycling keeps the repetition from being obviously periodic.
+  const CYCLES = 6;
+  // Deterministic shuffle (no Math.random — SSR/CSR must match). Knuth
+  // Fisher-Yates with a seedable LCG so the same catalog renders the
+  // same way on server and client.
+  function shuffleSeeded<T>(arr: T[]): T[] {
+    const out = arr.slice();
+    let seed = 0x9e3779b9;
+    const next = () => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed / 0x100000000;
+    };
+    for (let i = out.length - 1; i > 0; i--) {
+      const j = Math.floor(next() * (i + 1));
+      [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+  }
+  const out: Tile[] = [];
+  for (let cycle = 0; cycle < CYCLES; cycle++) {
+    // Each cycle starts with a different shuffle so the same clip never
+    // lands in the same cell across cycles.
+    const shuffled = shuffleSeeded(clipFileNames);
+    for (let i = 0; i < shuffled.length; i++) {
+      const name = shuffled[i];
+      out.push({
+        src: `/gallery/${name}.mp4`,
+        // Offset the ratio index by the cycle so every occurrence of a
+        // clip lands in a different-sized cell (9:16 once, 16:9 another
+        // time, etc.), masking the underlying repetition.
+        ratio: VIDEO_TILE_RATIOS[(i + cycle * 3) % VIDEO_TILE_RATIOS.length],
+        alt: 'AI-generated video',
+        kind: 'video' as const,
+        poster: `/gallery/${name}.jpg`,
+      });
+    }
+  }
+  return out;
+})();
+
 // Column count per breakpoint, measured off the reference.
 const GALLERY_GAP = 4;
 function columnsForWidth(w: number) {
@@ -2436,7 +2526,22 @@ function packMasonry(
   return { tiles, height: Math.ceil(Math.max(...heights) - gap) };
 }
 
-function GalleryWall() {
+/**
+ * Generic masonry wall. Packs the provided `items` (defaults to
+ * `GALLERY_ITEMS`) into a tall column layout — the container's natural
+ * height becomes the wall height, so wrapping it in a scroll track lets
+ * the user scroll through hundreds of tiles.
+ *
+ * Renders each tile as one of:
+ *   - <img>           — `kind: 'image'` (default)
+ *   - <img poster> + <video>  — `kind: 'video'`; the poster paints the
+ *     first frame synchronously so the cell is never blank while the
+ *     browser throttles autoplay of many concurrent <video>s.
+ *
+ * Video tiles still get the same hover scrim as image tiles — the wall
+ * is a unified component, the kind only changes the media element.
+ */
+function GalleryWall({ items = GALLERY_ITEMS }: { items?: Tile[] } = {}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   const [columnCount, setColumnCount] = useState(5);
@@ -2455,12 +2560,7 @@ function GalleryWall() {
     return () => ro.disconnect();
   }, []);
 
-  const { tiles, height } = packMasonry(
-    GALLERY_ITEMS,
-    width,
-    columnCount,
-    GALLERY_GAP
-  );
+  const { tiles, height } = packMasonry(items, width, columnCount, GALLERY_GAP);
 
   return (
     <div ref={hostRef} className="relative w-full" style={{ height }}>
@@ -2477,23 +2577,51 @@ function GalleryWall() {
           }}
         >
           <div className="group/card relative size-full">
-            <img
-              src={tile.src}
-              alt={tile.alt}
-              loading="lazy"
-              decoding="async"
-              onError={(e) => {
-                // Hide tiles that point at a file we didn't actually
-                // download (the catalog enumerates a range; some slots
-                // in that range are gaps from earlier 404s).
-                const wrapper = e.currentTarget.closest<HTMLElement>(
-                  '[data-gallery-tile]'
-                );
-                if (wrapper) wrapper.style.display = 'none';
-                else e.currentTarget.style.display = 'none';
-              }}
-              className="absolute inset-0 size-full object-cover"
-            />
+            {tile.kind === 'video' ? (
+              <Fragment>
+                {tile.poster && (
+                  <img
+                    src={tile.poster}
+                    alt=""
+                    loading="eager"
+                    decoding="async"
+                    className="absolute inset-0 size-full object-cover"
+                  />
+                )}
+                <video
+                  src={tile.src}
+                  poster={tile.poster}
+                  muted
+                  loop
+                  autoPlay
+                  playsInline
+                  preload="metadata"
+                  onError={() => {
+                    // Don't hide — let the poster <img> underneath stay
+                    // visible so the wall has no holes.
+                  }}
+                  className="absolute inset-0 size-full object-cover"
+                />
+              </Fragment>
+            ) : (
+              <img
+                src={tile.src}
+                alt={tile.alt}
+                loading="lazy"
+                decoding="async"
+                onError={(e) => {
+                  // Hide tiles that point at a file we didn't actually
+                  // download (the catalog enumerates a range; some slots
+                  // in that range are gaps from earlier 404s).
+                  const wrapper = e.currentTarget.closest<HTMLElement>(
+                    '[data-gallery-tile]'
+                  );
+                  if (wrapper) wrapper.style.display = 'none';
+                  else e.currentTarget.style.display = 'none';
+                }}
+                className="absolute inset-0 size-full object-cover"
+              />
+            )}
             {/* Hover scrim + centered action affordance. */}
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition-all duration-300 group-hover/card:bg-black/20">
               <Sparkles className="size-6 text-white opacity-0 transition-opacity duration-300 group-hover/card:opacity-90" />
@@ -4162,7 +4290,15 @@ export function ImagePlayground() {
                 </p>
                 <button
                   type="button"
-                  onClick={() => promptRef.current?.focus()}
+                  // Jump straight to My Images — the user's own workspace
+                  // — instead of leaving them on the Community wall while
+                  // they type. The composer is floating (rendered outside
+                  // this tab branch), so focusing it right after the tab
+                  // switch still lands on a live textarea.
+                  onClick={() => {
+                    setTab('mine');
+                    promptRef.current?.focus();
+                  }}
                   className="border-border bg-background hover:bg-foreground/5 mt-8 inline-flex h-10 items-center justify-center gap-2 rounded-full border px-3 text-sm font-medium shadow-xs transition-all"
                 >
                   <SparklesIcon className="size-4" />
@@ -4478,12 +4614,115 @@ export function ImagePlayground() {
  * persisted `taskResult` JSON, parsed by the polling endpoint's terminal
  * branch.
  *
- * The composer is a Grok-style `InputGroup` (textarea + a `block-start`
- * row of video options + a `block-end` toolbar with the model label and
- * submit). The video options (duration / quality / aspect / audio) live
- * between the prompt and the toolbar so the chrome stays stable as the
- * user tweaks them.
+ * The composer is a Grok-style `InputGroup` (textarea + a `block-end`
+ * toolbar with a `+` reference picker, four popover-driven value chips
+ * (duration / quality / aspect / audio), the model label and submit).
+ * Each value chip shows only the current value; clicking opens a small
+ * menu that auto-closes after selection.
  */
+
+/* ------------------------------------------------------------------ */
+/*  Video toolbar chips — popover-driven value buttons                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Compact "current value" chip that opens a popover of choices. Renders
+ * a `Button` with a single label (and optional icon), then a `Popover`
+ * menu styled to match the playground chrome. The `children` render-prop
+ * receives a `close` callback so each menu item can dismiss the popover
+ * after selection.
+ */
+function ValuePopover({
+  label,
+  currentLabel,
+  icon,
+  children,
+}: {
+  label: string;
+  currentLabel: string;
+  icon?: React.ReactNode;
+  children: (close: () => void) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={label}
+                  className={cn(
+                    'text-foreground/70 hover:text-foreground hover:bg-foreground/5',
+                    'h-8 gap-1.5 rounded-md px-2.5 font-mono text-[12px] font-medium tracking-tight'
+                  )}
+                >
+                  {icon}
+                  <span>{currentLabel}</span>
+                  <ChevronDown
+                    className={cn(
+                      'size-3 transition-transform',
+                      open && 'rotate-180'
+                    )}
+                  />
+                </Button>
+              }
+            />
+          }
+        />
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
+      <PopoverContent
+        align="start"
+        side="top"
+        sideOffset={8}
+        className="w-auto min-w-[6rem] p-1"
+      >
+        {children(() => setOpen(false))}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/**
+ * Vertical list wrapper for popover menu items. Pairs with `PopoverMenuItem`
+ * for the active-row highlight + select affordance.
+ */
+function PopoverMenu({ children }: { children: React.ReactNode }) {
+  return <div className="flex flex-col gap-0.5">{children}</div>;
+}
+
+function PopoverMenuItem({
+  active,
+  onSelect,
+  icon,
+  children,
+}: {
+  active?: boolean;
+  onSelect: () => void;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        'hover:bg-foreground/5 flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left font-mono text-[12px] transition-colors',
+        active ? 'text-foreground bg-foreground/5' : 'text-foreground/70'
+      )}
+    >
+      {icon}
+      <span className="flex-1">{children}</span>
+      {active && <Check className="text-foreground/60 size-3.5" />}
+    </button>
+  );
+}
+
 export function VideoPlayground() {
   const store = usePlaygroundStore();
   const { activeVideoId, clearActive } = store;
@@ -4520,8 +4759,83 @@ export function VideoPlayground() {
     DEFAULT_SEEDANCE_VIDEO_AUDIO
   );
 
+  // Reference attachments (image / video) picked from the toolbar `+`
+  // button. Stored as object URLs so chips render instantly; the file is
+  // kept around so a future submit can hand it to the gen pipeline. For
+  // now the API doesn't consume these — UI-only attachment surface.
+  type VideoRef = {
+    id: string;
+    name: string;
+    kind: 'image' | 'video';
+    previewUrl: string;
+  };
+  const [videoRefs, setVideoRefs] = useState<VideoRef[]>([]);
+  const videoFileInputRef = useRef<HTMLInputElement>(null);
+  // Tracks every preview URL we've minted so we can revoke them on
+  // unmount / removal instead of leaking memory across the session.
+  const videoPreviewUrlsRef = useRef<Set<string>>(new Set());
+
+  function openVideoFilePicker() {
+    if (!videoFileInputRef.current) return;
+    videoFileInputRef.current.click();
+  }
+
+  function handleVideoFilesPicked(files: FileList | null) {
+    if (!files || !files.length) return;
+    const next: VideoRef[] = [];
+    for (const file of Array.from(files)) {
+      const isVideo = file.type.startsWith('video/');
+      const isImage = file.type.startsWith('image/');
+      if (!isVideo && !isImage) {
+        toast.error(
+          m['playground.attachment.err_unsupported']({ name: file.name })
+        );
+        continue;
+      }
+      const previewUrl = URL.createObjectURL(file);
+      videoPreviewUrlsRef.current.add(previewUrl);
+      next.push({
+        id: crypto.randomUUID(),
+        name: file.name,
+        kind: isVideo ? 'video' : 'image',
+        previewUrl,
+      });
+    }
+    if (next.length) {
+      setVideoRefs((prev) => [...prev, ...next]);
+    }
+    if (videoFileInputRef.current) videoFileInputRef.current.value = '';
+  }
+
+  function removeVideoRef(id: string) {
+    setVideoRefs((prev) => {
+      const target = prev.find((r) => r.id === id);
+      if (target) {
+        URL.revokeObjectURL(target.previewUrl);
+        videoPreviewUrlsRef.current.delete(target.previewUrl);
+      }
+      return prev.filter((r) => r.id !== id);
+    });
+  }
+
+  useEffect(() => {
+    return () => {
+      for (const url of videoPreviewUrlsRef.current) URL.revokeObjectURL(url);
+      videoPreviewUrlsRef.current.clear();
+    };
+  }, []);
+
+  // Duration presets surfaced in the toolbar popover. Subset of the
+  // provider-accepted range so users see quick picks; finer values can be
+  // added by the API.
+  const VIDEO_DURATIONS = [3, 5, 8, 10] as const;
+
   const [pollingTaskId, setPollingTaskId] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
+  // Focus handle for the prompt textarea — the end-cap CTA below the
+  // wall scrolls the page back up and focuses this input. Mirrors
+  // ImagePlayground's `promptRef`.
+  const promptRef = useRef<HTMLTextAreaElement | null>(null);
 
   const queryClient = useQueryClient();
   const { data: publicConfig } = usePublicConfig();
@@ -4529,6 +4843,13 @@ export function VideoPlayground() {
   // Evolink Seedance default the server picks when the key is unset.
   const resolvedVideoModel =
     publicConfig?.evolink_video_model || VIDEO_MODEL_ID;
+  // Short display label — strip the task-suffix (e.g. "-text-to-video",
+  // "-image-to-video") so the toolbar chip stays compact. Full id still
+  // goes to the API via `VIDEO_MODEL_ID` / `resolvedVideoModel` callers.
+  const videoModelLabel = (resolvedVideoModel || VIDEO_MODEL_ID).replace(
+    /-(text|image)-to-video$/i,
+    ''
+  );
   const seedanceEnabled = publicConfig?.seedance_video_enabled !== 'false';
 
   const taskQuery = useQuery({
@@ -4638,30 +4959,25 @@ export function VideoPlayground() {
 
   return (
     <TooltipProvider delay={200}>
-      <div className="relative flex h-full min-h-0 w-full flex-col">
-        <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 overflow-auto px-4 py-6">
-          <div className="bg-card/70 border-foreground/10 flex items-center justify-between rounded-2xl border px-4 py-3 backdrop-blur-md">
-            <h1 className="text-2xl font-semibold tracking-tight">
-              {activeVideoId
-                ? m['playground.video.result_label']()
-                : m['playground.video.new_video']()}
-            </h1>
-            <Button variant="outline" size="sm" onClick={clearActive}>
-              <MessageSquarePlus className="size-4" />
-              {m['playground.video.new_video']()}
-            </Button>
-          </div>
-
-          {!seedanceEnabled && (
-            <div className="border-foreground/15 bg-card/70 text-foreground/75 flex items-center gap-2 rounded-2xl border border-dashed px-4 py-3 text-sm backdrop-blur-md">
-              <Film className="size-4" />
+      <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-transparent">
+        {/* Floating admin-disabled notice — sits above the wall at the top,
+            mirrors the absolute top chrome used by ImagePlayground's
+            tab bar. Hidden when Seedance is enabled. */}
+        {!seedanceEnabled && (
+          <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
+            <div className="border-foreground/15 bg-card/80 text-foreground/80 pointer-events-auto inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs backdrop-blur-md">
+              <Film className="size-3.5" />
               {m['playground.video.disabled_notice']()}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Active video result */}
-          {activeVideoUrl ? (
-            <div className="border-foreground/10 bg-card/90 overflow-hidden rounded-2xl border shadow-lg backdrop-blur-md">
+        {/* Active video result — same pattern as ImagePlayground's inline
+            preview; sits at the top of the scroll track so it's the
+            first thing the user sees when a task is open. */}
+        {activeVideoUrl && (
+          <div className="pointer-events-none absolute inset-x-0 top-4 z-20 mt-14 flex justify-center px-4">
+            <div className="border-foreground/10 bg-card/90 pointer-events-auto w-full max-w-3xl overflow-hidden rounded-2xl border shadow-lg backdrop-blur-md">
               <video
                 src={activeVideoUrl}
                 controls
@@ -4670,7 +4986,7 @@ export function VideoPlayground() {
                 muted
                 playsInline
                 preload="metadata"
-                className="mx-auto max-h-[600px] w-auto object-contain"
+                className="mx-auto max-h-[400px] w-auto object-contain"
               />
               <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
                 <a
@@ -4692,18 +5008,46 @@ export function VideoPlayground() {
                 </a>
               </div>
             </div>
-          ) : (
-            <div className="border-foreground/15 bg-card/60 flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed py-16 text-center backdrop-blur-md">
-              <SparklesIcon className="text-foreground/40 size-10" />
-              <p className="text-foreground/65 text-sm">
-                {m['playground.video.result_empty']()}
-              </p>
+          </div>
+        )}
+
+        {/* Scroll track — identical pattern to ImagePlayground's gallery
+            page. `no-scrollbar h-full overflow-y-auto` hides the scrollbar
+            but lets the user wheel through the wall; `pb-56` clears the
+            floating composer. */}
+        <div className="flex-1 overflow-hidden">
+          <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none pb-56">
+            <div className="min-h-full w-full">
+              <GalleryWall items={VIDEO_BACKGROUND_ITEMS} />
+              {/* End-cap — the payoff after scrolling the wall. Click
+                  jumps focus to the prompt textarea so the user can
+                  start typing immediately. Mirrors ImagePlayground's
+                  wall_cta. */}
+              <div className="flex flex-col items-center px-4 py-20">
+                <p className="text-foreground text-center text-2xl font-bold tracking-tight sm:text-3xl">
+                  {m['playground.image.wall_cta_title']()}
+                </p>
+                <p className="text-muted-foreground mt-3 max-w-xs text-center text-sm leading-relaxed">
+                  {m['playground.image.wall_cta_sub']()}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => promptRef.current?.focus()}
+                  className="border-border bg-background hover:bg-foreground/5 mt-8 inline-flex h-10 items-center justify-center gap-2 rounded-full border px-3 text-sm font-medium shadow-xs transition-all"
+                >
+                  <SparklesIcon className="size-4" />
+                  {m['playground.image.wall_cta_button']()}
+                </button>
+              </div>
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Composer — Grok-style input group pinned to the bottom. */}
-        <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pb-6">
+        {/* Composer — Grok-style input group pinned to the bottom of the
+            viewport. Sits below the scroll track and overlays the wall's
+            bottom edge via z-20 + bg-gradient (handled by the form's
+            own backdrop). */}
+        <div className="relative z-20 mx-auto w-full max-w-3xl px-4 pb-6">
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -4719,6 +5063,7 @@ export function VideoPlayground() {
               <div className="contents">
                 <div className="flex w-full items-start gap-2 px-2.5">
                   <InputGroupTextarea
+                    ref={promptRef}
                     name="message"
                     value={prompt}
                     onChange={(e) => setPrompt(e.target.value)}
@@ -4735,104 +5080,197 @@ export function VideoPlayground() {
                 </div>
               </div>
 
-              {/* Video options — duration slider, quality segmented,
-                  aspect select, audio switch. Plain <div> (not
-                  InputGroupAddon) so the visual order sits between the
-                  textarea and the bottom toolbar. */}
-              <div className="border-foreground/10 flex w-full flex-wrap items-center gap-x-4 gap-y-2 border-b px-3 py-2 text-xs">
-                <label className="flex items-center gap-2">
-                  <span className="text-foreground/55 font-medium">
-                    {m['playground.video.duration']()}
-                  </span>
-                  <input
-                    type="range"
-                    min={1}
-                    max={10}
-                    step={1}
-                    value={videoDuration}
-                    onChange={(e) =>
-                      setVideoDuration(
-                        Math.min(10, Math.max(1, Number(e.target.value)))
-                      )
-                    }
-                    aria-label={m['playground.video.duration']()}
-                    className="accent-foreground w-24 cursor-pointer"
-                  />
-                  <span className="text-foreground/75 w-7 text-right font-mono tabular-nums">
-                    {videoDuration}s
-                  </span>
-                </label>
-
-                <div className="flex items-center gap-1.5">
-                  <span className="text-foreground/55 font-medium">
-                    {m['playground.video.quality']()}
-                  </span>
-                  <div
-                    role="radiogroup"
-                    aria-label={m['playground.video.quality']()}
-                    className="bg-muted/60 inline-flex items-center rounded-lg p-0.5"
-                  >
-                    {VIDEO_QUALITIES.map((q) => {
-                      const active = q === videoQuality;
-                      return (
-                        <button
-                          key={q}
-                          type="button"
-                          role="radio"
-                          aria-checked={active}
-                          onClick={() => setVideoQuality(q)}
-                          className={cn(
-                            'text-foreground/60 rounded-md px-2 py-1 font-mono text-[11px] font-medium tracking-tight transition-colors',
-                            'hover:text-foreground',
-                            active && 'bg-background text-foreground shadow-sm'
-                          )}
-                        >
-                          {q}
-                        </button>
-                      );
-                    })}
-                  </div>
+              {/* Reference attachment thumbnails (image / video). Shown
+                  at the top-left of the dialog with actual preview
+                  frames, each with a top-right ❌ for quick removal.
+                  Videos render the first frame (preload="metadata") so
+                  we don't autoplay motion in the composer. */}
+              {videoRefs.length > 0 && (
+                <div className="order-2 flex w-full flex-wrap gap-2 px-3 pt-2">
+                  {videoRefs.map((r) => (
+                    <div
+                      key={r.id}
+                      className="border-foreground/10 bg-muted/40 relative size-16 shrink-0 overflow-hidden rounded-lg border"
+                      title={r.name}
+                    >
+                      {r.kind === 'image' ? (
+                        <img
+                          src={r.previewUrl}
+                          alt={r.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <>
+                          <video
+                            src={r.previewUrl}
+                            muted
+                            playsInline
+                            preload="metadata"
+                            className="h-full w-full object-cover"
+                          />
+                          <span className="bg-foreground/70 text-background pointer-events-none absolute bottom-0.5 left-0.5 inline-flex items-center gap-0.5 rounded px-1 py-px font-mono text-[9px] font-medium tracking-tight">
+                            <Film className="size-2.5" />
+                            {m['playground.video.attachment_video_badge']()}
+                          </span>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeVideoRef(r.id)}
+                        aria-label={m['playground.video.attachment_remove']()}
+                        title={m['playground.video.attachment_remove']()}
+                        className="bg-foreground/80 hover:bg-foreground text-background absolute top-0.5 right-0.5 inline-flex size-5 items-center justify-center rounded-full shadow-sm transition-colors"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-
-                <label className="flex items-center gap-1.5">
-                  <span className="text-foreground/55 font-medium">
-                    {m['playground.video.aspect']()}
-                  </span>
-                  <select
-                    value={videoAspect}
-                    onChange={(e) =>
-                      setVideoAspect(e.target.value as SeedanceVideoAspectRatio)
-                    }
-                    aria-label={m['playground.video.aspect']()}
-                    className="bg-muted/60 border-foreground/10 hover:bg-muted rounded-md border px-2 py-1 text-xs transition-colors"
-                  >
-                    {VIDEO_ASPECTS.map((a) => (
-                      <option key={a} value={a}>
-                        {a}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="text-foreground/75 flex cursor-pointer items-center gap-1.5">
-                  <input
-                    type="checkbox"
-                    checked={videoAudio}
-                    onChange={(e) => setVideoAudio(e.target.checked)}
-                    className="accent-foreground size-3.5 cursor-pointer"
-                  />
-                  <span className="font-medium">
-                    {m['playground.video.audio']()}
-                  </span>
-                </label>
-              </div>
+              )}
 
               <InputGroupAddon align="block-end" className="order-last w-full">
+                {/* Left cluster: hidden file input + `+` picker button +
+                    4 popover-driven value chips (Duration / Quality /
+                    Aspect / Audio). Each chip shows only the current
+                    value; click opens a small menu and auto-closes after
+                    selection, matching the Grok reference layout. */}
+                <input
+                  ref={videoFileInputRef}
+                  type="file"
+                  accept="image/*,video/*"
+                  multiple
+                  onChange={(e) => handleVideoFilesPicked(e.target.files)}
+                  className="hidden"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                />
                 <div className="flex shrink-0 items-center gap-1">
-                  <span className="text-foreground/55 inline-flex items-center gap-1.5 px-1 font-mono text-[11px] font-medium tracking-tight uppercase">
-                    <Film className="size-3.5" />
-                    Seedance 2.0
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger
+                      render={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={m['playground.attachment.add']()}
+                          onClick={openVideoFilePicker}
+                          className="text-foreground/70 hover:text-foreground hover:bg-foreground/5"
+                        >
+                          <Plus className="size-4" />
+                        </Button>
+                      }
+                    />
+                    <TooltipContent>
+                      {m['playground.attachment.add']()}
+                    </TooltipContent>
+                  </Tooltip>
+
+                  {/* Duration chip */}
+                  <ValuePopover
+                    label={m['playground.video.duration']()}
+                    currentLabel={`${videoDuration}s`}
+                  >
+                    {(close) => (
+                      <PopoverMenu>
+                        {VIDEO_DURATIONS.map((d) => (
+                          <PopoverMenuItem
+                            key={d}
+                            active={d === videoDuration}
+                            onSelect={() => {
+                              setVideoDuration(d);
+                              close();
+                            }}
+                          >
+                            {d}s
+                          </PopoverMenuItem>
+                        ))}
+                      </PopoverMenu>
+                    )}
+                  </ValuePopover>
+
+                  {/* Quality chip */}
+                  <ValuePopover
+                    label={m['playground.video.quality']()}
+                    currentLabel={videoQuality}
+                  >
+                    {(close) => (
+                      <PopoverMenu>
+                        {VIDEO_QUALITIES.map((q) => (
+                          <PopoverMenuItem
+                            key={q}
+                            active={q === videoQuality}
+                            onSelect={() => {
+                              setVideoQuality(q);
+                              close();
+                            }}
+                          >
+                            {q}
+                          </PopoverMenuItem>
+                        ))}
+                      </PopoverMenu>
+                    )}
+                  </ValuePopover>
+
+                  {/* Aspect chip */}
+                  <ValuePopover
+                    label={m['playground.video.aspect']()}
+                    currentLabel={videoAspect}
+                  >
+                    {(close) => (
+                      <PopoverMenu>
+                        {VIDEO_ASPECTS.map((a) => (
+                          <PopoverMenuItem
+                            key={a}
+                            active={a === videoAspect}
+                            onSelect={() => {
+                              setVideoAspect(a);
+                              close();
+                            }}
+                          >
+                            {a}
+                          </PopoverMenuItem>
+                        ))}
+                      </PopoverMenu>
+                    )}
+                  </ValuePopover>
+
+                  {/* Audio chip — On / Off buttons, icon shows current state */}
+                  <ValuePopover
+                    label={m['playground.video.audio']()}
+                    currentLabel={videoAudio ? 'On' : 'Off'}
+                    icon={
+                      videoAudio ? (
+                        <Volume2 className="size-3.5" />
+                      ) : (
+                        <VolumeX className="size-3.5" />
+                      )
+                    }
+                  >
+                    {(close) => (
+                      <PopoverMenu>
+                        <PopoverMenuItem
+                          active={videoAudio}
+                          onSelect={() => {
+                            setVideoAudio(true);
+                            close();
+                          }}
+                          icon={<Volume2 className="size-3.5" />}
+                        >
+                          On
+                        </PopoverMenuItem>
+                        <PopoverMenuItem
+                          active={!videoAudio}
+                          onSelect={() => {
+                            setVideoAudio(false);
+                            close();
+                          }}
+                          icon={<VolumeX className="size-3.5" />}
+                        >
+                          Off
+                        </PopoverMenuItem>
+                      </PopoverMenu>
+                    )}
+                  </ValuePopover>
                 </div>
 
                 <div className="flex min-w-0 items-center gap-1">
@@ -4848,7 +5286,7 @@ export function VideoPlayground() {
                         >
                           <Film className="size-4 shrink-0" />
                           <span className="min-w-0 flex-1 truncate font-mono">
-                            {resolvedVideoModel}
+                            {videoModelLabel}
                           </span>
                         </Button>
                       }
