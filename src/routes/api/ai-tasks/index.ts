@@ -110,6 +110,12 @@ async function GET({ request }: { request: Request }) {
           // would always render the loading spinner because the list
           // endpoint stripped `taskResult` and never exposed the URL.
           videoUrls: media.videoUrls,
+          // First-frame JPEG at /uploads/video-posters/<id>.jpg. The
+          // video tile renders this as <img>, mirroring how the image
+          // gallery renders each row — no <video> autoplay policy
+          // risk in <button>-wrapped containers. Click → active-video
+          // panel plays the real <video src=videoUrls[0]>.
+          posterUrl: media.posterUrl,
           // Per-task option blob (duration / quality / aspect for video;
           // seed / reference for image). Surfaced so My Videos can label
           // each tile with the duration it was generated at without
@@ -162,15 +168,20 @@ function proxyVideoUrl(taskId: string, url: string): string {
  *                    proxy so playback stays same-origin; same-origin
  *                    paths (the local `/gallery/*.mp4` fallback) pass
  *                    through unchanged.
+ *   `posterUrl`    → first-frame JPEG at `/uploads/video-posters/<id>.jpg`,
+ *                    written when the video finished so the tile
+ *                    preview is a plain `<img>` (no autoplay policy
+ *                    pain, mirrors the image gallery 1:1).
  *   `thumbnailUrl` → the legacy single-frame field. The sidebar uses
  *                    it as a small chip preview; unchanged in shape.
- *                    For video tasks we fall back to `videoUrls[0]`
- *                    so the sidebar chip has something to render.
+ *                    Prefers `posterUrl` over `videoUrls[0]` for video
+ *                    tasks so the sidebar chip stays a real image.
  */
 function parseTaskMedia(t: any): {
   imageUrls: string[];
   videoUrls: string[];
   thumbnailUrl?: string;
+  posterUrl?: string;
 } {
   try {
     const raw = t.taskResult;
@@ -192,8 +203,10 @@ function parseTaskMedia(t: any): {
     }
     const videoUrls = rawVideoUrls.map((u) => proxyVideoUrl(t.id, u));
 
-    const thumbnailUrl = imageUrls[0] || videoUrls[0];
-    return { imageUrls, videoUrls, thumbnailUrl };
+    const posterUrl =
+      typeof r.posterUrl === 'string' && r.posterUrl ? r.posterUrl : undefined;
+    const thumbnailUrl = imageUrls[0] || posterUrl || videoUrls[0];
+    return { imageUrls, videoUrls, thumbnailUrl, posterUrl };
   } catch {
     return { imageUrls: [], videoUrls: [] };
   }

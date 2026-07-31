@@ -1775,7 +1775,13 @@ interface ImageTaskRow {
    *  video tasks (Seedance writes a single `videoUrl`; multi-clip
    *  batches surface an array). Drives the My Videos row layout. */
   videoUrls?: string[] | null;
-  /** Per-task option blob (duration / quality / aspect for video; seed
+  /** First-frame JPEG at /uploads/video-posters/<id>.jpg. The tile
+   *  uses this as its `<img src>` instead of trying to render
+   *  `<video>` inside a `<button>` parent (Chrome's autoplay
+   *  heuristic refuses to paint first frame there). */
+  posterUrl?:
+    | string
+    | null; /** Per-task option blob (duration / quality / aspect for video; seed
    *  / reference for image). Surfaced so My Videos can label each
    *  tile with the duration it was generated at. */
   options?: Record<string, any> | null;
@@ -5101,54 +5107,32 @@ export function ImagePlayground() {
 /**
  * Renders the user's generated videos as a packed masonry of video tiles.
  * Mirrors `ImagePlayground`'s My Images tab in spirit but kept minimal:
- * each tile is a clickable `<video>` poster (first frame, no autoplay)
+ * each tile is a clickable `<img>` poster (server-extracted first frame)
  * with a duration badge. Clicking a tile lifts it into the active-video
  * panel (`activeVideoId`) and focuses the composer so the user can keep
  * iterating on prompts.
  *
- * Rendering follows the same defensive pattern as `MyImageTile`
- * (image gallery): explicit `useRef`, `onLoadedData` triggers an
- * imperative `play()`, `onError` hides the element on failure. Plain
- * `<video autoPlay muted>` looked correct on paper but Chrome refuses
- * to paint the first frame when the `<video>` lives inside a
- * `<button>` (interactive parent) until the autoplay decision is
- * resolved — and we saw tiles stay gray across multiple "Refresh"
- * attempts. Calling `.play()` after `loadedmetadata` flips the same
- * flag without depending on Chrome's autoplay heuristics.
+ * Why an `<img>` and not a `<video>` for the tile preview: Chrome's
+ * autoplay heuristic refuses to paint the first frame of a muted video
+ * wrapped inside an interactive parent (`<button>`) until the autoplay
+ * decision is resolved — even with `autoPlay muted loop playsInline`
+ * the canvas stayed gray across multiple "Refresh" cycles. The image
+ * gallery (`MyImageTile`) uses `<img>` and always works; we mirror that
+ * pattern here — a server-extracted JPEG of the first frame as
+ * `posterUrl`, which the list endpoint surfaces. The real `<video>`
+ * plays when the user clicks through to the active-video panel.
  */
 function MyVideoTile({
-  url,
+  posterUrl,
   duration,
   onSelect,
   taskId,
 }: {
-  url: string;
+  posterUrl: string;
   duration: number | null;
   onSelect: () => void;
   taskId: string;
 }) {
-  // One element per tile. Holds the `<video>` so we can call .play()
-  // imperatively after metadata loads — Chrome's autoplay heuristics
-  // often defer first-frame paint for muted videos wrapped inside
-  // interactive parents (button), so this is the bypass.
-  const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [hasFrame, setHasFrame] = useState(false);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    // If metadata is already there (cached), play immediately.
-    if (video.readyState >= 2) {
-      video.play().catch(() => {});
-      return;
-    }
-    const onLoaded = () => {
-      video.play().catch(() => {});
-    };
-    video.addEventListener('loadeddata', onLoaded);
-    return () => video.removeEventListener('loadeddata', onLoaded);
-  }, [url]);
-
   return (
     <button
       type="button"
@@ -5157,33 +5141,22 @@ function MyVideoTile({
       className="group bg-foreground/5 hover:ring-foreground/30 relative w-full max-w-[320px] shrink-0 overflow-hidden rounded-xl transition-all hover:opacity-90 sm:max-w-[280px]"
       style={{ aspectRatio: '16 / 9' }}
     >
-      <video
-        ref={videoRef}
-        src={url}
-        muted
-        loop
-        playsInline
-        preload="metadata"
-        onLoadedData={(e) => {
-          // Once the first frame is decodable, drop the placeholder
-          // so the gradient/fade is replaced with the real first
-          // frame. We're using opacity rather than display so the
-          // canvas keeps decoding under the hood.
-          const v = e.currentTarget;
-          if (v.videoWidth && v.videoHeight) setHasFrame(true);
-        }}
-        onPlay={(e) => setHasFrame(true)}
+      {/* `loading="lazy"` mirrors MyImageTile — the row gets tiles
+          lazily as they enter the viewport, so a 30-task history
+          doesn't spike 30 mp4 mp4 decodes on mount. */}
+      <img
+        src={posterUrl}
+        alt="Video preview"
+        loading="lazy"
+        decoding="async"
         onError={(e) => {
-          // Mirror MyImageTile's fallback: hide the broken element so
-          // the duration badge still shows over the gray placeholder,
+          // Same fallback as MyImageTile: hide the broken img so the
+          // duration badge still shows over the gray placeholder,
           // making it obvious a tile is unplayable rather than
           // leaving a forever-loading spinner.
           e.currentTarget.style.display = 'none';
         }}
-        className={cn(
-          'bg-foreground/95 absolute inset-0 size-full object-cover transition-opacity duration-300',
-          hasFrame ? 'opacity-100' : 'opacity-0'
-        )}
+        className="absolute inset-0 size-full object-cover"
       />
       <span className="bg-foreground/80 text-background pointer-events-none absolute right-1.5 bottom-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-tight">
         <Film className="size-3" />
@@ -5297,7 +5270,9 @@ function MyVideosGrid({
               {urls.map((url, idx) => (
                 <MyVideoTile
                   key={url + idx}
-                  url={url}
+                  posterUrl={
+                    (task as any).posterUrl || url.replace('/file', '/jpg') // soft-fallback
+                  }
                   duration={duration}
                   onSelect={() => onSelect(task)}
                   taskId={task.id}
