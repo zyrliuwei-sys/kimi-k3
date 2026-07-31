@@ -130,9 +130,12 @@ export default defineConfig({
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.googletagmanager.com https://accounts.google.com https://static.cloudflareinsights.com https://challenges.cloudflare.com",
               // Media: blob: URLs are needed for the playground's local
               // attachment previews (object URLs for images/videos while the
-              // upload is in flight). Without an explicit allow, browsers
-              // fall back to default-src and block the preview.
-              "media-src 'self' blob:",
+              // upload is in flight). https://*.evolink.ai covers the
+              // generated media host (e.g. files.evolink.ai for video
+              // deliverables from Seedance / image generations). Without
+              // these explicit allows, the browser falls back to default-src
+              // and blocks both the preview and the final video playback.
+              "media-src 'self' blob: https://*.evolink.ai",
               // Workers: Vite's HMR client runs from a `blob:` URL in dev,
               // and PptWorkspace uses a worker for pdf.js. Without an explicit
               // `worker-src`, browsers fall back to `script-src` and block the
