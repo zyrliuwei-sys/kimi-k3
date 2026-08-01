@@ -300,6 +300,15 @@ export function Footer() {
               />
             </a>
             <a
+              href="https://www.seewhatnewai.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="SeeWhatsNewAI"
+              className="inline-flex h-[44px] items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-300 transition-all hover:border-neutral-500 hover:text-neutral-100"
+            >
+              SeeWhatsNewAI
+            </a>
+            <a
               href="https://twelve.tools"
               target="_blank"
               rel="noopener noreferrer"

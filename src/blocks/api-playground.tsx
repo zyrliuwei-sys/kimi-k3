@@ -4851,23 +4851,11 @@ export function ImagePlayground() {
                     download row no longer fight the image border. */}
                 <div className="mt-10">
                   {previewDetail?.prompt || previewRow?.prompt ? (
-                    <div>
-                      <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">
-                        {m['playground.image.preview_prompt_label']()}
-                      </p>
-                      <p className="text-foreground mt-2 line-clamp-4 text-sm leading-relaxed">
-                        {previewDetail?.prompt || previewRow?.prompt}
-                      </p>
-                    </div>
+                    <p className="text-foreground line-clamp-4 text-sm leading-relaxed">
+                      {previewDetail?.prompt || previewRow?.prompt}
+                    </p>
                   ) : null}
-                  <div className="mt-4 flex items-center justify-between gap-3">
-                    <div className="text-muted-foreground truncate text-xs">
-                      {previewDetail?.model || previewRow?.model ? (
-                        <span className="font-mono">
-                          {previewDetail?.model || previewRow?.model}
-                        </span>
-                      ) : null}
-                    </div>
+                  <div className="mt-4 flex items-center justify-end gap-3">
                     <div className="flex items-center gap-2">
                       {previewUrl ? (
                         <a
