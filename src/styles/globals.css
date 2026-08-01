@@ -219,12 +219,12 @@
 }
 
 /* In-flight image generation: a thin progress bar that fills from 0 to
-   95% over 60s. The bar never actually hits 100% — by the time the real
+   95% over 18s. The bar never actually hits 100% — by the time the real
    image lands, the tile is replaced. Linear timing so the user gets a
    sense of "making progress" without the bar visibly stalling. */
 @keyframes playground-progress-fill {
   0% {
-    width: 4%;
+    width: 6%;
   }
   100% {
     width: 95%;
@@ -232,7 +232,7 @@
 }
 [data-progress-bar] {
   transform-origin: left center;
-  animation: playground-progress-fill 60s linear forwards;
+  animation: playground-progress-fill 18s linear forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   [data-progress-bar] {

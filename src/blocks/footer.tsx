@@ -1,11 +1,19 @@
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
-import { LocaleSelector } from '@/components/locale-selector';
 
 interface FooterLink {
   label: string;
   href: string;
+  /**
+   * When true, render as a raw `<a>` instead of the locale-aware Link.
+   * Used for `mailto:` and any other URL schemes the i18n router
+   * shouldn't touch. Anchor attributes on the rendered element are
+   * forwarded via `externalProps` so callers can pass `target`,
+   * `rel`, `className`, etc.
+   */
+  external?: boolean;
+  externalProps?: React.AnchorHTMLAttributes<HTMLAnchorElement>;
 }
 
 export function Footer() {
@@ -15,9 +23,20 @@ export function Footer() {
     { label: m['landing.footer.product_teams'](), href: '/settings' },
     { label: m['landing.footer.product_apikeys'](), href: '/settings/apikeys' },
   ];
+  // Contact is a `mailto:` so the user's mail client opens with a
+  // pre-filled subject — gives them a one-click way to reach a human
+  // without leaving the page (or setting up a /tickets inbox).
+  // Kept external so the locale router doesn't try to localize the
+  // mailto: scheme.
+  const contactEmail = 'zyrliuwei@gmail.com';
+  const contactSubject = encodeURIComponent('kimik3 — Contact');
   const company: FooterLink[] = [
     { label: m['landing.footer.company_blog'](), href: '/blog' },
-    { label: m['landing.footer.company_contact'](), href: '/tickets' },
+    {
+      label: m['landing.footer.company_contact'](),
+      href: `mailto:${contactEmail}?subject=${contactSubject}`,
+      external: true,
+    },
     { label: m['landing.footer.company_privacy'](), href: '/privacy-policy' },
     { label: m['landing.footer.company_terms'](), href: '/terms-of-service' },
   ];
@@ -67,12 +86,25 @@ export function Footer() {
             <ul className="mt-4 space-y-2">
               {company.map((link) => (
                 <li key={link.label}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
-                  >
-                    {link.label}
-                  </Link>
+                  {link.external ? (
+                    // Raw anchor for `mailto:` / external schemes —
+                    // the locale-aware Link would mangle them by
+                    // trying to prepend a locale prefix.
+                    <a
+                      href={link.href}
+                      className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
+                      {...link.externalProps}
+                    >
+                      {link.label}
+                    </a>
+                  ) : (
+                    <Link
+                      href={link.href}
+                      className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
+                    >
+                      {link.label}
+                    </Link>
+                  )}
                 </li>
               ))}
             </ul>
@@ -316,10 +348,6 @@ export function Footer() {
               />
             </a>
           </div>
-          <LocaleSelector
-            variant="pill"
-            className="border-neutral-700 text-neutral-300 hover:bg-white/5 hover:text-neutral-100"
-          />
         </div>
       </div>
 

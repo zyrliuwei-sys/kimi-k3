@@ -52,6 +52,15 @@ export async function createTask(params: {
       status: AITaskStatus.PENDING,
       costCredits: costCredits || 0,
     };
+    // Persist the per-task option blob (duration / quality / aspectRatio
+    // for video; seed / aspect for image). Read back later so surfaces
+    // like My Videos can label each tile with the duration it was
+    // generated at. Serialized as JSON to match the existing column
+    // contract (options: text) — callers can pass plain objects.
+    if (options !== undefined && options !== null) {
+      taskData.options =
+        typeof options === 'string' ? options : JSON.stringify(options);
+    }
 
     const [task] = await tx.insert(aiTask).values(taskData).returning();
 

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-label="Kimi">
+  <defs>
+    <linearGradient id="kimi-grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#A78BFA" />
+      <stop offset="50%" stop-color="#5B21B6" />
+      <stop offset="100%" stop-color="#1E1B4B" />
+    </linearGradient>
+    <filter id="kimi-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.7" flood-color="#0F0C2E" flood-opacity="0.4" />
+    </filter>
+  </defs>
+  <path
+    fill="url(#kimi-grad)"
+    filter="url(#kimi-ds)"
+    fill-rule="evenodd"
+    clip-rule="evenodd"
+    d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79 Z"
+  />
+</svg>

@@ -2290,49 +2290,13 @@ export function ChatPlayground() {
  * is a per-tile hover scrim (`bg-black/0 → bg-black/20`, 300ms) with a
  * centered action icon.
  *
- * Source: 46 images downloaded to `/public/gallery/` (served same-origin
- * to sidestep the page's CSP `img-src` allowlist):
- *   - `poll-*.jpg` — real AI-generated images from Pollinations (flux
- *     model), each prompted for an abstract / glowing / luminous look
- *     (iridescent swirls, plasma orbs, gradient meshes, neon wisps,
- *     bokeh, vaporwave chrome, kaleidoscope, volumetric smoke, …).
- *   - `u-*.jpg` — abstract / gradient / liquid photos from Unsplash to
- *     fill out the wall with photographic texture between the AI tiles.
+ * Source: 52 community images downloaded to `/public/image/` (served
+ * same-origin to sidestep the page's CSP `img-src` allowlist). Each
+ * source file is rendered exactly once, so no scene repeats in the wall.
  *
  * Each tile is assigned one of the reference's aspect ratios (2:3 dominates,
  * then 9:16 / 3:2 / 16:9 / 4:5 / 1:1) so the packed rhythm matches.
  */
-const POLL_PROMPTS = [
-  'iridescent swirls',
-  'plasma orb',
-  'gradient mesh',
-  'light particles',
-  'liquid metal',
-  'neon wisps',
-  'aurora swirl',
-  'chrome reflection',
-  'light painting',
-  'kaleidoscope',
-  'volumetric smoke',
-  'bokeh sphere',
-  'soft glow orbs',
-  'energy field',
-  'neon particle',
-  'pastel cloud',
-  'crystal facets',
-  'light streaks',
-  'holographic foil',
-  'golden bokeh',
-  'plasma tendrils',
-  'watercolor splash',
-  'neon glass',
-  'light rays fog',
-  'mint gradient',
-  'metallic texture',
-  'particle dust',
-  'aurora sky',
-  'silk fabric',
-];
 
 type Tile = { src: string; ratio: number; alt: string };
 
@@ -2360,44 +2324,88 @@ const TILE_RATIOS = [
   3 / 2,
 ];
 
-// Catalog enumerated by the file ranges we know we downloaded. Gaps
-// in the actual file set (a poll that 404'd) are caught by the img
-// `onError` handler below — the broken <img> hides itself instead of
-// leaving a hollow tile.
-const GALLERY_ITEMS: Tile[] = (() => {
-  const items: Tile[] = [];
-  for (let i = 0; i < POLL_PROMPTS.length; i++) {
-    items.push({
-      src: `/gallery/poll-${String(i).padStart(2, '0')}.jpg`,
-      ratio: 0,
-      alt: POLL_PROMPTS[i],
-    });
-  }
-  // Explicit list — the u-* range has gaps (24, 25, 30-34 were never
-  // downloaded), and in a packed masonry a missing tile leaves a hole
-  // rather than just a blank image.
-  for (const i of [
-    12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 26, 27, 28, 29, 35,
-  ]) {
-    items.push({
-      src: `/gallery/u-${String(i).padStart(2, '0')}.jpg`,
-      ratio: 0,
-      alt: 'abstract',
-    });
-  }
-  // Interleave poll/unsplash so AI tiles and photo tiles alternate, then
-  // stamp the ratio cycle on the interleaved order.
-  const half = Math.ceil(items.length / 2);
-  const mixed: Tile[] = [];
-  for (let i = 0; i < half; i++) {
-    if (items[i]) mixed.push(items[i]);
-    if (items[half + i]) mixed.push(items[half + i]);
-  }
-  return mixed.map((t, i) => ({
-    ...t,
-    ratio: TILE_RATIOS[i % TILE_RATIOS.length],
-  }));
-})();
+// Catalog of community images served from `/public/image/`. Every entry
+// points at a real file on disk; the img `onError` handler below
+// hides tiles that 404 so a missing file leaves no hollow cell.
+const MEIGEN_IMAGE_FILES = [
+  'meigen-2015866705197580703.jpg',
+  'meigen-2032013831548125557.jpg',
+  'meigen-2036806218988315056-1.jpg',
+  'meigen-2049059204632080436-1.jpg',
+  'meigen-2052074741050008057.jpg',
+  'meigen-2054127368365908220-1.jpg',
+  'meigen-2063092464592863250-1.jpg',
+  'meigen-2067745145655804012.jpg',
+  'meigen-2070794675179405365.jpg',
+  'meigen-2074182489141293070-1.jpg',
+  'meigen-2080212481402896518-1.jpg',
+  'meigen-2082385036268229117-1.jpg',
+  'meigen-community_298030b1-c8c1-4436-b88f-5ae556af9c6a.png',
+  'meigen-community_3b7948d3-2ddf-4d48-827a-45950c8b690a.jpg',
+  'meigen-community_5f68dfb7-b6d5-4734-b887-f5fed7c9d1af.jpg',
+  'xinjia/meigen-2019001339985133694.jpg',
+  'xinjia/meigen-2024104039827578910-1.jpg',
+  'xinjia/meigen-2032542713170838002-1.jpg',
+  'xinjia/meigen-2060729668958097717-1.jpg',
+  'xinjia/meigen-2069018297228575178-2.jpg',
+  'xinjia/meigen-2069018297228575178-3.jpg',
+  'xinjia/meigen-community_093ff2f3-b586-4e7f-a23c-63408a76158e.png',
+  'xinjia/meigen-community_127719af-811c-4e1c-81cb-a26aeba3a263.png',
+  'xinjia/meigen-community_37f3ab08-800a-456b-b8bb-ff26724222ea.png',
+  'xinjia/meigen-community_4461cb95-6748-4232-99cc-3d23b67c0b63.png',
+  'xinjia/meigen-community_892129d5-dae0-4764-b03c-6a11e2e12b26.png',
+  'xinjia/meigen-community_a2cca04e-085b-444c-95bb-6d6e2ab3b9aa.png',
+  'xinjia/meigen-community_b827f6c2-5165-428e-9992-61f1de9e8ae3.png',
+  'xinjia/meigen-community_c18ad1be-f6fb-4e2b-970d-932dff8832b9.png',
+  'xinjia/meigen-community_dff3afb9-3e67-4f21-a382-786bc9b8c466.png',
+  'xinjia/meigen-community_e690fd0d-4ea6-488f-8592-c2dd0ac92c7e.png',
+  'xinjia/meigen-community_fb7a6b33-4d3a-459f-87e5-c67f611dd9a2.png',
+  // ── zaixinjia batch (20 files, added 2026-08-01) ───────────────────
+  'zaixinjia/meigen-2006643289185989070-1.jpg',
+  'zaixinjia/meigen-2006643289185989070-4.jpg',
+  'zaixinjia/meigen-2008986705962123774-1.jpg',
+  'zaixinjia/meigen-2010381897730339152-1.jpg',
+  'zaixinjia/meigen-2024707382727889320-1.jpg',
+  'zaixinjia/meigen-2041163046874382357-1.jpg',
+  'zaixinjia/meigen-2048598185841734064.jpg',
+  'zaixinjia/meigen-2050472802327900342.jpg',
+  'zaixinjia/meigen-2050954496474570805.jpg',
+  'zaixinjia/meigen-2061832450842726614.jpg',
+  'zaixinjia/meigen-2066386292217467241-1.jpg',
+  'zaixinjia/meigen-2082480882695491628-1.jpg',
+  'zaixinjia/meigen-community_0013511a-1eeb-4279-8490-eb0195f9a4df.png',
+  'zaixinjia/meigen-community_0ed9e02e-7ad6-4b72-b2eb-2aef0a175cec.png',
+  'zaixinjia/meigen-community_15849a4b-8001-4c6b-aac2-ceea6b9ff18a.png',
+  'zaixinjia/meigen-community_24b38e2e-777e-4949-aa12-1747132346db.png',
+  'zaixinjia/meigen-community_32dd8162-6fc0-4124-ba7d-887bfdda6d72.png',
+  'zaixinjia/meigen-community_3bab0153-80b1-425a-abfb-96d239fb43cf.png',
+  'zaixinjia/meigen-community_9786c744-2f71-4f16-abeb-fc5aa1cf7d6b.png',
+  'zaixinjia/meigen-community_db1519d0-055f-4c18-b4e6-6d62bfba1e7f.png',
+  // ── zaizaijia batch (15 files, added 2026-08-01) ───────────────────
+  'zaizaijia/meigen-2010358364048597154.jpg',
+  'zaizaijia/meigen-2019629174374429017-1.jpg',
+  'zaizaijia/meigen-2020531946108158457-1.jpg',
+  'zaizaijia/meigen-2049363203998818532.jpg',
+  'zaizaijia/meigen-2064946524031988094.jpg',
+  'zaizaijia/meigen-2075143065493229752-2.jpg',
+  'zaizaijia/meigen-2075575662316749255-1.jpg',
+  'zaizaijia/meigen-2075575662316749255-2.jpg',
+  'zaizaijia/meigen-2079908139281809722.jpg',
+  'zaizaijia/meigen-2080143259557581285-1.jpg',
+  'zaizaijia/meigen-community_00e1b966-c37c-47ed-99f3-fd891271b517.png',
+  'zaizaijia/meigen-community_3e031315-9073-47f3-bf6a-93c32cf50da9.png',
+  'zaizaijia/meigen-community_5fe15de6-ea3c-4bd4-88db-0db201a8b7b4.png',
+  'zaizaijia/meigen-community_6f65fc5d-7d3a-48d6-908c-2bf947fd1c23.png',
+  'zaizaijia/meigen-community_85e0a391-9f8c-4860-9fac-c5446dc2d39c.png',
+];
+
+// Render every community image exactly once. The deterministic source order
+// keeps SSR and CSR output identical without duplicating any scene.
+const GALLERY_ITEMS: Tile[] = MEIGEN_IMAGE_FILES.map((fileName, i) => ({
+  src: `/image/${fileName}`,
+  ratio: TILE_RATIOS[i % TILE_RATIOS.length],
+  alt: 'community image',
+}));
 
 /**
  * Pure-video catalog for the video-page background wall. Videos the user
@@ -2674,8 +2682,8 @@ function GalleryWall({ items = GALLERY_ITEMS }: { items?: Tile[] } = {}) {
  * here. Unknown ids fall back to the raw id so newly-added models still
  * appear.
  *
- * Match keys are lowercased substrings, so the same row covers `seedream-5.0`
- * and `doubao-seedream-5.0-pro` without duplicating entries.
+ * Match keys are lowercased substrings — a single row can cover multiple
+ * upstream aliases (e.g. `seedream-5.0` and `doubao-seedream-5.0-pro`).
  */
 type ImageModelBadge = 'Pro' | 'Lite' | 'New';
 
@@ -2760,12 +2768,7 @@ const VENDOR_THEME: Record<ImageVendor, VendorTheme> = {
  * with the gateway's actual `models[]` and start sending `body.model`
  * again.
  */
-const COSMETIC_IMAGE_MODELS = [
-  'gpt-image-2',
-  'nano-banana-2',
-  'seedream-5.0-pro',
-  'wan-image',
-];
+const COSMETIC_IMAGE_MODELS = ['gpt-image-2'];
 
 const IMAGE_MODEL_META: ImageModelMeta[] = [
   // ── OpenAI (GPT image) ─────────────────────────────────────────────────
@@ -2773,45 +2776,10 @@ const IMAGE_MODEL_META: ImageModelMeta[] = [
     test: /gpt-image-2/,
     name: 'GPT Image 2',
     icon: Crown,
-    logo: '/brand/openai.svg',
+    logo: '/brand/openai.png',
     vendor: 'OpenAI',
     badge: 'Pro',
     desc: 'OpenAI flagship, instruction-tuned',
-    weight: 0,
-  },
-
-  // ── Google (Nano Banana) ──────────────────────────────────────────────
-  {
-    test: /nano-banana/,
-    name: 'Nano Banana 2',
-    icon: BananaIcon,
-    logo: '/brand/google.svg',
-    vendor: 'Google',
-    badge: 'New',
-    desc: "Google's latest fast image model",
-    weight: 0,
-  },
-
-  // ── ByteDance (Seedream) ───────────────────────────────────────────────
-  {
-    test: /seedream-5/i,
-    name: 'Seedream 5.0 Pro',
-    icon: Crown,
-    logo: '/brand/bytedance.svg',
-    vendor: 'ByteDance',
-    badge: 'Pro',
-    desc: 'Top-tier detail, photoreal portraits',
-    weight: 0,
-  },
-
-  // ── Alibaba (Wan) ────────────────────────────────────────────────────
-  {
-    test: /wan-image/,
-    name: 'Wan Image',
-    icon: ImageIcon,
-    logo: '/brand/alibabacloud.svg',
-    vendor: 'Alibaba',
-    desc: 'Alibaba open-weights image generation',
     weight: 0,
   },
 ];
@@ -3110,8 +3078,6 @@ function ImageModelMenu({
   // Trigger label — show the selected model's display name + brand logo
   // (not raw id) so the chrome reads as a brand pick.
   const selectedMeta = resolveImageModelMeta(selected);
-  const SelectedIcon = selectedMeta.icon;
-
   return (
     <Popover
       open={open}
@@ -3121,32 +3087,19 @@ function ImageModelMenu({
       }}
     >
       {/*
-        Trigger mirrors the chat model picker: muted surface background
-        so it sits in the toolbar without competing with the submit
-        button, brand logo on the left so the active model still reads
-        at a glance, and a generous gap (pl-2.5 + gap-3) so the logo
-        has room to breathe.
+        Trigger: pill on a muted surface so it sits in the toolbar
+        without competing with the submit button. No leading logo — the
+        row layout for chat/video/image pickers is logo-free.
       */}
       <PopoverTrigger
         className={cn(
-          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-2.5',
+          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-3',
           'bg-foreground/[0.06] text-foreground/80 border-foreground/10 border',
           'hover:bg-foreground/[0.09] hover:text-foreground transition-colors',
           open && 'bg-foreground/[0.09] text-foreground'
         )}
         aria-label={m['playground.image.model_label']()}
       >
-        {selectedMeta.logo ? (
-          <img
-            src={selectedMeta.logo}
-            alt=""
-            aria-hidden
-            className="size-6 shrink-0 object-contain"
-            draggable={false}
-          />
-        ) : (
-          <SelectedIcon className="text-foreground/55 size-4" strokeWidth={2} />
-        )}
         <span className="text-sm font-medium tracking-tight">
           {selectedMeta.name}
         </span>
@@ -3192,7 +3145,6 @@ function ImageModelMenu({
                   <div className="space-y-0.5">
                     {list.map((r) => {
                       const active = r.id === selected;
-                      const Icon = r.icon;
                       return (
                         <button
                           key={r.id}
@@ -3210,29 +3162,11 @@ function ImageModelMenu({
                           {active ? (
                             <span className="brand-gradient absolute inset-y-2 left-0 w-0.5 rounded-full" />
                           ) : null}
-                          {r.logo ? (
-                            // Brand logo mode — drop the vendor-coloured
-                            // chip and let the SVG mark carry the colour.
-                            // Matches the video / chat picker pattern.
-                            <div className="flex size-10 shrink-0 items-center justify-center">
-                              <img
-                                src={r.logo}
-                                alt=""
-                                aria-hidden
-                                className="size-8 object-contain drop-shadow-sm"
-                                draggable={false}
-                              />
-                            </div>
-                          ) : (
-                            <div
-                              className={cn(
-                                'flex size-10 shrink-0 items-center justify-center rounded-xl text-white shadow-xs',
-                                theme.chip
-                              )}
-                            >
-                              <Icon className="size-4" />
-                            </div>
-                          )}
+                          {/*
+                            No leading avatar — logo is intentionally
+                            omitted across all three pickers; the row
+                            reads as plain name + desc + check.
+                          */}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               <span
@@ -3368,7 +3302,7 @@ const VIDEO_MODEL_META: VideoModelMeta[] = [
   {
     test: /sora-2|sora/i,
     name: 'Sora 2',
-    logo: '/brand/openai.svg',
+    logo: '/brand/openai.png',
     vendor: 'OpenAI',
     badge: 'Pro',
     desc: 'OpenAI flagship video, longest duration',
@@ -3449,20 +3383,13 @@ function VideoModelPicker({
     >
       <PopoverTrigger
         className={cn(
-          'inline-flex items-center gap-2 rounded-full py-1.5 pr-3 pl-1.5',
+          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-3',
           'bg-foreground/[0.06] text-foreground/80 border-foreground/10 border',
           'hover:bg-foreground/[0.09] hover:text-foreground transition-colors',
           open && 'bg-foreground/[0.09] text-foreground'
         )}
         aria-label={m['playground.video.model_label']()}
       >
-        <img
-          src={selectedMeta.logo}
-          alt=""
-          aria-hidden
-          className="size-6 shrink-0 object-contain"
-          draggable={false}
-        />
         <span className="text-sm font-medium tracking-tight">
           {selectedMeta.name}
         </span>
@@ -3524,15 +3451,11 @@ function VideoModelPicker({
                           {active ? (
                             <span className="brand-gradient absolute inset-y-2 left-0 w-0.5 rounded-full" />
                           ) : null}
-                          <div className="flex size-10 shrink-0 items-center justify-center">
-                            <img
-                              src={r.logo}
-                              alt=""
-                              aria-hidden
-                              className="size-8 object-contain drop-shadow-sm"
-                              draggable={false}
-                            />
-                          </div>
+                          {/*
+                            No leading avatar — logo intentionally omitted
+                            across all three pickers; row reads as plain
+                            name + desc + check.
+                          */}
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-1.5">
                               <span
@@ -3601,26 +3524,19 @@ interface ChatModelMeta {
   weight?: number;
 }
 
-type ChatVendor = 'Kimi' | 'Anthropic' | 'OpenAI' | 'Google';
+type ChatVendor = 'Kimi';
 
 interface ChatVendorTheme {
   label: string;
 }
 
 const CHAT_VENDOR_THEME: Record<ChatVendor, ChatVendorTheme> = {
-  // Each model now ships with its own brand-coloured logo in
-  // /public/brand/, so the vendor theming is just the section header
-  // text in the dropdown.
+  // Only Kimi is wired up on this deployment. Section header keeps the
+  // vendor label for parity with the image/video pickers.
   Kimi: { label: 'Kimi' },
-  Anthropic: { label: 'Anthropic' },
-  OpenAI: { label: 'OpenAI' },
-  Google: { label: 'Google' },
 };
 
 const CHAT_MODEL_META: ChatModelMeta[] = [
-  // Curated mainstream lineup — four flagship models, four vendors,
-  // four recognisable brand marks. Easy to scan, nothing to scroll.
-  //
   // ── Kimi (powers this chat) ────────────────────────────────────────────
   {
     test: /^kimi-k3/i,
@@ -3628,36 +3544,6 @@ const CHAT_MODEL_META: ChatModelMeta[] = [
     logo: '/brand/kimi.svg',
     vendor: 'Kimi',
     desc: 'Powers this chat — long context, fast',
-    weight: 0,
-  },
-
-  // ── OpenAI ────────────────────────────────────────────────────────────
-  {
-    test: /^gpt-5\.6/i,
-    name: 'GPT-5.6',
-    logo: '/brand/openai.svg',
-    vendor: 'OpenAI',
-    desc: 'OpenAI flagship, multimodal',
-    weight: 0,
-  },
-
-  // ── Anthropic ─────────────────────────────────────────────────────────
-  {
-    test: /claude-opus-4\.8/i,
-    name: 'Claude Opus 4.8',
-    logo: '/brand/anthropic.svg',
-    vendor: 'Anthropic',
-    desc: 'Anthropic top-tier — deepest reasoning',
-    weight: 0,
-  },
-
-  // ── Google ────────────────────────────────────────────────────────────
-  {
-    test: /gemini-3\.6-flash/i,
-    name: 'Gemini 3.6 Flash',
-    logo: '/brand/gemini.svg',
-    vendor: 'Google',
-    desc: 'Google — fast, 1M context, native tools',
     weight: 0,
   },
 ];
@@ -3743,20 +3629,13 @@ function ChatModelPicker({
     >
       <PopoverTrigger
         className={cn(
-          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-2.5',
+          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-3',
           'bg-foreground/[0.06] text-foreground/80 border-foreground/10 border',
           'hover:bg-foreground/[0.09] hover:text-foreground transition-colors',
           open && 'bg-foreground/[0.09] text-foreground'
         )}
         aria-label={m['playground.chat.model_label']()}
       >
-        <img
-          src={selectedMeta.logo}
-          alt=""
-          aria-hidden
-          className="size-6 shrink-0 object-contain"
-          draggable={false}
-        />
         <span className="text-sm font-medium tracking-tight">
           {selectedMeta.name}
         </span>
@@ -3818,15 +3697,11 @@ function ChatModelPicker({
                           {active ? (
                             <span className="brand-gradient absolute inset-y-2 left-0 w-0.5 rounded-full" />
                           ) : null}
-                          <div className="flex size-10 shrink-0 items-center justify-center">
-                            <img
-                              src={r.logo}
-                              alt=""
-                              aria-hidden
-                              className="size-8 object-contain drop-shadow-sm"
-                              draggable={false}
-                            />
-                          </div>
+                          {/*
+                            No leading avatar — logo intentionally omitted
+                            across all three pickers; row reads as plain
+                            name + desc + check.
+                          */}
                           <div className="min-w-0 flex-1">
                             <span
                               className={cn(
@@ -3977,65 +3852,144 @@ function MyImageRows({
     return null;
   }
 
-  return (
-    <div className="flex flex-col items-start gap-3">
-      {visibleRows.map((r) => {
-        const urls = r.imageUrls ?? (r.thumbnailUrl ? [r.thumbnailUrl] : []);
-        const count = urls.length;
-        // In-flight batch (status='processing' with no URLs yet) keeps
-        // a single spinner tile inside the row so the latest submit is
-        // visible at the bottom of the list. Once the polling refetch
-        // brings the real images, the row swaps to the loaded tiles.
-        const isInFlight =
-          (r.status === 'processing' || r.status === 'pending') && count === 0;
-        // Highlight only the just-landed batch — the effect flips back
-        // to false ~2s after the submit settles.
-        const highlight = r.id === highlightId;
+  // Group rows by the user's local calendar day so the day header only
+  // appears once at the top of that day's cluster. Rows already arrive
+  // newest-first (the call site reverses the server list), so the day
+  // headers stack top-down in reverse-chronological order. We key on
+  // `YYYY-MM-DD` in local time — UTC would group late-evening posts
+  // into the "next day" and confuse the user.
+  const isZh = getLocale() === 'zh';
+  const dayKey = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+  };
+  const dayLabel = (iso: string) => {
+    const d = new Date(iso);
+    if (isZh) {
+      return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+    }
+    // 'en-US' is close enough to the English "Aug 1, 2026" shape; we
+    // intentionally avoid 'en-GB' ("1 Aug 2026") to match the locale-
+    // neutral tone of the rest of the playground.
+    return d.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+  const todayKey = dayKey(new Date().toISOString());
+  const yesterdayKey = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return dayKey(d.toISOString());
+  })();
+  // Group by day in render order so adjacent rows that share a day stay
+  // together; preserves the caller-supplied ordering (newest-first).
+  const groups: Array<{ key: string; label: string; rows: ImageTaskRow[] }> =
+    [];
+  for (const r of visibleRows) {
+    const key = dayKey(r.createdAt);
+    if (groups.length && groups[groups.length - 1].key === key) {
+      groups[groups.length - 1].rows.push(r);
+    } else {
+      const relative = isZh
+        ? key === todayKey
+          ? '今天'
+          : key === yesterdayKey
+            ? '昨天'
+            : null
+        : key === todayKey
+          ? 'Today'
+          : key === yesterdayKey
+            ? 'Yesterday'
+            : null;
+      groups.push({
+        key,
+        label: relative
+          ? `${relative} · ${dayLabel(r.createdAt)}`
+          : dayLabel(r.createdAt),
+        rows: [r],
+      });
+    }
+  }
 
-        return (
-          <div key={r.id} className="flex flex-col items-start gap-1.5">
-            {/* Per-batch prompt header — sits above the image card so
-                the user can see what produced each submission without
-                hovering. Trims to 2 lines so a chat-log-style prompt
-                doesn't blow up the row height. */}
-            <p className="text-muted-foreground line-clamp-2 max-w-md px-1 text-xs">
-              <span className="text-foreground/70 mr-1 font-medium">
-                {m['playground.image.batch_prompt_label']()}
-              </span>
-              {r.prompt?.trim() || '—'}
-            </p>
-            <div
-              data-task-id={r.id}
-              className={cn(
-                'border-border bg-card/40 rounded-2xl border p-2',
-                highlight &&
-                  'ring-foreground ring-offset-background ring-4 ring-offset-2'
-              )}
-            >
-              <div className="flex flex-wrap items-start gap-2">
-                {isInFlight ? (
-                  <ProcessingTile
-                    prompt={r.prompt || 'Generating…'}
-                    highlight={false}
-                    taskId={r.id}
-                  />
-                ) : (
-                  urls.map((url, i) => (
-                    <MyImageTile
-                      key={`${r.id}-${i}`}
-                      url={url}
-                      prompt={r.prompt || 'Generated image'}
-                      onSelect={() => onSelect(r.id)}
-                      highlight={highlight && i === 0}
-                      taskId={`${r.id}-${i}`}
-                    />
-                  ))
-                )}
+  return (
+    <div className="flex flex-col items-start gap-5">
+      {groups.map((group) => (
+        <div key={group.key} className="flex w-full flex-col items-start gap-3">
+          {/* Day header — appears once per calendar day at the top of
+              that day's cluster. Today's / Yesterday's gets a relative
+              label so a fresh wall of images still reads as "today". */}
+          <h3 className="text-foreground/80 px-1 text-xs font-semibold tracking-[0.06em] uppercase">
+            {group.label}
+          </h3>
+          {group.rows.map((r) => {
+            const urls =
+              r.imageUrls ?? (r.thumbnailUrl ? [r.thumbnailUrl] : []);
+            const count = urls.length;
+            // In-flight batch (status='processing' with no URLs yet) keeps
+            // a single spinner tile inside the row so the latest submit is
+            // visible at the bottom of the list. Once the polling refetch
+            // brings the real images, the row swaps to the loaded tiles.
+            const isInFlight =
+              (r.status === 'processing' || r.status === 'pending') &&
+              count === 0;
+            // Highlight only the just-landed batch — the effect flips back
+            // to false ~2s after the submit settles.
+            const highlight = r.id === highlightId;
+
+            return (
+              <div
+                key={r.id}
+                className="flex w-full flex-col items-start gap-1.5"
+              >
+                {/* Per-batch prompt header — sits above the image card so
+                    the user can see what produced each submission without
+                    hovering. Trims to 2 lines so a chat-log-style prompt
+                    doesn't blow up the row height. */}
+                <p className="text-muted-foreground line-clamp-2 max-w-md px-1 text-xs">
+                  <span className="text-foreground/70 mr-1 font-medium">
+                    {m['playground.image.batch_prompt_label']()}
+                  </span>
+                  {r.prompt?.trim() || '—'}
+                </p>
+                <div
+                  data-task-id={r.id}
+                  className={cn(
+                    // Image batch wrapper — no border / rounding / card
+                    // background so the tiles sit flush, matching the
+                    // packed-masonry convention used by the Community wall.
+                    'bg-card/40 w-full p-2',
+                    highlight &&
+                      'ring-foreground ring-offset-background ring-4 ring-offset-2'
+                  )}
+                >
+                  <div className="flex flex-wrap items-start gap-2">
+                    {isInFlight ? (
+                      <ProcessingTile
+                        prompt={r.prompt || 'Generating…'}
+                        highlight={false}
+                        taskId={r.id}
+                      />
+                    ) : (
+                      urls.map((url, i) => (
+                        <MyImageTile
+                          key={`${r.id}-${i}`}
+                          url={url}
+                          prompt={r.prompt || 'Generated image'}
+                          onSelect={() => onSelect(r.id)}
+                          highlight={highlight && i === 0}
+                          taskId={`${r.id}-${i}`}
+                        />
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        );
-      })}
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }
@@ -4063,8 +4017,8 @@ function ProcessingTile({
       className={cn(
         // Match MyImageTile's compact width so the spinner aligns with
         // the loaded tiles in the same row — not a giant placeholder
-        // stretching across the whole card.
-        'bg-foreground/5 relative aspect-square w-36 shrink-0 overflow-hidden rounded-xl',
+        // stretching across the whole card. No border / rounded corners.
+        'bg-foreground/5 relative aspect-square w-36 shrink-0 overflow-hidden',
         highlight &&
           'ring-foreground ring-offset-background ring-4 ring-offset-2'
       )}
@@ -4112,6 +4066,22 @@ function MyImageTile({
   // the ratio the user picked. Default to 1:1 while the image loads to
   // keep the grid from jumping, then re-flow to the real ratio on load.
   const [ratio, setRatio] = useState(1);
+  // Track whether the image is fully painted so the loading overlay
+  // (spinner + progress bar) can stay visible all the way from submit
+  // click through the in-flight spinner swap, through the polling
+  // resolution, through the <img> byte download, and only then fade
+  // out. Without this, the overlay would vanish the moment the URL
+  // arrived, leaving a gap before the bytes actually painted.
+  const [isLoaded, setIsLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  // If the image is already cached (browsers can resolve it
+  // synchronously from the HTTP cache), `onLoad` may have already fired
+  // before this effect ran — `imgRef.current.complete` is the only
+  // reliable way to know. Without this, a cached image would show the
+  // loading overlay forever.
+  useEffect(() => {
+    if (imgRef.current?.complete) setIsLoaded(true);
+  }, [url]);
   return (
     <button
       type="button"
@@ -4121,8 +4091,9 @@ function MyImageTile({
       className={cn(
         // Compact, fixed-width tile (instead of `w-full` stretching to
         // fill the grid cell) so My Image rows read as tidy little
-        // cards rather than a max-width mosaic.
-        'group bg-foreground/5 hover:ring-foreground/30 relative w-36 shrink-0 overflow-hidden rounded-xl hover:ring-2',
+        // tiles rather than a max-width mosaic. No border / rounded
+        // corners — matches the Community wall convention.
+        'group bg-foreground/5 hover:ring-foreground/30 relative w-36 shrink-0 overflow-hidden hover:ring-2',
         // Pulse ring on the tile that just landed (sync submit or
         // polling resolution). Fades out via the parent state — the
         // class is removed when `highlight` flips back to false.
@@ -4131,6 +4102,7 @@ function MyImageTile({
       )}
     >
       <img
+        ref={imgRef}
         src={url}
         alt={prompt}
         loading="lazy"
@@ -4140,12 +4112,53 @@ function MyImageTile({
           if (img.naturalWidth && img.naturalHeight) {
             setRatio(img.naturalWidth / img.naturalHeight);
           }
+          setIsLoaded(true);
         }}
         onError={(e) => {
           e.currentTarget.style.display = 'none';
+          // Treat errors as "loaded" too — otherwise the spinner would
+          // sit on top of a hidden <img> forever and the user would
+          // never know the tile failed.
+          setIsLoaded(true);
         }}
-        className="absolute inset-0 size-full object-cover"
+        className={cn(
+          'absolute inset-0 size-full object-cover transition-opacity duration-300',
+          isLoaded ? 'opacity-100' : 'opacity-0'
+        )}
       />
+      {/*
+        Loading overlay — covers the tile until the underlying <img>
+        paints its first frame. Reuses the same `[data-progress-bar]`
+        keyframe as the in-flight ProcessingTile and the composer-top
+        progress bar, so the entire generation→load lifecycle reads as
+        one continuous "we're showing you your image" animation. The
+        `z-10` keeps the overlay above the (opacity-0) img; once the
+        image paints we let the overlay fade and the img fade in,
+        giving a smooth crossfade instead of a pop.
+      */}
+      {!isLoaded ? (
+        <div
+          className="bg-foreground/5 absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 p-3"
+          aria-label="Loading image"
+        >
+          <div
+            className="absolute inset-0 opacity-60"
+            style={{
+              backgroundImage:
+                'linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.18) 50%, transparent 70%)',
+              backgroundSize: '200% 100%',
+              animation: 'playground-shimmer 1.6s linear infinite',
+            }}
+          />
+          <Loader2 className="text-muted-foreground relative size-5 animate-spin" />
+          <p className="text-muted-foreground relative line-clamp-2 text-center text-xs">
+            {prompt}
+          </p>
+          <div className="bg-foreground/10 absolute inset-x-0 bottom-0 h-1 overflow-hidden">
+            <div data-progress-bar className="brand-gradient h-full" />
+          </div>
+        </div>
+      ) : null}
       {/* Hover overlay — magnifier + prompt preview. Kept
           subtle so the grid still reads as a grid at rest. */}
       <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100">
@@ -4254,9 +4267,9 @@ export function ImagePlayground() {
   //
   // Capped at 120 attempts. Worst-case wall time:
   //   12 × 500ms + 20 × 1000ms + 30 × 2000ms + 58 × 3000ms
-  // ≈ ~5.5 min — covers even a worst-case Nano Banana 2 (est. 45s) with
-  // 30s headroom. The My Images tab keeps the task visible if it does
-  // time out, so the user can re-open it later.
+  // ≈ ~5.5 min — covers worst-case generation with 30s headroom. The My
+  // Images tab keeps the task visible if it does time out, so the user
+  // can re-open it later.
   useEffect(() => {
     if (!pollingTaskId) return;
     let cancelled = false;
@@ -4790,7 +4803,12 @@ export function ImagePlayground() {
             // clicks a thumbnail. The image paints from the cached
             // `previewRow.thumbnailUrl` instantly; the full task
             // upgrades the prompt / model / download button.
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-6">
+            //
+            // The top prompt-summary badge was removed — only the
+            // bottom PROMPT block survives, with extra vertical room
+            // between the image and the meta panel so the preview
+            // breathes instead of feeling cramped.
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-6">
               <section>
                 <header className="mb-3 flex items-center justify-between">
                   <button
@@ -4801,21 +4819,11 @@ export function ImagePlayground() {
                     ← {m['playground.image.back_to_grid']()}
                   </button>
                 </header>
-                {/* Media-type badge above the preview. Shows a picture-
-                    frame icon + the image's prompt (its "content") so
-                    the user can tell at a glance what they're looking
-                    at without having to scroll down to the prompt
-                    block. Falls back to a generic label when the
-                    task hasn't loaded its prompt yet. */}
-                <div className="mb-3 flex items-center gap-2">
-                  <span className="bg-foreground/5 text-muted-foreground inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium">
-                    <ImageIcon className="size-3.5" />
-                    <span className="line-clamp-1 max-w-[calc(100vw-12rem)]">
-                      {(previewDetail?.prompt || previewRow?.prompt)?.trim() ||
-                        m['playground.image.preview_default_label']()}
-                    </span>
-                  </span>
-                </div>
+                {/*
+                  Image card — just the picture now. Border and rounded
+                  edges still in place here since this is the focal
+                  preview surface, not the packed masonry.
+                */}
                 <div className="border-border bg-card/40 overflow-hidden rounded-2xl border">
                   <div className="bg-foreground/5 flex max-h-[70vh] min-h-[18rem] items-center justify-center overflow-hidden">
                     {previewUrl ? (
@@ -4836,48 +4844,52 @@ export function ImagePlayground() {
                       </div>
                     )}
                   </div>
-                  <div className="px-4 py-3">
-                    {previewDetail?.prompt || previewRow?.prompt ? (
-                      <div>
-                        <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">
-                          {m['playground.image.preview_prompt_label']()}
-                        </p>
-                        <p className="text-foreground mt-1.5 line-clamp-4 text-sm leading-relaxed">
-                          {previewDetail?.prompt || previewRow?.prompt}
-                        </p>
-                      </div>
-                    ) : null}
-                    <div className="mt-3 flex items-center justify-between gap-3">
-                      <div className="text-muted-foreground truncate text-xs">
-                        {previewDetail?.model || previewRow?.model ? (
-                          <span className="font-mono">
-                            {previewDetail?.model || previewRow?.model}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {previewUrl ? (
-                          <a
-                            href={previewUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
-                          >
-                            {m['playground.image.open_in_new_tab']()}
-                          </a>
-                        ) : null}
-                        {previewUrl ? (
-                          <button
-                            type="button"
-                            onClick={handleDownload}
-                            className={cn(
-                              buttonVariants({ size: 'sm', variant: 'outline' })
-                            )}
-                          >
-                            {m['playground.image.download']()}
-                          </button>
-                        ) : null}
-                      </div>
+                </div>
+                {/* Meta panel — moved OUTSIDE the image card so it
+                    sits below the picture with proper breathing room.
+                    Cleaner than hugging the card edge: the prompt and
+                    download row no longer fight the image border. */}
+                <div className="mt-10">
+                  {previewDetail?.prompt || previewRow?.prompt ? (
+                    <div>
+                      <p className="text-muted-foreground text-[11px] font-semibold tracking-[0.08em] uppercase">
+                        {m['playground.image.preview_prompt_label']()}
+                      </p>
+                      <p className="text-foreground mt-2 line-clamp-4 text-sm leading-relaxed">
+                        {previewDetail?.prompt || previewRow?.prompt}
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <div className="text-muted-foreground truncate text-xs">
+                      {previewDetail?.model || previewRow?.model ? (
+                        <span className="font-mono">
+                          {previewDetail?.model || previewRow?.model}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {previewUrl ? (
+                        <a
+                          href={previewUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
+                        >
+                          {m['playground.image.open_in_new_tab']()}
+                        </a>
+                      ) : null}
+                      {previewUrl ? (
+                        <button
+                          type="button"
+                          onClick={handleDownload}
+                          className={cn(
+                            buttonVariants({ size: 'sm', variant: 'outline' })
+                          )}
+                        >
+                          {m['playground.image.download']()}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 </div>

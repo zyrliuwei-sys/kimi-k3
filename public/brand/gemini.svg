@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-label="Google Gemini">
+  <defs>
+    <radialGradient id="gemini-grad" cx="0.32" cy="0.28" r="0.95">
+      <stop offset="0%" stop-color="#BFDBFE" />
+      <stop offset="30%" stop-color="#7C9CF7" />
+      <stop offset="60%" stop-color="#9B72CB" />
+      <stop offset="100%" stop-color="#C4495A" />
+    </radialGradient>
+    <filter id="gemini-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.7" flood-color="#1E1B4B" flood-opacity="0.3" />
+    </filter>
+  </defs>
+  <path
+    fill="url(#gemini-grad)"
+    filter="url(#gemini-ds)"
+    d="M12 2 C 12 7.5 16.5 12 22 12 C 16.5 12 12 16.5 12 22 C 12 16.5 7.5 12 2 12 C 7.5 12 12 7.5 12 2 Z"
+  />
+</svg>

@@ -13,8 +13,13 @@ export const DEFAULT_SEEDANCE_VIDEO_RATES: Record<
   '4k': 8,
 };
 
-export const DEFAULT_SEEDANCE_VIDEO_DURATION = 5;
-export const DEFAULT_SEEDANCE_VIDEO_QUALITY: SeedanceVideoQuality = '720p';
+export const DEFAULT_SEEDANCE_VIDEO_DURATION = 6;
+/** Hard ceiling the provider accepts; clamped by the submit handler so
+ *  the request never goes over the provider's actual max. Mirrored on
+ *  the client (VIDEO_DURATIONS) so the popover only lists values the
+ *  backend will accept. */
+export const MAX_SEEDANCE_VIDEO_DURATION = 15;
+export const DEFAULT_SEEDANCE_VIDEO_QUALITY: SeedanceVideoQuality = '480p';
 export const DEFAULT_SEEDANCE_VIDEO_ASPECT: SeedanceVideoAspectRatio = '16:9';
 export const DEFAULT_SEEDANCE_VIDEO_AUDIO = true;
 export const DEFAULT_SEEDANCE_VIDEO_MAX_CONCURRENT = 1;

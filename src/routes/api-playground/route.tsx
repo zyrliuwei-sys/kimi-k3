@@ -1,12 +1,5 @@
 import { createFileRoute, Outlet, useLocation } from '@tanstack/react-router';
-import {
-  Home,
-  Image,
-  MessageSquarePlus,
-  Search,
-  Video,
-  Wrench,
-} from 'lucide-react';
+import { Home, Image, MessageSquarePlus, Search, Wrench } from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
 import { usePlaygroundStore } from '@/lib/playground-store';
@@ -110,11 +103,11 @@ function PlaygroundLayout() {
           label: m['playground.nav.image'](),
           icon: Image,
         },
-        {
-          href: '/api-playground/video',
-          label: m['playground.nav.video'](),
-          icon: Video,
-        },
+        // {
+        //   href: '/api-playground/video',
+        //   label: m['playground.nav.video'](),
+        //   icon: Video,
+        // },
         // Search tab is parked for later development.
         // {
         //   href: '/api-playground/search',

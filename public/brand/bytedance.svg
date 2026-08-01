@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" aria-label="ByteDance">
+  <defs>
+    <linearGradient id="bytedance-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7AB8FF" />
+      <stop offset="50%" stop-color="#3C8CFF" />
+      <stop offset="100%" stop-color="#0F448F" />
+    </linearGradient>
+    <filter id="bytedance-ds" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="1" stdDeviation="0.7" flood-color="#091F44" flood-opacity="0.35" />
+    </filter>
+  </defs>
+  <g fill="url(#bytedance-grad)" filter="url(#bytedance-ds)">
+    <path d="M19.8772 1.4685L24 2.5326v18.9426l-4.1228 1.0563V1.4685z" />
+    <path d="M6.5288 10.8965l4.115 1.0641v8.9786l-4.115 1.0642v-11.107z" />
+    <path d="M0 2.572l4.115 1.0642v16.7354L0 21.428V2.572z" />
+    <path d="M17.4553 8.1925v11.107l-4.1228-1.0642V9.2568l4.1228-1.0642z" />
+  </g>
+</svg>

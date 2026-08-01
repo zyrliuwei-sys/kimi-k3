@@ -261,8 +261,8 @@ export const subscription = table(
     canceledEndAt: timestamp('canceled_end_at'),
     canceledReason: text('canceled_reason'),
     canceledReasonType: varchar('canceled_reason_type', { length: 50 }),
-    messagesQuota: integer('messages_quota').default(0),
-    messagesUsed: integer('messages_used').default(0),
+    messagesQuota: int('messages_quota').default(0),
+    messagesUsed: int('messages_used').default(0),
   },
   (table) => [
     index('idx_subscription_user_status_interval').on(
