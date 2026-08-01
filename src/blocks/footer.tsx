@@ -348,6 +348,19 @@ export function Footer() {
               />
             </a>
             <a
+              href="https://toolfame.com/item/kimik3"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/toolfame-badge.svg"
+                alt="Featured on toolfame.com"
+                width={160}
+                height={54}
+              />
+            </a>
+            <a
               href="https://twelve.tools"
               target="_blank"
               rel="noopener noreferrer"
