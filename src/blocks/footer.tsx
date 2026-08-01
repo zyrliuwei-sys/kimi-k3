@@ -374,6 +374,33 @@ export function Footer() {
               />
             </a>
             <a
+              href="https://findly.tools/kimik3?utm_source=kimik3"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/findly-tools-badge.svg"
+                alt="Featured on Findly.tools"
+                width={175}
+                height={55}
+              />
+            </a>
+            <a
+              href="https://firsto.co/projects/kimik3"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Featured on Firsto: kimik3"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/firsto-badge.svg"
+                alt="Featured on Firsto: kimik3"
+                width={111}
+                height={42}
+              />
+            </a>
+            <a
               href="https://twelve.tools"
               target="_blank"
               rel="noopener noreferrer"
