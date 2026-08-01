@@ -40,16 +40,20 @@ export function Showcase() {
         <div className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {CASES.map((c) => (
             <div key={c.img} className="text-left">
-              <div className="bg-card border-foreground/10 overflow-hidden rounded-2xl border">
-                <img
-                  src={c.img}
-                  alt={tDynamic(c.titleKey)}
-                  width={640}
-                  height={400}
-                  loading="lazy"
-                  className="aspect-[16/10] w-full object-cover"
-                />
-              </div>
+              {/*
+                Image renders edge-to-edge with no surrounding card — no
+                rounded corners, no thin border frame, no card fill. The
+                gallery wall convention: image is the surface, title +
+                caption sit directly underneath.
+              */}
+              <img
+                src={c.img}
+                alt={tDynamic(c.titleKey)}
+                width={640}
+                height={400}
+                loading="lazy"
+                className="aspect-[16/10] w-full object-cover"
+              />
               <h3 className="mt-3 text-[15px] font-semibold">
                 {tDynamic(c.titleKey)}
               </h3>

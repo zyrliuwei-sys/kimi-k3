@@ -73,26 +73,17 @@ export default defineConfig({
         // API endpoints are never locale-prefixed.
         {
           pattern: '/api/:path(.*)?',
-          localized: [
-            ['en', '/api/:path(.*)?'],
-            ['zh', '/api/:path(.*)?'],
-          ],
+          localized: [['en', '/api/:path(.*)?']],
         },
-        // Bare locale homes match without a trailing-slash redirect.
+        // Bare locale home matches without a trailing-slash redirect.
         {
           pattern: '/',
-          localized: [
-            ['zh', '/zh'],
-            ['en', '/'],
-          ],
+          localized: [['en', '/']],
         },
-        // "as-needed" prefix: zh under /zh, en (default) unprefixed.
+        // "as-needed" prefix: en (default) unprefixed.
         {
           pattern: '/:path(.*)?',
-          localized: [
-            ['zh', '/zh/:path(.*)?'],
-            ['en', '/:path(.*)?'],
-          ],
+          localized: [['en', '/:path(.*)?']],
         },
       ],
     }),
@@ -130,9 +121,16 @@ export default defineConfig({
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.youtube.com https://www.youtube-nocookie.com https://www.googletagmanager.com https://accounts.google.com https://static.cloudflareinsights.com https://challenges.cloudflare.com",
               // Media: blob: URLs are needed for the playground's local
               // attachment previews (object URLs for images/videos while the
-              // upload is in flight). Without an explicit allow, browsers
-              // fall back to default-src and block the preview.
-              "media-src 'self' blob:",
+              // upload is in flight). https://*.evolink.ai covers the
+              // generated media host (e.g. files.evolink.ai for video
+              // deliverables from Seedance / image generations). The R2
+              // public bucket hosts are listed because rehosted ai-tasks
+              // video URLs flow through *.r2.dev / *.r2.cloudflarestorage.com
+              // (the same-origin proxy at /api/ai-tasks/$id/file also works
+              // as a fallback). Without these explicit allows, the browser
+              // falls back to default-src and blocks both the preview and
+              // the final video playback.
+              "media-src 'self' blob: https://*.evolink.ai https://*.r2.dev https://*.r2.cloudflarestorage.com https://*.amazonaws.com",
               // Workers: Vite's HMR client runs from a `blob:` URL in dev,
               // and PptWorkspace uses a worker for pdf.js. Without an explicit
               // `worker-src`, browsers fall back to `script-src` and block the

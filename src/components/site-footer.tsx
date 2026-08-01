@@ -3,7 +3,6 @@ import type { ComponentType, SVGProps } from 'react';
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { cn } from '@/lib/utils';
-import { LocaleSelector } from '@/components/locale-selector';
 
 export interface FooterColumn {
   title: string;
@@ -107,10 +106,6 @@ export function SiteFooter({
           ) : (
             <div />
           )}
-          <LocaleSelector
-            variant="pill"
-            className="border-neutral-700 text-neutral-200 hover:bg-white/5 hover:text-neutral-50"
-          />
         </div>
 
         {/* Bottom bar */}

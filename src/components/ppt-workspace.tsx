@@ -10,7 +10,7 @@ import {
   type Template,
   type TemplateCategory,
 } from '@/modules/ppt/templates';
-import { ApiError, apiPost } from '@/lib/api-client';
+import { ApiError, apiGet, apiPost } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { Button } from '@/components/ui/button';

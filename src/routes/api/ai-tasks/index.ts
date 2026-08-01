@@ -105,6 +105,22 @@ async function GET({ request }: { request: Request }) {
           // with all of its images side-by-side, instead of dropping
           // every image past the first one.
           imageUrls: media.imageUrls,
+          // videoUrls mirrors imageUrls for Seedance tasks. Each tile
+          // in My Videos reads from this array — without it the grid
+          // would always render the loading spinner because the list
+          // endpoint stripped `taskResult` and never exposed the URL.
+          videoUrls: media.videoUrls,
+          // First-frame JPEG at /uploads/video-posters/<id>.jpg. The
+          // video tile renders this as <img>, mirroring how the image
+          // gallery renders each row — no <video> autoplay policy
+          // risk in <button>-wrapped containers. Click → active-video
+          // panel plays the real <video src=videoUrls[0]>.
+          posterUrl: media.posterUrl,
+          // Per-task option blob (duration / quality / aspect for video;
+          // seed / reference for image). Surfaced so My Videos can label
+          // each tile with the duration it was generated at without
+          // forcing the client to re-parse `taskResult`.
+          options: parseOptions(t.options),
           // Keep `thumbnailUrl` for the sidebar — that surface only
           // needs the first frame.
           thumbnailUrl: media.thumbnailUrl,
@@ -117,40 +133,116 @@ async function GET({ request }: { request: Request }) {
 }
 
 /**
+ * Rewrite a raw video URL to the authenticated proxy on our own origin so
+ * the browser doesn't try to load it cross-origin (and trip `media-src`).
+ *
+ * The proxy (`/api/ai-tasks/:id/file`) is the same endpoint the detail
+ * endpoint surfaces via `videoFileUrls()` — it pulls bytes from R2 when
+ * rehosted and falls back to fetching `files.evolink.ai` server-side,
+ * always streaming them back from this origin with `Range` support.
+ *
+ * Same-origin URLs (e.g. the local `/gallery/*.mp4` fallback or anything
+ * else written as a path) are returned verbatim — no need to round-trip
+ * through a proxy that just adds latency.
+ */
+function proxyVideoUrl(taskId: string, url: string): string {
+  if (typeof url !== 'string') return url;
+  if (!/^https?:\/\//i.test(url)) return url;
+  return `/api/ai-tasks/${encodeURIComponent(taskId)}/file`;
+}
+
+/**
  * Extract every media URL a task produced plus the first one as the
  * thumbnail fallback.
  *
- *   `imageUrls[]`  → all frames returned by the provider (N=1..4).
+ *   `imageUrls[]`  → all frames returned by the image provider (N=1..4).
  *                    Surfaced to the My Images view so a single batch
  *                    with multiple generations renders as one row.
+ *   `videoUrls[]`  → all videos returned by the video provider. Seedance
+ *                    normally produces 1 URL (stored as `videoUrl`) but
+ *                    multi-clip batches surface an array under `videos`.
+ *                    Surfaced to the My Videos view the same way as
+ *                    `imageUrls` so each row renders side-by-side tiles.
+ *                    External URLs (e.g. `files.evolink.ai/...mp4`) are
+ *                    rewritten through our `/api/ai-tasks/:id/file`
+ *                    proxy so playback stays same-origin; same-origin
+ *                    paths (the local `/gallery/*.mp4` fallback) pass
+ *                    through unchanged.
+ *   `posterUrl`    → first-frame JPEG at `/uploads/video-posters/<id>.jpg`,
+ *                    written when the video finished so the tile
+ *                    preview is a plain `<img>` (no autoplay policy
+ *                    pain, mirrors the image gallery 1:1).
  *   `thumbnailUrl` → the legacy single-frame field. The sidebar uses
  *                    it as a small chip preview; unchanged in shape.
+ *                    Prefers `posterUrl` over `videoUrls[0]` for video
+ *                    tasks so the sidebar chip stays a real image.
  */
 function parseTaskMedia(t: any): {
   imageUrls: string[];
+  videoUrls: string[];
   thumbnailUrl?: string;
+  posterUrl?: string;
 } {
   try {
     const raw = t.taskResult;
     const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (!r) return { imageUrls: [] };
-    let imageUrls: string[] = [];
-    if (Array.isArray(r.imageUrls)) {
-      imageUrls = r.imageUrls.filter(
-        (u: any): u is string => typeof u === 'string' && !!u
-      );
-    } else if (Array.isArray(r.images)) {
-      imageUrls = r.images
-        .map((i: any) => (typeof i === 'string' ? i : i?.url))
-        .filter((u: any): u is string => typeof u === 'string' && !!u);
-    } else if (typeof r.imageUrl === 'string' && r.imageUrl) {
-      imageUrls = [r.imageUrl];
-    } else if (typeof r.url === 'string' && r.url) {
-      imageUrls = [r.url];
+    if (!r) return { imageUrls: [], videoUrls: [] };
+
+    const imageUrls: string[] = collectUrls(r, [['imageUrls'], ['images']]);
+    if (!imageUrls.length && typeof r.imageUrl === 'string' && r.imageUrl) {
+      imageUrls.push(r.imageUrl);
+    } else if (!imageUrls.length && typeof r.url === 'string' && r.url) {
+      // Some providers fold the lone image URL into a generic `url` key.
+      // Surface it as an image URL so My Images doesn't drop the row.
+      imageUrls.push(r.url);
     }
-    return { imageUrls, thumbnailUrl: imageUrls[0] };
+
+    const rawVideoUrls: string[] = collectUrls(r, [['videos'], ['video_urls']]);
+    if (!rawVideoUrls.length && typeof r.videoUrl === 'string' && r.videoUrl) {
+      rawVideoUrls.push(r.videoUrl);
+    }
+    const videoUrls = rawVideoUrls.map((u) => proxyVideoUrl(t.id, u));
+
+    const posterUrl =
+      typeof r.posterUrl === 'string' && r.posterUrl ? r.posterUrl : undefined;
+    const thumbnailUrl = imageUrls[0] || posterUrl || videoUrls[0];
+    return { imageUrls, videoUrls, thumbnailUrl, posterUrl };
   } catch {
-    return { imageUrls: [] };
+    return { imageUrls: [], videoUrls: [] };
+  }
+}
+
+/**
+ * Walk a list of candidate object paths on `r`, collecting every
+ * URL-shaped entry into a flat array. Used by `parseTaskMedia` so the
+ * image / video branches share one normalized traversal.
+ */
+function collectUrls(r: any, paths: string[][]): string[] {
+  for (const path of paths) {
+    let candidate: any = r;
+    for (const segment of path) candidate = candidate?.[segment];
+    if (Array.isArray(candidate)) {
+      return candidate
+        .map((item: any) =>
+          typeof item === 'string' ? item : item?.url || item?.videoUrl
+        )
+        .filter((u: any): u is string => typeof u === 'string' && !!u);
+    }
+  }
+  return [];
+}
+
+/**
+ * Parse the persisted `options` column into a JSON object. Falls back
+ * to `null` for legacy rows where the column was never written.
+ */
+function parseOptions(raw: unknown): Record<string, any> | null {
+  if (!raw) return null;
+  if (typeof raw !== 'string') return raw as Record<string, any>;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
   }
 }
 

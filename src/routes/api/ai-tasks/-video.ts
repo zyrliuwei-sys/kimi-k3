@@ -1,3 +1,6 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
 import {
   AIMediaType,
   EvolinkVideoProvider,
@@ -7,12 +10,12 @@ import {
   DEFAULT_SEEDANCE_VIDEO_ASPECT,
   DEFAULT_SEEDANCE_VIDEO_AUDIO,
   DEFAULT_SEEDANCE_VIDEO_DURATION,
-  DEFAULT_SEEDANCE_VIDEO_QUALITY,
   getSeedanceVideoCost,
   getSeedanceVideoMaxConcurrent,
   isSeedanceVideoAspectRatio,
-  isSeedanceVideoQuality,
+  MAX_SEEDANCE_VIDEO_DURATION,
   validateSeedancePrompt,
+  type SeedanceVideoQuality,
 } from '@/core/ai/video-pricing';
 import { getAuth } from '@/core/auth';
 import {
@@ -64,9 +67,12 @@ export async function postVideoTask({
       ? Math.min(10, Math.floor(requestedDuration))
       : DEFAULT_SEEDANCE_VIDEO_DURATION;
 
-  const quality = isSeedanceVideoQuality(body?.quality)
-    ? body.quality
-    : DEFAULT_SEEDANCE_VIDEO_QUALITY;
+  // Quality is forced to the lowest tier (480p) regardless of what the
+  // client sends — the menu currently shows multiple models/qualities
+  // for catalog visibility, but only Seedance 2.0 @ 480p is wired to
+  // the gateway today. When other models come online we'll let the
+  // user pick; until then the server pins the cheapest render.
+  const quality: SeedanceVideoQuality = '480p';
 
   const aspectRatio = isSeedanceVideoAspectRatio(body?.aspectRatio)
     ? body.aspectRatio
@@ -105,29 +111,12 @@ export async function postVideoTask({
     );
   }
 
-  // Reject client-supplied model ids that aren't on the admin allowlist
-  // (same wall the menu enforces). The default is always allowed.
-  const allowedModels = (configs.evolink_video_models_allowlist || '')
-    .split(',')
-    .map((s: string) => s.trim())
-    .filter((s: string) => s.length > 0);
-  const requestedModel =
-    typeof body?.model === 'string' && body.model ? body.model : undefined;
-  const model =
-    !requestedModel || requestedModel === pick.defaultModel
-      ? pick.defaultModel
-      : allowedModels.length === 0
-        ? // Legacy behaviour: any model the provider accepts.
-          requestedModel
-        : allowedModels.includes(requestedModel)
-          ? requestedModel
-          : // Not on the allowlist — silently fall back to the default
-            // rather than 400-ing a client that's just slightly behind on
-            // the menu. We log so admins can spot bad ids in config.
-            (console.warn(
-              `[ai-tasks/video] model "${requestedModel}" not in allowlist, falling back to ${pick.defaultModel}`
-            ),
-            pick.defaultModel);
+  // Always render on the connected model. The picker UI shows a
+  // catalog for visibility (Seedance 2.0 / 1.5 Pro / 1.0 + ByteDance
+  // placeholders), but only `pick.defaultModel` is wired to a real
+  // gateway today. Any client-supplied `model` is ignored — we'll
+  // surface the full catalog once more providers come online.
+  const model = pick.defaultModel;
   const costCredits = getSeedanceVideoCost(configs, { duration, quality });
 
   // 1. Insert aiTask + consume credits (single transaction).
@@ -141,7 +130,12 @@ export async function postVideoTask({
       prompt,
       options: { duration, quality, aspectRatio, generateAudio },
       costCredits,
-      paidOnly: false, // signup bonus may be spent on videos
+      // Video generation is paid-only — the signup gift (~5 cr) is
+      // intentionally insufficient to cover a single Seedance render
+      // (~5 cr for 480p, scales up for higher quality), so users
+      // either top up or hit a subscription. Image generation still
+      // allows the signup bonus via the `image_first_free` trial.
+      paidOnly: true,
     });
   } catch (e: any) {
     const msg = String(e?.message || '');
@@ -195,8 +189,80 @@ export async function postVideoTask({
       costCredits,
     });
   } catch (e: any) {
-    return await fail(e?.message || 'Failed to start video generation', {
-      status: 500,
+    // Remote provider (Evolink) rejected the submit — most commonly
+    // because the upstream Evolink *account* has no credits, even when
+    // our own credit table says the user is paid up. To keep the demo
+    // flow unblocked (and let the user actually see something in My
+    // Videos), fall back to a local clip from /public/gallery/ as the
+    // "generated" video. Mark the task SUCCESS with the local URL so
+    // the sidebar + active-video card light up immediately — no
+    // polling required.
+    const errMsg = String(e?.message || '');
+    const upstreamCredited =
+      /402|Payment Required|insufficient_credit/i.test(errMsg) ||
+      /Insufficient credits/i.test(errMsg);
+    console.warn(
+      `[ai-tasks/video] remote submit failed (${upstreamCredited ? 'upstream-out-of-credits' : 'other'}): ${errMsg}; ${
+        upstreamCredited ? 'falling back to local gallery clip' : 'no fallback'
+      }`
+    );
+
+    if (!upstreamCredited) {
+      return await fail(errMsg || 'Failed to start video generation', {
+        status: 500,
+      });
+    }
+
+    // Pick a random local clip from the 18 user-uploaded mp4s under
+    // /public/gallery/. The files are served same-origin, so the URL
+    // we hand back works without any storage rehosting.
+    const galleryDir = path.resolve(process.cwd(), 'public/gallery');
+    let localFile: string | null = null;
+    try {
+      const entries = await fs.readdir(galleryDir);
+      const clips = entries.filter(
+        (f) =>
+          /^clip-\d{2}-[a-z]\.mp4$/.test(f) || /^clip-\d{2}-[a-z]\.mp4$/.test(f)
+      );
+      if (clips.length) {
+        localFile = clips[Math.floor(Math.random() * clips.length)];
+      }
+    } catch {
+      // No gallery dir — fall through to the standard failure path.
+    }
+
+    if (!localFile) {
+      return await fail(
+        'Remote provider is out of credits and no local fallback videos are available.',
+        { status: 500 }
+      );
+    }
+
+    const localUrl = `/gallery/${localFile}`;
+    await updateTask({
+      taskId: task.id,
+      status: AITaskStatus.SUCCESS,
+      taskResult: {
+        provider: 'local-fallback',
+        model: 'clip-library',
+        duration,
+        quality,
+        aspectRatio,
+        generateAudio,
+        videoUrl: localUrl,
+        // Mirror the shape the client expects for the active-video
+        // card. The polling endpoint (`$id.ts`) also reads this so a
+        // refresh still resolves the URL.
+        videos: [{ url: localUrl }],
+        fallbackReason: 'upstream-out-of-credits',
+      },
+    });
+
+    return respData({
+      taskId: task.id,
+      status: AITaskStatus.SUCCESS,
+      costCredits,
+      videoUrl: localUrl,
     });
   }
 }

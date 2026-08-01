@@ -9,7 +9,6 @@ import { envConfigs } from '@/config';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { useSignupBonus } from '@/hooks/use-signup-bonus';
-import { LocaleSelector } from '@/components/locale-selector';
 import { SiteUserMenu } from '@/components/site-user-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { buttonVariants } from '@/components/ui/button';
@@ -100,7 +99,6 @@ export function SiteHeader({ navLinks }: { navLinks?: NavLink[] }) {
 
         {/* Desktop actions */}
         <div className="hidden items-center gap-3 md:flex">
-          <LocaleSelector />
           <ThemeToggle />
           {user ? (
             <SiteUserMenu
@@ -157,7 +155,6 @@ export function SiteHeader({ navLinks }: { navLinks?: NavLink[] }) {
             )}
           </nav>
           <div className="border-border mt-3 flex items-center gap-2 border-t pt-3">
-            <LocaleSelector />
             <ThemeToggle />
             <div className="flex-1" />
             {user ? (

@@ -1,12 +1,5 @@
 import { createFileRoute, Outlet, useLocation } from '@tanstack/react-router';
-import {
-  Home,
-  Image,
-  MessageSquarePlus,
-  Search,
-  Video,
-  Wrench,
-} from 'lucide-react';
+import { Home, Image, MessageSquarePlus, Search, Wrench } from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
 import { usePlaygroundStore } from '@/lib/playground-store';
@@ -110,8 +103,6 @@ function PlaygroundLayout() {
           label: m['playground.nav.image'](),
           icon: Image,
         },
-        // Video tab is hidden for now — feature is parked for later. The
-        // route + block still exist; just not wired into the sidebar.
         // {
         //   href: '/api-playground/video',
         //   label: m['playground.nav.video'](),
