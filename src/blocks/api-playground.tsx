@@ -4669,11 +4669,18 @@ export function ImagePlayground() {
       setGeneratingSince(null);
       setEstimatedTotal(null);
       const msg = e.message || '';
-      const key = /insufficient/i.test(msg)
-        ? 'playground.image.error_insufficient_credits'
-        : /not configured/i.test(msg)
-          ? 'playground.image.error_no_provider'
-          : null;
+      const isInsufficient = /insufficient/i.test(msg);
+      const isNoProvider = /not configured/i.test(msg);
+      // New users burn through the signup bonus on their first generation;
+      // on the second attempt the server returns "insufficient credits".
+      // The billing modal IS the user-facing signal — skip the toast so the
+      // user isn't pulled between two notifications, and pop the modal in
+      // one click so they can top up without hunting for the upgrade link.
+      if (isInsufficient) {
+        setBillingOpen(true);
+        return;
+      }
+      const key = isNoProvider ? 'playground.image.error_no_provider' : null;
       toast.error(key ? m[key]() : msg);
     },
   });
@@ -5808,11 +5815,15 @@ export function VideoPlayground() {
     },
     onError: (e: Error) => {
       const msg = e.message || '';
-      const key = /insufficient/i.test(msg)
-        ? 'playground.video.error_insufficient_credits'
-        : /not configured/i.test(msg)
-          ? 'playground.video.error_no_provider'
-          : null;
+      // Mirror the image playground — pop the billing modal instead of a
+      // toast when credits run out, so the user can top up in one click.
+      if (/insufficient/i.test(msg)) {
+        setBillingOpen(true);
+        return;
+      }
+      const key = /not configured/i.test(msg)
+        ? 'playground.video.error_no_provider'
+        : null;
       toast.error(key ? m[key]() : msg);
     },
   });

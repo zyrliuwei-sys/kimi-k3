@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="54" viewBox="0 0 200 54">
+  <rect width="200" height="54" rx="8" ry="8" fill="#ffffff" stroke="#e2e8f0" stroke-width="1.5"/>
+  <image x="10" y="7" width="40" height="40" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAALQAAAC0CAYAAAA9zQYyAAAAAXNSR0IArs4c6QAAGadJREFUeF7tnQe4VcW1x38XBbGAHRBFUBRQELAgUgS7WDHG2J4lGuuzJLbEEmOMPp8+jb0bTYz6jEZ9NiwoFlDAggJiQYKCCNJUFEVQ4T7+m7NPzj1373PmzNmXu7es9X35EnJnZq/9n/9es2atNXNqcJRaqAFaAG2BLYHdgJ5AR2BNYBXHoayZIRCFwCLgK2AyMBZ4HngPmAHMr4FaF9hE0rJSC82Bo5c+6ACgO9AGaFK2ozUwBPwRWALMBMYvNZyPAnfXwMJyw5UkdC2sBAwA7gdalxvM/m4INCACs4DDgOE1sDjuObGErl3mWpwDHAu0bEBFbWhDwBWBr4G7gCtrlrki9SSS0LXQPmeVe5tr4Yq1tVtOCMgVeU3WugamFj+zHqFroR1wb87VWE462mMMgYoRGA4cUQPTCnvWIXTOzXgQ6Ffx8NbBEFj+CLy6NBJycKH7kSd0bgN4FXC6uRnLf2bsvybI/5WX/wcbEDyMSFA8XAAAAABJRU5ErkJggg=="/>
+  <text x="58" y="20" font-family="Arial, Helvetica, sans-serif" font-size="10" fill="#94a3b8" font-weight="600" letter-spacing="0.5">FEATURED ON</text>
+  <text x="58" y="40" font-family="Arial, Helvetica, sans-serif" font-size="16" fill="#0f172a" font-weight="700">AIExtension.ai</text>
+</svg>

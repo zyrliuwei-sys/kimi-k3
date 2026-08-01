@@ -309,6 +309,32 @@ export function Footer() {
               SeeWhatsNewAI
             </a>
             <a
+              href="https://uno.directory"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/uno-directory-badge.svg"
+                alt="Listed on Uno Directory"
+                width={120}
+                height={30}
+              />
+            </a>
+            <a
+              href="https://aiextension.ai/kimik3"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/aiextension-badge.svg"
+                alt="Featured on AIExtension.ai"
+                width={200}
+                height={54}
+              />
+            </a>
+            <a
               href="https://twelve.tools"
               target="_blank"
               rel="noopener noreferrer"

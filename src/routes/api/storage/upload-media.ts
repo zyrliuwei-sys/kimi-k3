@@ -166,107 +166,164 @@ async function POST({ request }: { request: Request }) {
       filename: string;
       type: 'image' | 'video' | 'document';
       deduped: boolean;
+      // Per-file error string. When set, `url`/`key` are empty and the
+      // client should mark this slot as `uploadStatus: 'error'`. The
+      // overall request still returns 200 with mixed results so the
+      // surviving 4 of a 5-file batch don't get nuked when 1 file is
+      // unsupported / oversized / transient-failure.
+      error?: string;
     }> = [];
 
     for (const file of files) {
-      if (
-        !isImage(file.type) &&
-        !isVideo(file.type) &&
-        !isDocument(file.type) &&
-        !hasDocumentExtension(file.name)
-      ) {
-        return respErr(
-          `File ${file.name} is not a supported image, video, or document (got ${file.type || 'unknown'})`
-        );
-      }
-
-      const fileKind: 'image' | 'video' | 'document' = isImage(file.type)
-        ? 'image'
-        : isVideo(file.type)
-          ? 'video'
-          : 'document';
-
-      const arrayBuffer = await file.arrayBuffer();
-      const body = new Uint8Array(arrayBuffer);
-
-      if (body.length > MAX_UPLOAD_BYTES) {
-        return respErr(
-          `File ${file.name} is too large (max ${Math.round(
-            MAX_UPLOAD_BYTES / 1024 / 1024
-          )}MB).`,
-          { status: 413 }
-        );
-      }
-
-      const digest = md5(body);
-      const ext =
-        (extFromMime(file.type) || file.name.split('.').pop() || 'bin').replace(
-          /[^a-zA-Z0-9]/g,
-          ''
-        ) || 'bin';
-      const objectKey = `${digest}.${ext}`;
-
-      // No storage configured → persist to public/uploads and return a short
-      // local URL (R2Provider prepends its own uploadPath otherwise). Configure
-      // R2 (admin → Storage) for production.
-      if (!storage) {
-        if (!isLocalFallbackAvailable()) {
-          return respErr(
-            'File upload is disabled in this environment. Please configure storage (Admin → Storage) before uploading.'
-          );
+      try {
+        if (
+          !isImage(file.type) &&
+          !isVideo(file.type) &&
+          !isDocument(file.type) &&
+          !hasDocumentExtension(file.name)
+        ) {
+          uploadResults.push({
+            url: '',
+            key: '',
+            filename: file.name,
+            type: 'document',
+            deduped: false,
+            error: `Unsupported file type (${file.type || 'unknown'})`,
+          });
+          continue;
         }
-        if (body.length > INLINE_MAX_BYTES) {
-          const limitKb = Math.round(INLINE_MAX_BYTES / 1024);
-          return respErr(
-            `File too large (${(body.length / 1024).toFixed(0)}KB > ${limitKb}KB). Configure storage or use a smaller file.`
-          );
+
+        const fileKind: 'image' | 'video' | 'document' = isImage(file.type)
+          ? 'image'
+          : isVideo(file.type)
+            ? 'video'
+            : 'document';
+
+        const arrayBuffer = await file.arrayBuffer();
+        const body = new Uint8Array(arrayBuffer);
+
+        if (body.length > MAX_UPLOAD_BYTES) {
+          uploadResults.push({
+            url: '',
+            key: '',
+            filename: file.name,
+            type: fileKind,
+            deduped: false,
+            error: `File too large (max ${Math.round(
+              MAX_UPLOAD_BYTES / 1024 / 1024
+            )}MB)`,
+          });
+          continue;
         }
-        const dir = path.join(process.cwd(), 'public', 'uploads');
-        await mkdir(dir, { recursive: true });
-        await writeFile(path.join(dir, objectKey), body);
+
+        const digest = md5(body);
+        const ext =
+          (
+            extFromMime(file.type) ||
+            file.name.split('.').pop() ||
+            'bin'
+          ).replace(/[^a-zA-Z0-9]/g, '') || 'bin';
+        const objectKey = `${digest}.${ext}`;
+
+        // No storage configured → persist to public/uploads and return a short
+        // local URL (R2Provider prepends its own uploadPath otherwise). Configure
+        // R2 (admin → Storage) for production.
+        if (!storage) {
+          if (!isLocalFallbackAvailable()) {
+            uploadResults.push({
+              url: '',
+              key: '',
+              filename: file.name,
+              type: fileKind,
+              deduped: false,
+              error:
+                'File upload is disabled in this environment. Configure storage (Admin → Storage) before uploading.',
+            });
+            continue;
+          }
+          if (body.length > INLINE_MAX_BYTES) {
+            const limitKb = Math.round(INLINE_MAX_BYTES / 1024);
+            uploadResults.push({
+              url: '',
+              key: '',
+              filename: file.name,
+              type: fileKind,
+              deduped: false,
+              error: `File too large (${(body.length / 1024).toFixed(
+                0
+              )}KB > ${limitKb}KB). Configure storage or use a smaller file.`,
+            });
+            continue;
+          }
+          const dir = path.join(process.cwd(), 'public', 'uploads');
+          await mkdir(dir, { recursive: true });
+          await writeFile(path.join(dir, objectKey), body);
+          uploadResults.push({
+            url: `/uploads/${objectKey}`,
+            key: `uploads/${objectKey}`,
+            filename: file.name,
+            type: fileKind,
+            deduped: false,
+          });
+          continue;
+        }
+
+        const exists = await storage.exists({ key: objectKey });
+        if (exists) {
+          const publicUrl = storage.getPublicUrl({ key: objectKey });
+          if (publicUrl) {
+            uploadResults.push({
+              url: publicUrl,
+              key: objectKey,
+              filename: file.name,
+              type: fileKind,
+              deduped: true,
+            });
+            continue;
+          }
+        }
+
+        const result = await storage.uploadFile({
+          body,
+          key: objectKey,
+          contentType: file.type,
+          disposition: 'inline',
+        });
+
+        if (!result.success || !result.url) {
+          uploadResults.push({
+            url: '',
+            key: '',
+            filename: file.name,
+            type: fileKind,
+            deduped: false,
+            error: result.error || 'Upload failed',
+          });
+          continue;
+        }
+
         uploadResults.push({
-          url: `/uploads/${objectKey}`,
-          key: `uploads/${objectKey}`,
+          url: result.url,
+          key: result.key || objectKey,
           filename: file.name,
           type: fileKind,
           deduped: false,
         });
-        continue;
+      } catch (fileErr: any) {
+        // Per-file catch so one bad apple doesn't abort the batch. The
+        // exception is logged so storage-side regressions still surface
+        // in server logs, but the user gets to keep their 4 working
+        // attachments.
+        console.error('upload media per-file failed:', fileErr);
+        uploadResults.push({
+          url: '',
+          key: '',
+          filename: file.name,
+          type: 'document',
+          deduped: false,
+          error: fileErr?.message || 'Upload failed',
+        });
       }
-
-      const exists = await storage.exists({ key: objectKey });
-      if (exists) {
-        const publicUrl = storage.getPublicUrl({ key: objectKey });
-        if (publicUrl) {
-          uploadResults.push({
-            url: publicUrl,
-            key: objectKey,
-            filename: file.name,
-            type: fileKind,
-            deduped: true,
-          });
-          continue;
-        }
-      }
-
-      const result = await storage.uploadFile({
-        body,
-        key: objectKey,
-        contentType: file.type,
-        disposition: 'inline',
-      });
-
-      if (!result.success || !result.url) {
-        return respErr(result.error || 'Upload failed');
-      }
-
-      uploadResults.push({
-        url: result.url,
-        key: result.key || objectKey,
-        filename: file.name,
-        type: fileKind,
-        deduped: false,
-      });
     }
 
     return respData({
