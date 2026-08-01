@@ -2298,7 +2298,20 @@ export function ChatPlayground() {
  * then 9:16 / 3:2 / 16:9 / 4:5 / 1:1) so the packed rhythm matches.
  */
 
-type Tile = { src: string; ratio: number; alt: string };
+type Tile = {
+  src: string;
+  ratio: number;
+  alt: string;
+  // 'image' renders <img>; 'video' renders a looping muted <video> with an
+  // underlying <img> poster fallback (so the cell still shows the first
+  // frame when autoplay is throttled or the video fails to decode).
+  // Default is 'image' so existing tiles in GALLERY_ITEMS don't need to
+  // be touched.
+  kind?: 'image' | 'video';
+  // Image shown underneath a video tile. Used both as the <video poster>
+  // attribute and as a static <img> fallback layer.
+  poster?: string;
+};
 
 // Aspect-ratio mix measured off the reference wall (32× 2:3, 6× 9:16,
 // 4× 3:2, 2× 16:9, 1× 4:5, 1× 1:1 across 47 tiles). Cycled over the
@@ -2495,6 +2508,48 @@ const VIDEO_BACKGROUND_ITEMS: Tile[] = (() => {
   return out;
 })();
 
+/**
+ * Mixed catalog for the video-page background wall. Starts from the
+ * community image catalog (`GALLERY_ITEMS`) and injects looping AI video
+ * tiles at a regular cadence. The 18 source videos are cycled across the
+ * injected positions — the browser will cache each unique URL, so the
+ * total payload is just the 18 source files (~50 MB combined) regardless
+ * of how many cells show them.
+ */
+const VIDEO_BACKGROUND_ITEMS: Tile[] = (() => {
+  // 18 videos uploaded by the user — see `public/gallery/v-{00..17}.mp4`.
+  // Listed in catalog order; the cycling index wraps at 18 so the wall
+  // shows every video at least once in a long enough viewport.
+  const videoSources = Array.from(
+    { length: 18 },
+    (_, i) => `/gallery/v-${String(i).padStart(2, '0')}.mp4`
+  );
+  // Ratio mix tuned for video content — videos are typically 16:9, 9:16,
+  // 1:1, or 3:4. Cycled across the injected slots.
+  const VIDEO_TILE_RATIOS = [9 / 16, 16 / 9, 1, 3 / 4, 2 / 3, 3 / 2];
+  const out: Tile[] = [];
+  let videoIdx = 0;
+  for (let i = 0; i < GALLERY_ITEMS.length; i++) {
+    out.push(GALLERY_ITEMS[i]);
+    // Every 3rd slot — drop a video tile right after the image. With 46
+    // images this produces 15 video insertions; the modulo wrap on
+    // videoIdx means videos 0-14 appear once each. Videos 15-17 only
+    // show up if the viewport gets tall enough to render slot 16+.
+    if ((i + 1) % 3 === 0) {
+      const n = videoIdx % videoSources.length;
+      out.push({
+        src: videoSources[n],
+        ratio: VIDEO_TILE_RATIOS[videoIdx % VIDEO_TILE_RATIOS.length],
+        alt: 'AI-generated video',
+        kind: 'video',
+        poster: `/gallery/v-${String(n).padStart(2, '0')}.jpg`,
+      });
+      videoIdx++;
+    }
+  }
+  return out;
+})();
+
 // Column count per breakpoint, measured off the reference.
 const GALLERY_GAP = 4;
 function columnsForWidth(w: number) {
@@ -2518,12 +2573,17 @@ type PlacedTile = Tile & {
  * Greedy shortest-column-first packing. Returns absolute pixel positions
  * plus the canvas height (the tallest column), which the caller sets on
  * the `relative` container so the scroll track gets the right extent.
+ *
+ * If `maxHeight` is set, the packer stops placing tiles the moment any
+ * column would exceed it. That gives the background-wall variant a
+ * viewport-sized layout without re-implementing the algorithm.
  */
 function packMasonry(
   items: Tile[],
   containerWidth: number,
   columnCount: number,
-  gap: number
+  gap: number,
+  maxHeight?: number
 ): { tiles: PlacedTile[]; height: number } {
   if (containerWidth <= 0 || columnCount <= 0) return { tiles: [], height: 0 };
 
@@ -2538,6 +2598,12 @@ function packMasonry(
       if (heights[c] < heights[target] - 0.01) target = c;
     }
     const height = Math.round(colWidth / item.ratio);
+    // Background mode: bail when this tile would overflow the cap. The
+    // remaining items stay off-screen — callers pick a catalog sized for
+    // the largest expected viewport (we cycle to fill).
+    if (maxHeight !== undefined && heights[target] + height > maxHeight) {
+      break;
+    }
     tiles.push({
       ...item,
       left: Math.round(target * (colWidth + gap)),
@@ -2654,6 +2720,130 @@ function GalleryWall({ items = GALLERY_ITEMS }: { items?: Tile[] } = {}) {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  VideoGalleryBackground                                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Full-bleed masonry that fills the viewport for the video playground.
+ * Packs as many tiles from `VIDEO_BACKGROUND_ITEMS` as fit inside the
+ * viewport (height-capped packing via `packMasonry`'s `maxHeight` arg)
+ * so the wall exactly covers the screen — no scroll, no overflow.
+ *
+ * Each video tile is two layers:
+ *   1. <img poster> underneath — paints the first frame synchronously
+ *      so the cell is never blank. Browsers throttle autoplay of many
+ *      concurrent videos, so without this layer the wall would show
+ *      empty/black cells until each <video> catches up.
+ *   2. <video> on top — once it autoplays, the moving frames obscure
+ *      the poster. `preload="metadata"` gives the browser the duration
+ *      and dimensions without fetching the whole file. `muted +
+ *      playsInline` are mandatory for autoplay on iOS Safari.
+ *
+ * `pointer-events: none` so the wall never blocks the chrome (header,
+ * composer). `aria-hidden` so screen readers skip it.
+ */
+function VideoGalleryBackground() {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(0);
+
+  // Measure both the wall's width and the viewport height. Width drives
+  // the column count + tile width; height caps how many tiles we pack.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const measure = () => {
+      const w = host.getBoundingClientRect().width;
+      setWidth(w);
+      setViewportHeight(window.innerHeight);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(host);
+    window.addEventListener('resize', measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, []);
+
+  const columnCount = columnsForWidth(window.innerWidth);
+  const { tiles } = packMasonry(
+    VIDEO_BACKGROUND_ITEMS,
+    width,
+    columnCount,
+    GALLERY_GAP,
+    viewportHeight
+  );
+
+  return (
+    <div
+      ref={hostRef}
+      aria-hidden
+      className="pointer-events-none absolute inset-0 overflow-hidden"
+    >
+      <div className="relative size-full">
+        {tiles.map((tile, i) => (
+          <div
+            key={`${tile.src}-${i}`}
+            className="absolute overflow-hidden"
+            style={{
+              left: tile.left,
+              top: tile.top,
+              width: tile.width,
+              height: tile.height,
+            }}
+          >
+            {tile.kind === 'video' ? (
+              <Fragment>
+                {tile.poster && (
+                  <img
+                    src={tile.poster}
+                    alt=""
+                    loading="eager"
+                    decoding="async"
+                    className="absolute inset-0 size-full object-cover"
+                  />
+                )}
+                <video
+                  src={tile.src}
+                  poster={tile.poster}
+                  muted
+                  loop
+                  autoPlay
+                  playsInline
+                  preload="metadata"
+                  onError={() => {
+                    // Don't hide — let the poster <img> underneath stay
+                    // visible so the wall has no holes.
+                  }}
+                  className="absolute inset-0 size-full object-cover"
+                />
+              </Fragment>
+            ) : (
+              <img
+                src={tile.src}
+                alt=""
+                loading="eager"
+                decoding="async"
+                onError={(e) => {
+                  const wrapper = e.currentTarget.parentElement;
+                  if (wrapper) wrapper.style.display = 'none';
+                }}
+                className="absolute inset-0 size-full object-cover"
+              />
+            )}
+          </div>
+        ))}
+      </div>
+      {/* Dark vignette — keeps the floating chrome readable over bright
+          tiles. Stronger at top/bottom where the composer lives. */}
+      <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/30 to-black/70" />
     </div>
   );
 }
@@ -5674,6 +5864,7 @@ export function VideoPlayground() {
 
   return (
     <TooltipProvider delay={200}>
+
       <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-transparent">
         {/* Floating admin-disabled notice — sits above the wall at the top,
             mirrors the absolute top chrome used by ImagePlayground's
@@ -5682,10 +5873,22 @@ export function VideoPlayground() {
           <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
             <div className="border-foreground/15 bg-card/80 text-foreground/80 pointer-events-auto inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs backdrop-blur-md">
               <Film className="size-3.5" />
+
+      <div className="relative flex h-full min-h-0 w-full flex-col">
+        {/* Community wall background — packed masonry of mixed images +
+            looping AI videos, filling the viewport. Dark vignette on top
+            keeps the floating composer legible. */}
+        <VideoGalleryBackground />
+        <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 overflow-auto px-4 py-6">
+          {!seedanceEnabled && (
+            <div className="border-foreground/15 bg-card/70 text-foreground/75 flex items-center gap-2 rounded-2xl border border-dashed px-4 py-3 text-sm backdrop-blur-md">
+              <Film className="size-4" />
+
               {m['playground.video.disabled_notice']()}
             </div>
           </div>
         )}
+
 
         {/* Floating segmented tab bar — sits above the wall, centered.
             Identical pattern to ImagePlayground's tab bar (NoiseBackground
@@ -5868,6 +6071,42 @@ export function VideoPlayground() {
               )}
             </div>
           </div>
+
+          {/* Active video result */}
+          {activeVideoUrl && (
+            <div className="border-foreground/10 bg-card/90 overflow-hidden rounded-2xl border shadow-lg backdrop-blur-md">
+              <video
+                src={activeVideoUrl}
+                controls
+                autoPlay
+                loop
+                muted
+                playsInline
+                preload="metadata"
+                className="mx-auto max-h-[600px] w-auto object-contain"
+              />
+              <div className="flex items-center justify-end gap-2 border-t px-4 py-3">
+                <a
+                  href={activeVideoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={cn(
+                    buttonVariants({ variant: 'outline', size: 'sm' })
+                  )}
+                >
+                  {m['playground.video.open_in_new_tab']()}
+                </a>
+                <a
+                  href={activeVideoUrl}
+                  download
+                  className={cn(buttonVariants({ size: 'sm' }))}
+                >
+                  {m['playground.video.download']()}
+                </a>
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Composer — Grok-style input group floating over the wall at the
