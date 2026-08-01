@@ -335,6 +335,19 @@ export function Footer() {
               />
             </a>
             <a
+              href="https://wayfindio.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="/badges/wayfindio-badge.svg"
+                alt="Featured on Wayfindio"
+                width={200}
+                height={54}
+              />
+            </a>
+            <a
               href="https://twelve.tools"
               target="_blank"
               rel="noopener noreferrer"
