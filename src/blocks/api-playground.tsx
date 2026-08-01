@@ -2508,48 +2508,6 @@ const VIDEO_BACKGROUND_ITEMS: Tile[] = (() => {
   return out;
 })();
 
-/**
- * Mixed catalog for the video-page background wall. Starts from the
- * community image catalog (`GALLERY_ITEMS`) and injects looping AI video
- * tiles at a regular cadence. The 18 source videos are cycled across the
- * injected positions — the browser will cache each unique URL, so the
- * total payload is just the 18 source files (~50 MB combined) regardless
- * of how many cells show them.
- */
-const VIDEO_BACKGROUND_ITEMS: Tile[] = (() => {
-  // 18 videos uploaded by the user — see `public/gallery/v-{00..17}.mp4`.
-  // Listed in catalog order; the cycling index wraps at 18 so the wall
-  // shows every video at least once in a long enough viewport.
-  const videoSources = Array.from(
-    { length: 18 },
-    (_, i) => `/gallery/v-${String(i).padStart(2, '0')}.mp4`
-  );
-  // Ratio mix tuned for video content — videos are typically 16:9, 9:16,
-  // 1:1, or 3:4. Cycled across the injected slots.
-  const VIDEO_TILE_RATIOS = [9 / 16, 16 / 9, 1, 3 / 4, 2 / 3, 3 / 2];
-  const out: Tile[] = [];
-  let videoIdx = 0;
-  for (let i = 0; i < GALLERY_ITEMS.length; i++) {
-    out.push(GALLERY_ITEMS[i]);
-    // Every 3rd slot — drop a video tile right after the image. With 46
-    // images this produces 15 video insertions; the modulo wrap on
-    // videoIdx means videos 0-14 appear once each. Videos 15-17 only
-    // show up if the viewport gets tall enough to render slot 16+.
-    if ((i + 1) % 3 === 0) {
-      const n = videoIdx % videoSources.length;
-      out.push({
-        src: videoSources[n],
-        ratio: VIDEO_TILE_RATIOS[videoIdx % VIDEO_TILE_RATIOS.length],
-        alt: 'AI-generated video',
-        kind: 'video',
-        poster: `/gallery/v-${String(n).padStart(2, '0')}.jpg`,
-      });
-      videoIdx++;
-    }
-  }
-  return out;
-})();
-
 // Column count per breakpoint, measured off the reference.
 const GALLERY_GAP = 4;
 function columnsForWidth(w: number) {
@@ -5864,7 +5822,6 @@ export function VideoPlayground() {
 
   return (
     <TooltipProvider delay={200}>
-
       <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-transparent">
         {/* Floating admin-disabled notice — sits above the wall at the top,
             mirrors the absolute top chrome used by ImagePlayground's
@@ -5873,22 +5830,23 @@ export function VideoPlayground() {
           <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center px-4">
             <div className="border-foreground/15 bg-card/80 text-foreground/80 pointer-events-auto inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-xs backdrop-blur-md">
               <Film className="size-3.5" />
-
-      <div className="relative flex h-full min-h-0 w-full flex-col">
-        {/* Community wall background — packed masonry of mixed images +
-            looping AI videos, filling the viewport. Dark vignette on top
-            keeps the floating composer legible. */}
-        <VideoGalleryBackground />
-        <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 overflow-auto px-4 py-6">
-          {!seedanceEnabled && (
-            <div className="border-foreground/15 bg-card/70 text-foreground/75 flex items-center gap-2 rounded-2xl border border-dashed px-4 py-3 text-sm backdrop-blur-md">
-              <Film className="size-4" />
-
               {m['playground.video.disabled_notice']()}
             </div>
           </div>
         )}
 
+        {/* Community wall background — packed masonry of mixed images +
+            looping AI videos, filling the viewport. Dark vignette on top
+            keeps the floating composer legible. */}
+        <VideoGalleryBackground />
+        {!seedanceEnabled && (
+          <div className="relative z-10 mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 overflow-auto px-4 py-6">
+            <div className="border-foreground/15 bg-card/70 text-foreground/75 flex items-center gap-2 rounded-2xl border border-dashed px-4 py-3 text-sm backdrop-blur-md">
+              <Film className="size-4" />
+              {m['playground.video.disabled_notice']()}
+            </div>
+          </div>
+        )}
 
         {/* Floating segmented tab bar — sits above the wall, centered.
             Identical pattern to ImagePlayground's tab bar (NoiseBackground
@@ -6106,7 +6064,6 @@ export function VideoPlayground() {
               </div>
             </div>
           )}
-
         </div>
 
         {/* Composer — Grok-style input group floating over the wall at the
