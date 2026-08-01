@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="160" height="54" viewBox="0 0 160 54" version="1.1">
+  <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+    <g transform="translate(-100.000000, -23.000000)">
+      <g transform="translate(100.000000, 23.000000)">
+        <rect stroke="#EEF2FF" stroke-width="1" fill="#221D21" x="0.5" y="0.5" width="159" height="53" rx="10"/>
+        <text font-family="Helvetica-Bold, Helvetica" font-size="9" font-weight="bold" fill="#EEF2FF">
+          <tspan x="53" y="20">FEATURED ON</tspan>
+        </text>
+        <text font-family="Helvetica-Bold, Helvetica" font-size="21" font-weight="bold" fill="#EEF2FF">
+          <tspan x="52" y="40">ToolFame</tspan>
+        </text>
+        <g transform="translate(11.000000, 12.000000)">
+          <circle cx="15.5" cy="15.5" r="15.5" fill="#FFFFFF"/>
+          <g fill="#221D21">
+            <rect x="9.5" y="7.9" width="12.1" height="2.8"/>
+            <rect x="14.3" y="10.4" width="2.5" height="13.7"/>
+          </g>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
