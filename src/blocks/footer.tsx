@@ -500,6 +500,36 @@ export function Footer() {
                 alt="Lovable App Badge"
               />
             </a>
+            <a
+              href="https://curateclick.com?utm_source=embed-badge&utm_medium=embed&utm_campaign=embed-badge"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://curateclick.com/featured-badge.svg"
+                alt="Featured on CurateClick"
+                width={175}
+                height={54}
+              />
+            </a>
+            {/* Hotlinked (not self-hosted): the LaunchVault SVG embeds a
+                base64 raster and weighs ~1.3 MB — too heavy to ship in
+                /public just for a footer badge. */}
+            <a
+              href="https://www.launchvault.dev"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Featured on LaunchVault"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://www.launchvault.dev/images/badges/launch-valut-badge.svg"
+                alt="Featured on LaunchVault"
+                width={195}
+                height={62}
+              />
+            </a>
           </div>
         </div>
       </div>
