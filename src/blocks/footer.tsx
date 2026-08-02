@@ -448,6 +448,19 @@ export function Footer() {
                 height={50}
               />
             </a>
+            <a
+              href="https://www.uneed.best/tool/kimik3"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://www.uneed.best/EMBED3.png"
+                alt="Launching Soon on Uneed"
+                width={250}
+                height={54}
+              />
+            </a>
           </div>
         </div>
       </div>
