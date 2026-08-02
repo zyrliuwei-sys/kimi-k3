@@ -475,6 +475,19 @@ export function Footer() {
                 height={50}
               />
             </a>
+            <a
+              href="https://www.stork.ai/"
+              rel="nofollow"
+              title="Stork Verified — stork.ai AI tools directory"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://www.stork.ai/badge/verified-dark.svg"
+                alt="Stork Verified — stork.ai AI tools directory"
+                width={216}
+                height={44}
+              />
+            </a>
           </div>
         </div>
       </div>
