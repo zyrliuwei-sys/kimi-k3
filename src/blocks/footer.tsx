@@ -461,6 +461,20 @@ export function Footer() {
                 height={54}
               />
             </a>
+            <a
+              href="https://aiagentsdirectory.com/agent/kimik3"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Discover kimik3 on AI Agents Directory"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://aiagentsdirectory.com/featured-badge.svg?v=2024"
+                alt="kimik3 - Featured on AI Agents Directory"
+                width={200}
+                height={50}
+              />
+            </a>
           </div>
         </div>
       </div>
