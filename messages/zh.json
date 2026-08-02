@@ -1008,6 +1008,8 @@
   "playground.image.preview_title": "图片预览",
   "playground.image.preview_prompt_label": "Prompt",
   "playground.image.preview_default_label": "Image",
+  "playground.image.preview_empty_title": "未选择图片",
+  "playground.image.preview_empty_desc": "从“我的图片”里点一张缩略图，就能在右侧预览。",
   "playground.image.batch_prompt_label": "Prompt",
   "playground.image.preview_model_label": "模型",
   "playground.image.preview_count": "{count} 张图",

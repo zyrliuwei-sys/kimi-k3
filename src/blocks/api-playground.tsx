@@ -20,6 +20,7 @@ import {
   Loader2,
   Maximize2,
   MessageSquarePlus,
+  Pencil,
   Plus,
   RefreshCw,
   Search as SearchIcon,
@@ -4064,7 +4065,10 @@ function MyImageRows({
   return (
     <div className="flex flex-col items-start gap-5">
       {groups.map((group) => (
-        <div key={group.key} className="flex w-full flex-col items-start gap-3">
+        // Larger gap between the day header and the first row of that
+        // day's batch — gives the "AUG 1, 2026" label enough breathing
+        // room to read as a section divider rather than a tight caption.
+        <div key={group.key} className="flex w-full flex-col items-start gap-6">
           {/* Day header — appears once per calendar day at the top of
               that day's cluster. Today's / Yesterday's gets a relative
               label so a fresh wall of images still reads as "today". */}
@@ -4089,18 +4093,8 @@ function MyImageRows({
             return (
               <div
                 key={r.id}
-                className="flex w-full flex-col items-start gap-1.5"
+                className="flex w-full flex-col items-start gap-3"
               >
-                {/* Per-batch prompt header — sits above the image card so
-                    the user can see what produced each submission without
-                    hovering. Trims to 2 lines so a chat-log-style prompt
-                    doesn't blow up the row height. */}
-                <p className="text-muted-foreground line-clamp-2 max-w-md px-1 text-xs">
-                  <span className="text-foreground/70 mr-1 font-medium">
-                    {m['playground.image.batch_prompt_label']()}
-                  </span>
-                  {r.prompt?.trim() || '—'}
-                </p>
                 <div
                   data-task-id={r.id}
                   className={cn(
@@ -4133,6 +4127,16 @@ function MyImageRows({
                     )}
                   </div>
                 </div>
+                {/* Per-batch prompt footer — sits BELOW the image card so
+                    the user can see what produced each submission without
+                    hovering. Trims to 2 lines so a chat-log-style prompt
+                    doesn't blow up the row height. */}
+                <p className="text-muted-foreground line-clamp-2 max-w-md px-1 text-xs">
+                  <span className="text-foreground/70 mr-1 font-medium">
+                    {m['playground.image.batch_prompt_label']()}
+                  </span>
+                  {r.prompt?.trim() || '—'}
+                </p>
               </div>
             );
           })}
@@ -4880,200 +4884,124 @@ export function ImagePlayground() {
   }
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden">
-      {/* Floating segmented tab bar — sits above the wall, centered.
+    <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden">
+      {/* Center column — gallery / my-images grid + floating composer.
+          Sits as the first sibling in the outer flex-row; the
+          `ImagePreviewPanel` aside takes the second slot. flex-1 +
+          min-w-0 lets the column shrink when the 620px panel opens
+          without overflowing the viewport. */}
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Floating segmented tab bar — sits above the wall, centered.
           Aceternity-style: a NoiseBackground pill wraps two cut-out
           buttons that read as "windows" through the slab. The inactive
           tab is darker because it sits under the coloured gradient;
           the active tab uses a solid white background so it reads as
           the pressed state. */}
-      <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
-        <NoiseBackground
-          containerClassName="pointer-events-auto h-10 w-fit rounded-full p-1.5 select-none bg-sidebar/80"
-          gradientColors={[]}
-          noiseOpacity={0}
-          className="rounded-full"
-        >
-          <div className="relative z-10 flex h-7 items-center gap-1">
-            {GALLERY_TABS.map((t) => {
-              const active = tab === t.id;
-              return (
-                <button
-                  key={t.id}
-                  type="button"
-                  onClick={() => setTab(t.id)}
-                  className={cn(
-                    'inline-flex h-full cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-all outline-none',
-                    active
-                      ? 'bg-background text-foreground shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
-                  )}
-                >
-                  <t.icon className="size-4" />
-                  {t.label()}
-                </button>
-              );
-            })}
-          </div>
-        </NoiseBackground>
-      </div>
+        <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
+          <NoiseBackground
+            containerClassName="pointer-events-auto h-10 w-fit rounded-full p-1.5 select-none bg-sidebar/80"
+            gradientColors={[]}
+            noiseOpacity={0}
+            className="rounded-full"
+          >
+            <div className="relative z-10 flex h-7 items-center gap-1">
+              {GALLERY_TABS.map((t) => {
+                const active = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => setTab(t.id)}
+                    className={cn(
+                      'inline-flex h-full cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-all outline-none',
+                      active
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
+                    )}
+                  >
+                    <t.icon className="size-4" />
+                    {t.label()}
+                  </button>
+                );
+              })}
+            </div>
+          </NoiseBackground>
+        </div>
 
-      {/* Scroll track. `pb-56` clears the floating composer (with
+        {/* Scroll track. `pb-56` clears the floating composer (with
           breathing room for the reference-image strip — its tallest
           state can push the composer past 200px). The scrollbar is
           hidden and overscroll contained, matching the reference. */}
-      <div className="flex-1 overflow-hidden">
-        <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none pb-56">
-          {tab === 'community' ? (
-            <div className="min-h-full w-full">
-              <GalleryWall />
-              {/* CTA end-cap — the payoff after scrolling the wall. */}
-              <div className="flex flex-col items-center px-4 py-20">
-                <p className="text-foreground text-center text-2xl font-bold tracking-tight sm:text-3xl">
-                  {m['playground.image.wall_cta_title']()}
-                </p>
-                <p className="text-muted-foreground mt-3 max-w-xs text-center text-sm leading-relaxed">
-                  {m['playground.image.wall_cta_sub']()}
-                </p>
-                <button
-                  type="button"
-                  // Jump straight to My Images — the user's own workspace
-                  // — instead of leaving them on the Community wall while
-                  // they type. The composer is floating (rendered outside
-                  // this tab branch), so focusing it right after the tab
-                  // switch still lands on a live textarea.
-                  onClick={() => {
-                    setTab('mine');
-                    promptRef.current?.focus();
-                  }}
-                  className="border-border bg-background hover:bg-foreground/5 mt-8 inline-flex h-10 items-center justify-center gap-2 rounded-full border px-3 text-sm font-medium shadow-xs transition-all"
-                >
-                  <SparklesIcon className="size-4" />
-                  {m['playground.image.wall_cta_button']()}
-                </button>
+        <div className="flex-1 overflow-hidden">
+          <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none pb-56">
+            {tab === 'community' ? (
+              <div className="min-h-full w-full">
+                <GalleryWall />
+                {/* CTA end-cap — the payoff after scrolling the wall. */}
+                <div className="flex flex-col items-center px-4 py-20">
+                  <p className="text-foreground text-center text-2xl font-bold tracking-tight sm:text-3xl">
+                    {m['playground.image.wall_cta_title']()}
+                  </p>
+                  <p className="text-muted-foreground mt-3 max-w-xs text-center text-sm leading-relaxed">
+                    {m['playground.image.wall_cta_sub']()}
+                  </p>
+                  <button
+                    type="button"
+                    // Jump straight to My Images — the user's own workspace
+                    // — instead of leaving them on the Community wall while
+                    // they type. The composer is floating (rendered outside
+                    // this tab branch), so focusing it right after the tab
+                    // switch still lands on a live textarea.
+                    onClick={() => {
+                      setTab('mine');
+                      promptRef.current?.focus();
+                    }}
+                    className="border-border bg-background hover:bg-foreground/5 mt-8 inline-flex h-10 items-center justify-center gap-2 rounded-full border px-3 text-sm font-medium shadow-xs transition-all"
+                  >
+                    <SparklesIcon className="size-4" />
+                    {m['playground.image.wall_cta_button']()}
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : previewTaskId ? (
-            // Inline preview — replaces the masonry grid when the user
-            // clicks a thumbnail. The image paints from the cached
-            // `previewRow.thumbnailUrl` instantly; the full task
-            // upgrades the prompt / model / download button.
-            //
-            // The top prompt-summary badge was removed — only the
-            // bottom PROMPT block survives, with extra vertical room
-            // between the image and the meta panel so the preview
-            // breathes instead of feeling cramped.
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-6">
-              <section>
-                <header className="mb-3 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setPreviewTaskId(null)}
-                    className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
-                  >
-                    ← {m['playground.image.back_to_grid']()}
-                  </button>
-                </header>
-                {/*
-                  Image card — just the picture now. Border and rounded
-                  edges still in place here since this is the focal
-                  preview surface, not the packed masonry.
-                */}
-                <div className="border-border bg-card/40 overflow-hidden rounded-2xl border">
-                  <div className="bg-foreground/5 flex max-h-[70vh] min-h-[18rem] items-center justify-center overflow-hidden">
-                    {previewUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={previewUrl}
-                        alt={previewRow?.prompt || 'Generated image'}
-                        className="mx-auto max-h-[70vh] w-auto object-contain"
-                        decoding="async"
-                        loading="eager"
-                      />
-                    ) : (
-                      <div className="flex items-center gap-2 px-6 py-16 text-sm">
-                        <Loader2 className="text-muted-foreground size-4 animate-spin" />
-                        <span className="text-muted-foreground">
-                          {m['playground.image.generating']()}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                {/* Meta panel — moved OUTSIDE the image card so it
-                    sits below the picture with proper breathing room.
-                    Cleaner than hugging the card edge: the prompt and
-                    download row no longer fight the image border. */}
-                <div className="mt-10">
-                  {previewDetail?.prompt || previewRow?.prompt ? (
-                    <p className="text-foreground line-clamp-4 text-sm leading-relaxed">
-                      {previewDetail?.prompt || previewRow?.prompt}
-                    </p>
-                  ) : null}
-                  <div className="mt-4 flex items-center justify-end gap-3">
-                    <div className="flex items-center gap-2">
-                      {previewUrl ? (
-                        <a
-                          href={previewUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs transition-colors"
-                        >
-                          {m['playground.image.open_in_new_tab']()}
-                        </a>
-                      ) : null}
-                      {previewUrl ? (
-                        <button
-                          type="button"
-                          onClick={handleDownload}
-                          className={cn(
-                            buttonVariants({ size: 'sm', variant: 'outline' })
-                          )}
-                        >
-                          {m['playground.image.download']()}
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </div>
-          ) : (
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-6">
-              <section>
-                <header className="mb-3 flex items-center justify-end">
-                  <button
-                    type="button"
-                    onClick={() => setTab('community')}
-                    className="text-muted-foreground hover:text-foreground text-xs transition-colors"
-                  >
-                    ← {m['playground.image.wall_cta_button']()}
-                  </button>
-                </header>
-                <MyImageRows
-                  rows={[...(myImagesQuery.data?.tasks ?? [])].reverse()}
-                  onSelect={(id) => {
-                    // Inline preview — image paints immediately from
-                    // the row's cached imageUrls[0] (no fetch). The
-                    // grid is replaced by the preview view above; this
-                    // 0-network-roundtrip path keeps the click snappy.
-                    setPreviewTaskId(id);
-                  }}
-                  highlightId={recentlyLandedTaskId}
-                />
-              </section>
-            </div>
-          )}
+            ) : (
+              // My Images tab — packed masonry grid. Clicking a tile
+              // surfaces the image in the right-side `ImagePreviewPanel`
+              // instead of replacing the grid in place. The grid therefore
+              // stays visible behind the panel so the user can hop between
+              // their other generations without a back-and-forth dance.
+              <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-6">
+                <section>
+                  <header className="mb-3 flex items-center justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setTab('community')}
+                      className="text-muted-foreground hover:text-foreground text-xs transition-colors"
+                    >
+                      ← {m['playground.image.wall_cta_button']()}
+                    </button>
+                  </header>
+                  <MyImageRows
+                    rows={[...(myImagesQuery.data?.tasks ?? [])].reverse()}
+                    onSelect={(id) => {
+                      // Inline preview — image paints immediately from
+                      // the row's cached imageUrls[0] (no fetch). The
+                      // grid is replaced by the preview view above; this
+                      // 0-network-roundtrip path keeps the click snappy.
+                      setPreviewTaskId(id);
+                    }}
+                    highlightId={recentlyLandedTaskId}
+                  />
+                </section>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Floating composer — shown in both Community and the My Images
-          grid view (but never during an image preview, where it would
-          cover the meta panel). The scroll track's bottom padding
-          (`pb-56`) compensates for the composer's height so the last
-          batch row stays fully visible above it — see the surrounding
-          `pb-56` on the scroll container. */}
-      {!previewTaskId ? (
+        {/* Floating composer — always visible (Community, My Images grid,
+          and now while a preview is open in the right panel). The
+          preview panel sits in its own column at 620px so the two never
+          collide on the same x-axis. The scroll track's `pb-56` keeps
+          the last batch row clear of the composer's footprint. */}
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-6">
           <div
             onPaste={handleReferencePaste}
@@ -5227,10 +5155,237 @@ export function ImagePlayground() {
             </div>
           </div>
         </div>
-      ) : null}
 
-      <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
+        <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
+      </div>
+      {/* Right-side preview panel. Only mounted when there's an active
+          preview — leaving it out for the empty case lets the centre
+          column (`max-w-3xl mx-auto`) re-centre against the full
+          viewport width. Closing the panel (X) clears `previewTaskId`
+          which unmounts this aside in the same tick; the dialog
+          visibly slides back to the page centre. The previous
+          `target="_blank"` open-in-new-tab link is gone — see
+          ImagePreviewPanel's JSDoc. */}
+      {previewTaskId ? (
+        <ImagePreviewPanel
+          taskId={previewTaskId}
+          rows={myImagesQuery.data?.tasks ?? []}
+          onSelect={setPreviewTaskId}
+          onClose={() => setPreviewTaskId(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  ImagePreviewPanel — right-side preview surface                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The 620px preview column on the right edge of `ImagePlayground`.
+ * Replaces the previous behaviour where clicking a thumbnail either
+ * replaced the masonry grid in place (forcing the user to back-track to
+ * keep browsing) or opened the raw image URL in a new browser tab via
+ * `target="_blank"`.
+ *
+ * The panel only mounts when `taskId !== null` — its parent short-
+ * circuits on the empty case so the 620px gutter collapses entirely and
+ * the centre column (`max-w-3xl mx-auto` dialog + composer) centres
+ * against the full viewport. Pressing the close (X) button clears the
+ * parent state, the aside unmounts, and the dialog returns to the page
+ * centre in one tick.
+ *
+ * Active state contents: toolbar (title / edit / download / close) +
+ * full-bleed image + horizontal thumbnail strip across the bottom that
+ * lets the user hop between their other generations without leaving
+ * the panel.
+ *
+ * Data fetching is owned by the panel: `taskId` is the only input, and
+ * react-query reuses the `['image-task', id]` cache key the parent
+ * already populated — no second round-trip on first render.
+ */
+function ImagePreviewPanel({
+  taskId,
+  rows,
+  onSelect,
+  onClose,
+}: {
+  taskId: string | null;
+  rows: ImageTaskRow[];
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  // No panel mounted when there's no active preview — `ImagePlayground`
+  // skips the aside altogether in this case so the centre column gets
+  // the full viewport width and the `max-w-3xl mx-auto` dialog centres
+  // against the whole page (not against a 620px-stripped column).
+  if (!taskId) return null;
+
+  // Active state — fetch full task detail for prompt + higher-resolution
+  // URLs. The same cache key is used elsewhere (the `['image-task', id]`
+  // shape is shared with `ImagePreviewPage` at routes/api-playground/image/$id)
+  // so this is free when the user just clicked a thumbnail.
+  const detailQuery = useQuery({
+    queryKey: ['image-task', taskId],
+    queryFn: () => apiGet<{ task: any }>(`/api/ai-tasks/${taskId}`),
+    enabled: !!taskId,
+    staleTime: 30_000,
+  });
+  const detail = detailQuery.data?.task;
+  const row = rows.find((r) => r.id === taskId);
+
+  // Resolve the highest-quality URL we have. `detail.taskResult` carries
+  // the resolved provider URLs from the polling endpoint; the row's
+  // `thumbnailUrl` is the cached fallback when the request hasn't landed.
+  const previewUrls: string[] = (() => {
+    if (detail?.taskResult) {
+      const r =
+        typeof detail.taskResult === 'string'
+          ? JSON.parse(detail.taskResult)
+          : detail.taskResult;
+      if (Array.isArray(r?.imageUrls) && r.imageUrls.length) return r.imageUrls;
+      if (typeof r?.imageUrl === 'string') return [r.imageUrl];
+    }
+    if (row?.imageUrls?.length) return row.imageUrls;
+    return [];
+  })();
+  const previewUrl = previewUrls[0] || row?.thumbnailUrl;
+
+  /**
+   * Save-as download — proxy through `/api/ai-tasks/$id/image?download=1`
+   * so the browser pops the native "Save As" dialog with a clean
+   * filename (the proxy sets `Content-Disposition`). Same rationale as
+   * the old `handleDownload` on `ImagePlayground` — direct provider URLs
+   * are CORS-locked, so streaming server-side is the only path that
+   * works without exposing the upstream URL.
+   */
+  function handleDownload() {
+    const url = `/api/ai-tasks/${taskId}/image?download=1`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener noreferrer';
+    a.download = '';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  // Header title. Single-image tasks render the generic "Image" label
+  // (matches the alt-text on the underlying file); multi-image batches
+  // get the "N images" count so the user knows the rest are sitting in
+  // the task result, just not shown in this 1-up preview slot.
+  const titleText =
+    previewUrls.length > 1
+      ? m['playground.image.preview_count']({ count: previewUrls.length })
+      : m['playground.image.preview_default_label']();
+
+  // Cap the strip to 12 most-recent tiles — beyond that the row gets
+  // visually noisy and the count badge already gives a hint at full
+  // history. `rows` arrives newest-first from the API, so no sort needed.
+  const stripRows = rows.slice(0, 12);
+
+  return (
+    <aside className="bg-background hidden w-[620px] shrink-0 flex-col overflow-hidden border-l md:flex">
+      {/* Toolbar — mirrors the reference: title left, icon cluster right.
+          The "edit" pencil is a placeholder for future in-place editing;
+          clicking it just acks the user for now instead of silently
+          failing. External-link is intentionally absent (the previous
+          `target="_blank"` behaviour was removed — see component header). */}
+      <div className="flex h-14 shrink-0 items-center justify-between gap-2 px-4">
+        <span className="truncate text-sm font-medium">{titleText}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            aria-label="Edit"
+            title="Edit"
+            onClick={() => toast.info(m['playground.image.wall_cta_button']())}
+            className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex size-8 items-center justify-center rounded-md transition-colors"
+          >
+            <Pencil className="size-4" />
+          </button>
+          <button
+            type="button"
+            aria-label={m['playground.image.download']()}
+            title={m['playground.image.download']()}
+            onClick={handleDownload}
+            disabled={!previewUrl}
+            className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex size-8 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-50"
+          >
+            <Download className="size-4" />
+          </button>
+          <button
+            type="button"
+            aria-label="Close"
+            title="Close"
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex size-8 items-center justify-center rounded-md transition-colors"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* Main image area — scrolls vertically when the picture is taller
+            than the panel. Padding 24px keeps the image from kissing the
+            rounded border. `max-h-none` lets a wide image overflow the
+            viewport width rather than artificially resizing. */}
+        <div className="min-h-0 flex-1 overflow-auto p-6">
+          <div className="flex min-h-full items-center justify-center">
+            {previewUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewUrl}
+                alt={
+                  row?.prompt || m['playground.image.preview_default_label']()
+                }
+                className="max-h-none max-w-full rounded-lg border object-contain shadow-sm"
+                decoding="async"
+                loading="eager"
+              />
+            ) : (
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                <Loader2 className="size-4 animate-spin" />
+                <span>{m['playground.image.generating']()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Thumbnail strip — horizontal scroll of all the user's images,
+            active one outlined in the primary color. Clicking a tile
+            routes through the same `onSelect` handler the masonry grid
+            uses, so flipping between generations stays a single
+            click deep even after many produces. */}
+        {stripRows.length > 0 ? (
+          <div className="shrink-0 overflow-x-auto border-t px-4 py-3">
+            <div className="flex gap-2">
+              {stripRows.map((r) => {
+                const url = r.imageUrls?.[0] || r.thumbnailUrl;
+                if (!url) return null;
+                const active = r.id === taskId;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    title={r.prompt?.slice(0, 40) || undefined}
+                    aria-current={active ? 'true' : undefined}
+                    onClick={() => onSelect(r.id)}
+                    className={cn(
+                      'bg-muted hover:border-border size-16 shrink-0 overflow-hidden rounded-md border-2 transition-colors',
+                      active ? 'border-primary' : 'border-transparent'
+                    )}
+                  >
+                    <img alt="" src={url} className="size-full object-cover" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </aside>
   );
 }
 

@@ -1008,6 +1008,8 @@
   "playground.image.preview_title": "Image preview",
   "playground.image.preview_prompt_label": "Prompt",
   "playground.image.preview_default_label": "Image",
+  "playground.image.preview_empty_title": "No image selected",
+  "playground.image.preview_empty_desc": "Pick a thumbnail from My Images to preview it here.",
   "playground.image.batch_prompt_label": "Prompt",
   "playground.image.preview_model_label": "Model",
   "playground.image.preview_count": "{count} images",
