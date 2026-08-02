@@ -488,6 +488,18 @@ export function Footer() {
                 height={44}
               />
             </a>
+            <a
+              href="https://lovableapp.org"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block transition-opacity hover:opacity-80"
+            >
+              <img
+                src="https://lovableapp.org/lovable-app-badge.svg"
+                width={160}
+                alt="Lovable App Badge"
+              />
+            </a>
           </div>
         </div>
       </div>
