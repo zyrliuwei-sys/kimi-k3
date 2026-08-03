@@ -268,7 +268,7 @@ const FOOTER_BADGES: BadgeEntry[] = [
     href: 'https://famed.tools/products/kimik3?utm_source=famed.tools',
     rel: 'noopener',
     img: {
-      src: 'https://famed.tools/badges/famed-tools-badge-light.svg',
+      src: 'https://famed.tools/badges/famed-tools-badge-dark.svg',
       alt: 'Featured on famed.tools',
       width: 150,
     },
