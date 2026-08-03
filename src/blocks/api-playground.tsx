@@ -3988,33 +3988,174 @@ const VIDEO_GALLERY_TABS = [
 function ImageQuickActions({
   isZh,
   disabled,
+  expandedId,
+  onPick,
+  onToggle,
+}: {
+  isZh: boolean;
+  disabled: boolean;
+  // ID of the currently-expanded chip (e.g. 'style-transfer'). When
+  // set, that chip renders with the "pressed" style and clicking it
+  // collapses the expanded panel via `onToggle`. `null` means no chip
+  // is expanded.
+  expandedId: string | null;
+  onPick: (prompt: string) => void;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div className="pointer-events-auto flex flex-col items-center gap-3">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {IMAGE_QUICK_ACTIONS.map((action) => {
+          const label = isZh ? action.zh : action.en;
+          const prompt = isZh ? action.promptZh : action.promptEn;
+          const Icon = action.Icon;
+          const isExpandable = 'expandable' in action && action.expandable;
+          const isExpanded = expandedId === action.id;
+
+          // Non-expandable chip: plain button, applies the prompt
+          // directly on click.
+          if (!isExpandable) {
+            return (
+              <button
+                key={action.id}
+                type="button"
+                disabled={disabled}
+                onClick={() => onPick((prompt as string | undefined) ?? '')}
+                className="bg-sidebar/80 border-border/60 text-foreground/80 hover:border-primary/40 hover:bg-sidebar hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Icon className="size-3.5" />
+                {label}
+              </button>
+            );
+          }
+
+          // Expandable chip: plain button. The expansion panel is
+          // rendered inline below (one consistent layout across all
+          // three expandable chips — no more Popover-as-overlay).
+          return (
+            <button
+              key={action.id}
+              type="button"
+              aria-pressed={isExpanded}
+              disabled={disabled}
+              onClick={() => onToggle(action.id)}
+              className={cn(
+                'bg-sidebar/80 border-border/60 text-foreground/80 hover:border-primary/40 hover:bg-sidebar hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                isExpanded &&
+                  'border-primary bg-sidebar text-foreground shadow-sm'
+              )}
+            >
+              <Icon className="size-3.5" />
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Expansion panel — one consistent layout across all three
+          expandable chips. Renders INLINE below the chip row (no
+          floating Popover) so the layout is predictable and the
+          gallery above doesn't get hidden by an overlay. Each preset
+          ships with a sample image so the user picks by visual intent. */}
+      {expandedId === 'style-transfer' ? (
+        <ThumbnailGridPanel
+          isZh={isZh}
+          disabled={disabled}
+          presets={STYLE_PRESETS}
+          onPick={(p) => {
+            onPick(p);
+            onToggle('style-transfer');
+          }}
+        />
+      ) : expandedId === 'virtual-makeup' ? (
+        <ThumbnailGridPanel
+          isZh={isZh}
+          disabled={disabled}
+          presets={VIRTUAL_MAKEUP_PRESETS}
+          onPick={(p) => {
+            onPick(p);
+            onToggle('virtual-makeup');
+          }}
+        />
+      ) : expandedId === 'background' ? (
+        <ThumbnailGridPanel
+          isZh={isZh}
+          disabled={disabled}
+          presets={BACKGROUND_PRESETS}
+          onPick={(p) => {
+            onPick(p);
+            onToggle('background');
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Style Transfer sub-panel — 4 image-tile presets inside the popover.
+ * Kept as a separate component so the parent doesn't get any longer.
+ */
+/**
+ * Thumbnail-grid sub-panel — used by Virtual Makeup, Background, and
+ * Style Transfer. 2×2 on mobile, 4×1 on sm+. Same look as the source
+ * r2.imgany.ai grid: image + label, hover-shadow on the tile, prompt
+ * exposed via `title`.
+ * Thumbnail-grid sub-panel — used by Virtual Makeup and Background.
+ * 2×2 on mobile, 4×1 on sm+. Same look as the source r2.imgany.ai
+ * grid: image + label, hover-shadow on the tile, prompt exposed via
+ * `title`.
+ */
+function ThumbnailGridPanel<
+  T extends {
+    id: string;
+    zh: string;
+    en: string;
+    promptZh: string;
+    promptEn: string;
+    img: string;
+  },
+>({
+  isZh,
+  disabled,
+  presets,
   onPick,
 }: {
   isZh: boolean;
   disabled: boolean;
+  presets: ReadonlyArray<T>;
   onPick: (prompt: string) => void;
 }) {
   return (
-    <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
-      {IMAGE_QUICK_ACTIONS.map((action) => {
-        const label = isZh ? action.zh : action.en;
-        const prompt = isZh ? action.promptZh : action.promptEn;
-        const Icon = action.Icon;
-        return (
+    <>
+      <p className="text-muted-foreground mb-2 text-center text-xs font-medium">
+        {isZh ? '为您推荐' : 'Recommended for you'}
+      </p>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {presets.map((preset) => (
           <button
-            key={action.id}
+            key={preset.id}
             type="button"
-            aria-pressed={false}
             disabled={disabled}
-            onClick={() => onPick(prompt)}
-            className="bg-sidebar/80 border-border/60 text-foreground/80 hover:border-primary/40 hover:bg-sidebar hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            title={isZh ? preset.promptZh : preset.promptEn}
+            onClick={() => onPick(isZh ? preset.promptZh : preset.promptEn)}
+            className="group w-20 text-left"
           >
-            <Icon className="size-3.5" />
-            {label}
+            <span className="border-border bg-muted/40 block aspect-square w-full overflow-hidden rounded-md border transition-shadow group-hover:shadow-md">
+              <img
+                alt={isZh ? preset.zh : preset.en}
+                src={preset.img}
+                loading="lazy"
+                className="size-full object-cover"
+              />
+            </span>
+            <span className="text-muted-foreground group-hover:text-foreground mt-1.5 block truncate text-[11px] transition-colors">
+              {isZh ? preset.zh : preset.en}
+            </span>
           </button>
-        );
-      })}
-    </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -4397,36 +4538,199 @@ function MyImageTile({
  * naturally whether or not the user has actually uploaded one. The
  * model treats them as instructions on the attached image; if no
  * reference is present the prompt still parses as a request.
+ *
+ * `expandable` chips (only Style Transfer right now) open an inline
+ * sub-panel with 4 preset styles. Picking a style fills the prompt
+ * with that style's template instead of the generic style-transfer
+ * one — gives users a real "one-click" feel without forcing them to
+ * type the artist's name.
  */
+const STYLE_PRESETS = [
+  {
+    id: 'starry-night',
+    zh: '梵高星夜',
+    en: 'Starry Night',
+    img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg/256px-Van_Gogh_-_Starry_Night_-_Google_Art_Project.jpg',
+    promptZh: '将这张参考图转换为梵高《星夜》的笔触风格，保持构图与主体不变。',
+    promptEn:
+      "Re-render this reference image in the brushstroke style of Van Gogh's Starry Night, keeping the composition and subject intact.",
+  },
+  {
+    id: 'cyberpunk',
+    zh: '赛博朋克',
+    en: 'Cyberpunk',
+    img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Hong_Kong_cyberpunk_district.jpg/320px-Hong_Kong_cyberpunk_district.jpg',
+    promptZh:
+      '为这张图注入赛博朋克氛围：霓虹紫粉调、湿润街道反光、雨夜、全息广告元素，其他保持不变。',
+    promptEn:
+      'Reimagine this image as a cyberpunk nightscape: neon magenta and cyan, wet asphalt reflections, light rain, holographic signage — keep the original subject intact.',
+  },
+  {
+    id: 'anime',
+    zh: '日系动漫',
+    en: 'Anime',
+    img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/6/6c/Spirited_Away_screenshot.jpg/320px-Spirited_Away_screenshot.jpg',
+    promptZh:
+      '将这张图片重新渲染为日系动漫风格：干净的线条、柔和的赛璐璐上色、轻微的网点阴影，保留主体与构图。',
+    promptEn:
+      'Re-render this image in a Japanese anime style: clean line art, soft cel-shading, subtle halftone shadows — keep the subject and composition recognizable.',
+  },
+  {
+    id: 'oil-painting',
+    zh: '古典油画',
+    en: 'Oil Painting',
+    img: 'https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Jan_Vermeer_-_The_Milkmaid.jpg/256px-Jan_Vermeer_-_The_Milkmaid.jpg',
+    promptZh:
+      '将这张图片转为古典油画风格：厚涂笔触、暖色调、伦勃朗式光影，构图与主体保持。',
+    promptEn:
+      'Re-render this image as a classical oil painting: thick impasto brushstrokes, warm palette, Rembrandt-style chiaroscuro lighting — keep the composition and subject intact.',
+  },
+] as const;
+
+/**
+ * Background sub-presets — when the user clicks the "背景" chip, this
+ * thumbnail grid opens with 4 background-treatment options. Each
+ * preset carries its own sample-output image so the user picks by
+ * visual intent ("transparent cutout" vs "sunlit café" vs
+ * "remove passers-by") rather than by reading prompt jargon.
+ */
+const BACKGROUND_PRESETS = [
+  {
+    id: 'transparent',
+    zh: '透明镂空',
+    en: 'Transparent Cutout',
+    img: 'https://r2.imgany.ai/imgs/agent/sessions/s-1784988546557-yhpswr/img_1784989116777_0.png',
+    promptZh: '完全移除这张图片的背景，输出主体在透明背景上的镂空版本。',
+    promptEn:
+      'Remove the background completely and export the subject on transparency.',
+  },
+  {
+    id: 'solid',
+    zh: '稳固的背景',
+    en: 'Solid Backdrop',
+    img: 'https://r2.imgany.ai/imgs/agent/sessions/s-1784989520446-b7e85i/img_1784989625004_0.png',
+    promptZh: '把这张图片的背景替换为干净的浅灰色影棚背景。',
+    promptEn: 'Replace the background with a clean light-gray studio backdrop.',
+  },
+  {
+    id: 'new-scene',
+    zh: '新场景',
+    en: 'New Scene',
+    img: 'https://r2.imgany.ai/imgs/agent/sessions/s-1784989832154-t69ctg/img_1784989992575_0.png',
+    promptZh:
+      '把主体放进一个靠窗的阳光咖啡馆场景，光线保持一致，整体氛围自然。',
+    promptEn:
+      'Place the subject in a sunlit café by the window, keep the lighting consistent.',
+  },
+  {
+    id: 'remove-people',
+    zh: '移除人员',
+    en: 'Remove People',
+    img: 'https://r2.imgany.ai/imgs/agent/sessions/s-1784990356877-anjtq9/img_1784990509689_0.png',
+    promptZh: '移除背景中的行人，并自然地补全场景。',
+    promptEn:
+      'Remove the passers-by in the background and fill the scene naturally.',
+  },
+] as const;
+
+/**
+ * Virtual Makeup sub-presets — when the user clicks the "Virtual Makeup"
+ * chip, this grid opens with 4 look-and-feel options. Each preset ships
+ * with a sample image so the user picks by *visual* intent (red lip vs
+ * smokey eye vs hair color) rather than by reading prompt jargon. The
+ * sample images live in /public/imgs/examples (self-hosted — imgany.ai
+ * hotlinks were flaky in past footer badges, same lesson).
+ */
+const VIRTUAL_MAKEUP_PRESETS = [
+  {
+    id: 'try-on',
+    zh: '试穿衣服',
+    en: 'Try on clothes',
+    img: '/imgs/examples/tryon-out.png',
+    // 2-image variant: requires a clothing reference + a person reference.
+    // The composer will auto-pick the first two attached images; the user
+    // uploads them in order: clothes first, person second. (Matches the
+    // r2.imgany.ai source prompt so the model gets the same intent.)
+    promptZh:
+      '将第二张图中的 T 恤穿到第一张图的人物身上,保留 T 恤的印花和颜色,人物姿势、面部、背景保持不变。',
+    promptEn:
+      'Virtual try-on: put the T-shirt from the second image on the person in the first image, keeping its print and color, and keeping her pose, face and the background unchanged.',
+  },
+  {
+    id: 'retro-red-lip',
+    zh: '复古红唇',
+    en: 'Retro red lip',
+    img: '/imgs/examples/makeup-retro-red.png',
+    promptZh:
+      '为图中人物添加复古妆容:哑光红唇、飞扬的眼线,保持五官与背景不变。',
+    promptEn:
+      'Give her a retro makeup look: matte red lips and winged eyeliner. Keep her features and background unchanged.',
+  },
+  {
+    id: 'smokey-eye',
+    zh: '烟熏眼妆',
+    en: 'Smokey eyes',
+    img: '/imgs/examples/makeup-smokey-eye.png',
+    promptZh:
+      '为图中人物添加精致烟熏妆:烟熏棕灰色眼影、根根分明的睫毛、柔和裸色唇,五官与背景保持不变。',
+    promptEn:
+      'Give her a refined smokey eye: smoked brown-grey shadow, defined lashes and a soft nude lip. Keep her features and background unchanged.',
+  },
+  {
+    id: 'hair-color',
+    zh: '尝试一种发色',
+    en: 'Try a hair color',
+    img: '/imgs/examples/makeup-hair-color.png',
+    promptZh:
+      '将图中人物的发色改为温暖的蜂蜜棕,带有柔和的高光,保持发型、五官和背景不变。',
+    promptEn:
+      'Change the hair color to a warm honey-brown with soft highlights, keeping the same hairstyle, features and background.',
+  },
+] as const;
+
 const IMAGE_QUICK_ACTIONS = [
   {
     id: 'style-transfer',
     Icon: Palette,
     zh: '风格迁移',
     en: 'Style Transfer',
-    promptZh: '将这张参考图转换为梵高《星夜》的笔触风格，保持构图与主体不变。',
+    // Generic fallback when the user clicks the chip itself without
+    // picking a sub-style. The `expandable` flag triggers the
+    // sub-panel; `presetBasePrompt` is unused for the generic chip
+    // path but kept here so the type stays uniform.
+    promptZh: '将这张参考图转换为艺术风格迁移效果，保持构图与主体不变。',
     promptEn:
-      "Re-render this reference image in the brushstroke style of Van Gogh's Starry Night, keeping the composition and subject intact.",
+      'Apply an artistic style transfer to this reference image, preserving the composition and subject.',
+    expandable: true,
   },
   {
     id: 'background',
     Icon: Eraser,
     zh: '背景',
     en: 'Background',
-    promptZh:
-      '移除这张图片的背景，主体保留，背景替换为纯白渐变，适合产品展示。',
+    // Generic fallback when the user clicks the chip itself without
+    // picking a sub-preset. The `expandable` flag opens the
+    // thumbnail grid below; `promptZh/En` stays here so the type
+    // stays uniform across expandable + non-expandable entries.
+    promptZh: '调整这张图片的背景，根据需要移除、替换或新增背景元素。',
     promptEn:
-      'Remove the background of this image, keep the subject intact, and replace it with a clean white gradient — product-shot ready.',
+      'Adjust the background of this image — remove, replace, or add background elements as needed.',
+    expandable: true,
   },
   {
     id: 'virtual-makeup',
     Icon: Sparkles,
     zh: '虚拟化妆',
     en: 'Virtual Makeup',
+    // Generic fallback when the user clicks the chip itself without
+    // picking a sub-preset. The `expandable` flag opens the
+    // sample-image grid below; `promptZh`/`promptEn` here are the
+    // "natural soft makeup" default.
     promptZh:
       '为图中人物应用自然、淡雅的妆容：哑光底妆、淡粉唇色、温和大地色眼影，整体保持真实。',
     promptEn:
       'Apply a natural, soft makeup look to the person in this image: matte foundation, soft pink lips, gentle earth-tone eyeshadow — keep the result photorealistic.',
+    expandable: true,
   },
   {
     id: 'cover-design',
@@ -4508,6 +4812,13 @@ export function ImagePlayground() {
   // because every provider we've wired supports a default size and
   // most users don't know they need to pick a ratio up front.
   const [aspectRatio, setAspectRatio] = useState<string>('');
+  // ID of the currently-expanded quick-action chip (e.g.
+  // 'style-transfer'). `null` means no chip is expanded. The
+  // Style Transfer chip opens a sub-panel of 4 preset styles;
+  // other chips aren't expandable yet.
+  const [quickActionsExpanded, setQuickActionsExpanded] = useState<
+    string | null
+  >(null);
   // My Images tab — clicking a tile routes to the dedicated preview
   // page at /api-playground/image/$id rather than opening an overlay,
   // so the URL is shareable and back-navigation works.
@@ -5347,9 +5658,16 @@ export function ImagePlayground() {
           <ImageQuickActions
             isZh={getLocale() === 'zh'}
             disabled={submitMutation.isPending || !!pollingTaskId}
+            expandedId={quickActionsExpanded}
             onPick={(prompt) => {
               setPrompt(prompt);
               promptRef.current?.focus();
+              // Collapse the panel after a pick so the user sees the
+              // composer immediately rather than a multi-row chrome.
+              setQuickActionsExpanded(null);
+            }}
+            onToggle={(id) => {
+              setQuickActionsExpanded((cur) => (cur === id ? null : id));
             }}
           />
         </div>
