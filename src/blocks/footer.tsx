@@ -273,6 +273,15 @@ const FOOTER_BADGES: BadgeEntry[] = [
       width: 150,
     },
   },
+  {
+    href: 'https://deeplaunch.io',
+    img: {
+      src: 'https://deeplaunch.io/badge/badge_dark.svg',
+      alt: 'Featured on DeepLaunch.io',
+      width: 200,
+      height: 54,
+    },
+  },
 ];
 
 /**
