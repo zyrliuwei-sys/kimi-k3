@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router';
 import {
   ArrowDownToLine,
   ArrowUp,
+  ArrowUpRight,
   Atom,
   Bot,
   Check,
@@ -12,23 +13,31 @@ import {
   CornerDownLeft,
   Crown,
   Download,
+  Eraser,
   FileText,
   Film,
   Gift,
   Image as ImageIcon,
   LayoutGrid,
+  LayoutTemplate,
   Loader2,
   Maximize2,
   MessageSquarePlus,
+  MoveRight,
+  Palette,
   Pencil,
+  PenTool,
   Plus,
   RefreshCw,
   Search as SearchIcon,
   Sparkles,
   Sparkles as SparklesIcon,
+  Square,
   Terminal,
   Trash2,
   Triangle,
+  Type,
+  Undo2,
   Wand2,
   Wrench,
   X,
@@ -1492,18 +1501,38 @@ function MessageBubble({ message }: { message: Message }) {
         {images.length > 0 && (
           <div
             className={cn(
-              'mb-2 flex flex-wrap gap-2',
+              'mb-2 flex flex-col gap-3',
               message.content.trim() && 'mb-2.5'
             )}
           >
             {images.map((img) => (
-              <a key={img.url} href={img.url} target="_blank" rel="noreferrer">
-                <img
-                  src={img.previewUrl || img.url}
-                  alt={img.filename || ''}
-                  className="h-32 w-32 rounded-lg object-cover"
-                />
-              </a>
+              <div key={img.url} className="flex flex-col gap-2">
+                {/* Label above the image — matches the reference design
+                    (the "✨ Generated an image" caption that sits above
+                    the picture card). Lives OUTSIDE the card so the
+                    image stays flush with the bubble's left edge. */}
+                <div className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+                  <span>{m['playground.image.generated_label']()}</span>
+                </div>
+                <a
+                  href={img.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="border-foreground/10 bg-background block overflow-hidden rounded-xl border shadow-sm"
+                >
+                  {/* Larger image card — replaces the previous 128px
+                      h-32 w-32 thumbnail. `max-h` + `object-contain`
+                      keeps the picture proportional regardless of its
+                      native aspect ratio, and a 24px cap on width
+                      lets the image fill the chat bubble without
+                      overflowing the 85% max-w on the parent. */}
+                  <img
+                    src={img.previewUrl || img.url}
+                    alt={img.filename || ''}
+                    className="max-h-96 max-w-full object-contain"
+                  />
+                </a>
+              </div>
             ))}
           </div>
         )}
@@ -3948,6 +3977,47 @@ const VIDEO_GALLERY_TABS = [
  * fill up with eternal "Generating…" spinners; only a fresh submit's
  * short-lived processing placeholder survives.
  */
+
+/**
+ * Rounded-pill chip strip rendered beneath the image composer. Each
+ * chip is a localized starter prompt — clicking drops the prompt
+ * into the textarea and focuses it. Disabled while a submit /
+ * polling cycle is in flight so the chip click can't race the
+ * in-flight request.
+ */
+function ImageQuickActions({
+  isZh,
+  disabled,
+  onPick,
+}: {
+  isZh: boolean;
+  disabled: boolean;
+  onPick: (prompt: string) => void;
+}) {
+  return (
+    <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
+      {IMAGE_QUICK_ACTIONS.map((action) => {
+        const label = isZh ? action.zh : action.en;
+        const prompt = isZh ? action.promptZh : action.promptEn;
+        const Icon = action.Icon;
+        return (
+          <button
+            key={action.id}
+            type="button"
+            aria-pressed={false}
+            disabled={disabled}
+            onClick={() => onPick(prompt)}
+            className="bg-sidebar/80 border-border/60 text-foreground/80 hover:border-primary/40 hover:bg-sidebar hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Icon className="size-3.5" />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function MyImageRows({
   rows,
   onSelect,
@@ -3957,38 +4027,31 @@ function MyImageRows({
   onSelect: (id: string) => void;
   highlightId?: string | null;
 }) {
-  // Force a re-render every 30s so the staleness filter below can drop
-  // an in-flight row the moment it crosses the 2-minute window. Without
-  // the tick the filter only re-evaluates when `rows` changes, leaving
-  // expired placeholders visible to whoever happens to be staring at
-  // the page.
-  const [, force] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => force((n) => n + 1), 30_000);
-    return () => clearInterval(id);
-  }, []);
   const now = Date.now();
-  // Show a processing placeholder at most 30s before giving up the
-  // slot — beyond that the task has almost certainly failed / timed
-  // out / lost its URL, and showing an eternal spinner is worse than
-  // silently dropping it (the row can still be reached via the
-  // sidebar history).
-  const FRESH_PROCESSING_MS = 30_000;
-
+  // Processing tile stays visible AS LONG AS the row is still reported
+  // as in-flight by the server. The previous 30s timeout used to drop
+  // the spinner mid-generation, which made users think "did I click
+  // submit?" — the side-panel / preview pane still tracks the task,
+  // but the grid felt like it forgot the request. Now we keep the
+  // placeholder until the row either resolves (URL arrives) or the
+  // server reports a terminal failure status. Stale rows are still
+  // protected by the polling logic in `ImagePlayground` (90s hard
+  // ceiling, toast error if the request exceeds it).
   const visibleRows = rows.filter((r) => {
     const urls = r.imageUrls ?? (r.thumbnailUrl ? [r.thumbnailUrl] : []);
     // Any task that produced at least one image stays on the list.
     if (urls.length > 0) return true;
-    // A task still in-flight AND just submitted → keep the spinner so
-    // the user sees their fresh attempt. Older than 2 minutes and
-    // still no image → hide (it timed out / failed / lost its URL).
-    const age = now - new Date(r.createdAt).getTime();
-    if (
-      (r.status === 'processing' || r.status === 'pending') &&
-      age < FRESH_PROCESSING_MS
-    ) {
-      return true;
-    }
+    // In-flight tasks — keep the spinner so the user sees the request
+    // is still alive. No time cap: the row stays visible until the
+    // server reports a terminal status (success / failed / canceled).
+    if (r.status === 'processing' || r.status === 'pending') return true;
+    // Terminal non-success status — the row still has no URLs to show,
+    // so we keep the placeholder tile and let the in-progress UI
+    // communicate "this didn't finish" (the actual reason text lives
+    // in the per-batch footer below). The user explicitly asked for
+    // the tile to NEVER disappear, so we keep it even when the task
+    // failed or got cancelled.
+    if (r.status === 'failed' || r.status === 'canceled') return true;
     return false;
   });
 
@@ -4095,6 +4158,15 @@ function MyImageRows({
                 key={r.id}
                 className="flex w-full flex-col items-start gap-3"
               >
+                {/* Per-batch header — sits ABOVE the image card so the
+                    user can see what kind of content this batch is
+                    without hovering. Matches the reference design
+                    (the "✨ Generated an image" caption above the
+                    picture). */}
+                <div className="text-muted-foreground flex items-center gap-1.5 px-1 text-xs font-medium">
+                  <Sparkles className="size-3.5" />
+                  <span>{m['playground.image.generated_label']()}</span>
+                </div>
                 <div
                   data-task-id={r.id}
                   className={cn(
@@ -4169,8 +4241,10 @@ function ProcessingTile({
       className={cn(
         // Match MyImageTile's compact width so the spinner aligns with
         // the loaded tiles in the same row — not a giant placeholder
-        // stretching across the whole card. No border / rounded corners.
-        'bg-foreground/5 relative aspect-square w-36 shrink-0 overflow-hidden',
+        // stretching across the whole card. `rounded-lg` matches the
+        // MyImageTile so the in-flight spinner sits flush with the
+        // surrounding tiles once the row settles.
+        'bg-foreground/5 relative aspect-square w-56 shrink-0 overflow-hidden rounded-lg',
         highlight &&
           'ring-foreground ring-offset-background ring-4 ring-offset-2'
       )}
@@ -4185,11 +4259,12 @@ function ProcessingTile({
           animation: 'playground-shimmer 1.6s linear infinite',
         }}
       />
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 p-3">
-        <Loader2 className="text-muted-foreground relative size-5 animate-spin" />
-        <p className="text-muted-foreground relative line-clamp-2 text-center text-xs">
-          {prompt}
-        </p>
+      {/* Centered spinner only — no prompt text. The prompt already
+          lives in the per-batch footer below the row, so duplicating
+          it on the tile adds noise without giving the user any new
+          information. */}
+      <div className="absolute inset-0 flex items-center justify-center">
+        <Loader2 className="text-muted-foreground relative size-7 animate-spin" />
       </div>
       {/* Progress bar pinned to the bottom edge. Animates via the
           `playground-progress-fill` keyframe in globals.css — see the
@@ -4242,10 +4317,11 @@ function MyImageTile({
       style={{ aspectRatio: ratio }}
       className={cn(
         // Compact, fixed-width tile (instead of `w-full` stretching to
-        // fill the grid cell) so My Image rows read as tidy little
-        // tiles rather than a max-width mosaic. No border / rounded
-        // corners — matches the Community wall convention.
-        'group bg-foreground/5 hover:ring-foreground/30 relative w-36 shrink-0 overflow-hidden hover:ring-2',
+        // fill the grid cell). `w-56` (224px) is large enough that the
+        // picture reads as the actual generation, not a tiny thumbnail;
+        // `rounded-lg` keeps the corners subtle so a row of tiles still
+        // feels like a tight grid rather than a stack of cards.
+        'group bg-foreground/5 hover:ring-foreground/30 relative w-56 shrink-0 overflow-hidden rounded-lg hover:ring-2',
         // Pulse ring on the tile that just landed (sync submit or
         // polling resolution). Fades out via the parent state — the
         // class is removed when `highlight` flips back to false.
@@ -4274,23 +4350,20 @@ function MyImageTile({
           setIsLoaded(true);
         }}
         className={cn(
-          'absolute inset-0 size-full object-cover transition-opacity duration-300',
+          'absolute inset-0 size-full rounded-lg object-cover transition-opacity duration-300',
           isLoaded ? 'opacity-100' : 'opacity-0'
         )}
       />
       {/*
         Loading overlay — covers the tile until the underlying <img>
-        paints its first frame. Reuses the same `[data-progress-bar]`
-        keyframe as the in-flight ProcessingTile and the composer-top
-        progress bar, so the entire generation→load lifecycle reads as
-        one continuous "we're showing you your image" animation. The
-        `z-10` keeps the overlay above the (opacity-0) img; once the
-        image paints we let the overlay fade and the img fade in,
-        giving a smooth crossfade instead of a pop.
+        paints its first frame. Pure spinner now (no prompt text) so
+        the tile stays visually quiet at rest. The dark gradient + text
+        hover overlay was removed per user request — the image stands
+        on its own.
       */}
       {!isLoaded ? (
         <div
-          className="bg-foreground/5 absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 p-3"
+          className="bg-foreground/5 absolute inset-0 z-10 flex items-center justify-center rounded-lg"
           aria-label="Loading image"
         >
           <div
@@ -4303,22 +4376,79 @@ function MyImageTile({
             }}
           />
           <Loader2 className="text-muted-foreground relative size-5 animate-spin" />
-          <p className="text-muted-foreground relative line-clamp-2 text-center text-xs">
-            {prompt}
-          </p>
           <div className="bg-foreground/10 absolute inset-x-0 bottom-0 h-1 overflow-hidden">
             <div data-progress-bar className="brand-gradient h-full" />
           </div>
         </div>
       ) : null}
-      {/* Hover overlay — magnifier + prompt preview. Kept
-          subtle so the grid still reads as a grid at rest. */}
-      <div className="pointer-events-none absolute inset-0 flex items-end bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100">
-        <p className="line-clamp-2 p-3 text-xs text-white">{prompt}</p>
-      </div>
     </button>
   );
 }
+
+/**
+ * Image-mode quick actions — preset chips shown below the composer.
+ * Each entry holds a localized label + starter prompt for both
+ * supported locales; the active one is picked at render time with
+ * `getLocale()`. Clicking a chip drops its prompt into the textarea
+ * and focuses it so the user can tweak before sending.
+ *
+ * The prompts are *templates* — they assume a reference image is
+ * attached (`使用第一张参考图`, `风格迁移`, etc.) so they read
+ * naturally whether or not the user has actually uploaded one. The
+ * model treats them as instructions on the attached image; if no
+ * reference is present the prompt still parses as a request.
+ */
+const IMAGE_QUICK_ACTIONS = [
+  {
+    id: 'style-transfer',
+    Icon: Palette,
+    zh: '风格迁移',
+    en: 'Style Transfer',
+    promptZh: '将这张参考图转换为梵高《星夜》的笔触风格，保持构图与主体不变。',
+    promptEn:
+      "Re-render this reference image in the brushstroke style of Van Gogh's Starry Night, keeping the composition and subject intact.",
+  },
+  {
+    id: 'background',
+    Icon: Eraser,
+    zh: '背景',
+    en: 'Background',
+    promptZh:
+      '移除这张图片的背景，主体保留，背景替换为纯白渐变，适合产品展示。',
+    promptEn:
+      'Remove the background of this image, keep the subject intact, and replace it with a clean white gradient — product-shot ready.',
+  },
+  {
+    id: 'virtual-makeup',
+    Icon: Sparkles,
+    zh: '虚拟化妆',
+    en: 'Virtual Makeup',
+    promptZh:
+      '为图中人物应用自然、淡雅的妆容：哑光底妆、淡粉唇色、温和大地色眼影，整体保持真实。',
+    promptEn:
+      'Apply a natural, soft makeup look to the person in this image: matte foundation, soft pink lips, gentle earth-tone eyeshadow — keep the result photorealistic.',
+  },
+  {
+    id: 'cover-design',
+    Icon: LayoutTemplate,
+    zh: '封面设计',
+    en: 'Cover Design',
+    promptZh:
+      '为这张图片设计一个杂志封面布局：左侧粗体大标题、右侧图片占三分之二、底部小字作者署名。',
+    promptEn:
+      'Lay this image out as a magazine cover: a bold oversized title on the left, the image filling two-thirds on the right, and a small author byline at the bottom.',
+  },
+  {
+    id: 'logo-design',
+    Icon: PenTool,
+    zh: '标志设计',
+    en: 'Logo Design',
+    promptZh:
+      '将这张图片的核心元素抽象为一个极简矢量风格的 logo：单色、几何化、可在小尺寸下识别。',
+    promptEn:
+      'Abstract the core element of this image into a minimal vector-style logo: monochrome, geometric, recognizable at small sizes.',
+  },
+] as const;
 
 export function ImagePlayground() {
   const store = usePlaygroundStore();
@@ -4340,6 +4470,11 @@ export function ImagePlayground() {
       note: string;
     }>
   >([]);
+  // Lightbox — clicking a reference thumbnail opens the higher-res
+  // `url` (not the local `previewUrl` blob) fullscreen so the user
+  // can verify the uploaded file before sending it as part of the
+  // request. `null` means closed.
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const MAX_REFERENCES = 10;
   const [pollingTaskId, setPollingTaskId] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
@@ -4743,6 +4878,53 @@ export function ImagePlayground() {
     setUploadingReference(false);
   }
 
+  /**
+   * Takes the PNG blob exported by `AnnotationEditor` and adds it to
+   * the composer's reference list. Same upload path as
+   * `handleReferenceUpload` — wrapping the blob in a `File` and
+   * routing it through `uploadMediaFiles` keeps the upload pipeline
+   * (size cap, MIME check, storage rehost) in one place.
+   *
+   * The default `note` is left blank so the user can type their edit
+   * instruction in the chip's inline note field; a pre-filled note
+   * would lock them into "modify the marked area" and bury their
+   * actual intent.
+   */
+  async function handleAddAnnotatedReference(blob: Blob, sourceTaskId: string) {
+    if (!session?.user) {
+      setAuthOpen(true);
+      return;
+    }
+    if (references.length >= MAX_REFERENCES) {
+      toast.error(
+        m['playground.attachment.err_too_many_refs']({ max: MAX_REFERENCES })
+      );
+      return;
+    }
+    const filename = `annotated-${sourceTaskId.slice(0, 8)}-${Date.now()}.png`;
+    const file = new File([blob], filename, { type: 'image/png' });
+    setUploadingReference(true);
+    try {
+      const [uploaded] = await uploadMediaFiles([file]);
+      setReferences((prev) => [
+        ...prev,
+        {
+          url: uploaded?.url ?? '',
+          previewUrl: URL.createObjectURL(file),
+          filename,
+          note: '',
+        },
+      ]);
+      // Drop the user straight into the prompt field so they can
+      // type the edit instruction without hunting for the composer.
+      promptRef.current?.focus();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setUploadingReference(false);
+    }
+  }
+
   function handleReferencePaste(e: React.ClipboardEvent) {
     const images = imageFilesFromClipboard(e.clipboardData);
     if (!images.length) return;
@@ -4864,24 +5046,12 @@ export function ImagePlayground() {
    *      is the standard header that pops the OS "Save As" picker
    *      (folder + filename) regardless of `<a download>` quirks on
    *      cross-origin URLs.
-   *
-   * We still pass `download` as a hint on the anchor so the browser
-   * uses the filename instead of just *opening* the stream.
    */
-  function handleDownload() {
-    if (!previewTaskId) return;
-    const url = `/api/ai-tasks/${previewTaskId}/image?download=1`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.rel = 'noopener noreferrer';
-    // Filename + Content-Disposition header (set by the proxy) determine
-    // the saved file name + folder the user picks. `download=""` is just
-    // a hint so the browser doesn't navigate to the stream URL.
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
+  // Download is implemented inside `ImagePreviewPanel.handleDownload`
+  // (top-level `window.location.href` so the browser honours the
+  // `Content-Disposition: attachment` header and pops the Save As
+  // dialog immediately). The old programmatic `<a download>` trick
+  // was unreliable on cross-origin streaming responses in Chrome.
 
   return (
     <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden">
@@ -5002,7 +5172,7 @@ export function ImagePlayground() {
           preview panel sits in its own column at 620px so the two never
           collide on the same x-axis. The scroll track's `pb-56` keeps
           the last batch row clear of the composer's footprint. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex justify-center px-4 pb-6">
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center justify-center gap-3 px-4 pb-6">
           <div
             onPaste={handleReferencePaste}
             className="border-border bg-sidebar/80 pointer-events-auto w-full max-w-3xl rounded-[28px] border p-1.5 shadow-xs backdrop-blur-sm"
@@ -5020,14 +5190,26 @@ export function ImagePlayground() {
                     className="group/reference relative shrink-0"
                   >
                     <div className="relative size-14 overflow-hidden rounded-lg">
-                      <img
-                        src={r.previewUrl}
-                        alt={r.filename}
-                        className="size-full object-cover"
-                      />
+                      {/* Clickable thumbnail — opens the full-res
+                          reference image in the lightbox overlay below.
+                          The X button (next sibling) sits on top with
+                          `z-10` so it captures the click instead of
+                          triggering this. */}
+                      <button
+                        type="button"
+                        onClick={() => setLightboxUrl(r.url)}
+                        aria-label={r.filename}
+                        className="absolute inset-0 size-full cursor-zoom-in"
+                      >
+                        <img
+                          src={r.previewUrl}
+                          alt={r.filename}
+                          className="size-full object-cover"
+                        />
+                      </button>
                       {/* Always-visible 图N label — small dark chip in the
                         top-left so the user can refer to it elsewhere. */}
-                      <span className="bg-foreground/80 text-background absolute top-0.5 left-0.5 rounded px-1 text-[10px] leading-4 font-medium">
+                      <span className="bg-foreground/80 text-background pointer-events-none absolute top-0.5 left-0.5 rounded px-1 text-[10px] leading-4 font-medium">
                         {m['playground.image.reference_chip_index']({
                           n: i + 1,
                         })}
@@ -5040,7 +5222,7 @@ export function ImagePlayground() {
                             prev.filter((_, j) => j !== i)
                           );
                         }}
-                        className="bg-foreground/70 text-background absolute top-0.5 right-0.5 inline-flex size-4 items-center justify-center rounded-full"
+                        className="bg-foreground/70 text-background absolute top-0.5 right-0.5 z-10 inline-flex size-4 items-center justify-center rounded-full"
                         aria-label={m['playground.image.reference_remove']()}
                       >
                         <X className="size-3" />
@@ -5154,25 +5336,87 @@ export function ImagePlayground() {
               </button>
             </div>
           </div>
+          {/* Quick-action preset chips — localizable starter prompts
+            shown beneath the composer (Community / My Images tab).
+            Clicking drops the prompt into the textarea and focuses
+            it so the user can tweak before sending. Disabled while
+            a submit or polling is in flight so the chip click can't
+            race the in-flight request. Sits inside the floating
+            wrapper so it stacks below the composer without leaving
+            the absolute-positioned column. */}
+          <ImageQuickActions
+            isZh={getLocale() === 'zh'}
+            disabled={submitMutation.isPending || !!pollingTaskId}
+            onPick={(prompt) => {
+              setPrompt(prompt);
+              promptRef.current?.focus();
+            }}
+          />
         </div>
 
         <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
       </div>
-      {/* Right-side preview panel. Only mounted when there's an active
-          preview — leaving it out for the empty case lets the centre
-          column (`max-w-3xl mx-auto`) re-centre against the full
-          viewport width. Closing the panel (X) clears `previewTaskId`
-          which unmounts this aside in the same tick; the dialog
-          visibly slides back to the page centre. The previous
-          `target="_blank"` open-in-new-tab link is gone — see
-          ImagePreviewPanel's JSDoc. */}
+      {/* Right-side preview panel — only mounted when there's an active
+        preview. Leaving it out for the empty case lets the centre
+        column (`max-w-3xl mx-auto`) re-centre against the full
+        viewport width. Closing the panel (X) clears `previewTaskId`
+        which unmounts this aside in the same tick; the dialog
+        visibly slides back to the page centre. */}
       {previewTaskId ? (
         <ImagePreviewPanel
           taskId={previewTaskId}
           rows={myImagesQuery.data?.tasks ?? []}
           onSelect={setPreviewTaskId}
           onClose={() => setPreviewTaskId(null)}
+          onAddToMessage={(blob, sourceTaskId) =>
+            handleAddAnnotatedReference(blob, sourceTaskId)
+          }
         />
+      ) : null}
+      {/* Reference lightbox — fullscreen overlay that opens when the
+          user clicks a reference thumbnail in the composer. Shows the
+          full-resolution URL (not the local blob preview) so the user
+          can verify the uploaded file before it's sent as part of the
+          request. Closes on backdrop click, the close button, or
+          Escape — all routes funnel through `setLightboxUrl(null)` so
+          the React unmount stays consistent. */}
+      {lightboxUrl ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={m['playground.image.lightbox_title']()}
+          // Backdrop click closes the lightbox. The inner content
+          // wrapper stops propagation so clicking the image itself
+          // doesn't accidentally close it.
+          onClick={() => setLightboxUrl(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation();
+              setLightboxUrl(null);
+            }
+          }}
+          tabIndex={-1}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
+        >
+          {/* Close button — positioned absolutely in the top-right so
+              it doesn't take space from the centered image. Same z
+              layer as the image, but a sibling so clicking it
+              bubbles through and closes (intentional). */}
+          <button
+            type="button"
+            onClick={() => setLightboxUrl(null)}
+            aria-label="Close"
+            className="absolute top-4 right-4 inline-flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+          >
+            <X className="size-5" />
+          </button>
+          <img
+            src={lightboxUrl}
+            alt=""
+            onClick={(e) => e.stopPropagation()}
+            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -5210,11 +5454,18 @@ function ImagePreviewPanel({
   rows,
   onSelect,
   onClose,
+  onAddToMessage,
 }: {
   taskId: string | null;
   rows: ImageTaskRow[];
   onSelect: (id: string) => void;
   onClose: () => void;
+  /**
+   * Hands the user-annotated PNG (a freshly exported `Blob`) to the
+   * parent for upload + composer attachment. Called by the annotation
+   * editor's "Add to message" button — see `AnnotationEditor` below.
+   */
+  onAddToMessage: (blob: Blob, taskId: string) => void | Promise<void>;
 }) {
   // No panel mounted when there's no active preview — `ImagePlayground`
   // skips the aside altogether in this case so the centre column gets
@@ -5255,20 +5506,21 @@ function ImagePreviewPanel({
   /**
    * Save-as download — proxy through `/api/ai-tasks/$id/image?download=1`
    * so the browser pops the native "Save As" dialog with a clean
-   * filename (the proxy sets `Content-Disposition`). Same rationale as
-   * the old `handleDownload` on `ImagePlayground` — direct provider URLs
-   * are CORS-locked, so streaming server-side is the only path that
-   * works without exposing the upstream URL.
+   * filename (the proxy sets `Content-Disposition: attachment`).
+   *
+   * Why a top-level navigation instead of a synthetic `<a download>`?
+   * Chrome / Edge silently ignore the `download` attribute on cross-
+   * origin URLs (and even some same-origin blobs when the response is
+   * a streaming passthrough), so the user gets a flash of "nothing
+   * happened" instead of the OS file picker. Setting `window.location`
+   * to the proxy URL forces the browser to actually parse the response
+   * headers — `Content-Disposition: attachment` is the trigger for
+   * the native save dialog, and a top-level navigation is the only
+   * way Chrome reliably honours it.
    */
   function handleDownload() {
     const url = `/api/ai-tasks/${taskId}/image?download=1`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.rel = 'noopener noreferrer';
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    window.location.href = url;
   }
 
   // Header title. Single-image tasks render the generic "Image" label
@@ -5285,8 +5537,21 @@ function ImagePreviewPanel({
   // history. `rows` arrives newest-first from the API, so no sort needed.
   const stripRows = rows.slice(0, 12);
 
+  // Editor toggle — clicking the pencil opens the `AnnotationEditor`
+  // modal over the entire preview panel. Reset on close so a fresh
+  // open starts with an empty canvas.
+  const [editing, setEditing] = useState(false);
+
+  // Close the editor automatically when the underlying preview
+  // changes (e.g. user picked a different thumbnail in the strip).
+  // Without this the editor would still show the previous image after
+  // a new selection lands.
+  useEffect(() => {
+    setEditing(false);
+  }, [taskId]);
+
   return (
-    <aside className="bg-background hidden w-[620px] shrink-0 flex-col overflow-hidden border-l md:flex">
+    <aside className="bg-background relative hidden w-[620px] shrink-0 flex-col overflow-hidden border-l md:flex">
       {/* Toolbar — mirrors the reference: title left, icon cluster right.
           The "edit" pencil is a placeholder for future in-place editing;
           clicking it just acks the user for now instead of silently
@@ -5299,8 +5564,13 @@ function ImagePreviewPanel({
             type="button"
             aria-label="Edit"
             title="Edit"
-            onClick={() => toast.info(m['playground.image.wall_cta_button']())}
-            className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex size-8 items-center justify-center rounded-md transition-colors"
+            // Opens the in-place annotation editor (rectangle / circle /
+            // arrow / freehand / text + color picker + undo / clear).
+            // Disabled while no image is loaded — the editor needs a
+            // source bitmap to mark up.
+            onClick={() => setEditing(true)}
+            disabled={!previewUrl}
+            className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex size-8 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-50"
           >
             <Pencil className="size-4" />
           </button>
@@ -5385,7 +5655,1002 @@ function ImagePreviewPanel({
           </div>
         ) : null}
       </div>
+      {/* Annotation overlay — opens when the user clicks the pencil.
+          The source image goes through the same-origin proxy
+          (`/api/ai-tasks/$id/image`, no `download=1`) so the canvas
+          stays untainted — without it, `drawImage` on a raw R2 URL
+          silently fails (the browser blocks cross-origin pixels from
+          being read by `toBlob`). `taskId` is guaranteed truthy here
+          because this branch is gated on `previewTaskId`. */}
+      {editing && taskId ? (
+        <AnnotationEditor
+          imageUrl={`/api/ai-tasks/${taskId}/image`}
+          onCancel={() => setEditing(false)}
+          onAddToMessage={async (blob) => {
+            await onAddToMessage(blob, taskId);
+            setEditing(false);
+          }}
+        />
+      ) : null}
     </aside>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  AnnotationEditor — pencil-button modal                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Image annotation overlay opened from the preview panel's pencil
+ * button. Lets the user mark areas to modify (rectangle / circle /
+ * arrow / freehand / text) and ships the marked image back to the
+ * composer as a fresh reference attachment via `onAddToMessage(blob)`.
+ *
+ * Drawing surface is an HTML5 `<canvas>` so the final mark-up is
+ * exported losslessly via `canvas.toBlob` — no SVG → raster conversion,
+ * no foreign-object HTML smuggling tricks. The canvas's internal size
+ * is the image's natural size (export quality); CSS scales the element
+ * down to fit the modal, and mouse coords are remapped through
+ * `getBoundingClientRect` so on-screen clicks land at the right
+ * pixel regardless of how the element has been scaled.
+ *
+ * The `imageUrl` is expected to be **same-origin** (the call site
+ * passes `/api/ai-tasks/$id/image`, not the raw R2 URL). Without that,
+ * the canvas would be tainted by the cross-origin `drawImage` and the
+ * subsequent `toBlob` would throw a SecurityError on export.
+ *
+ * Tools: rectangle / circle / arrow / draw (freehand path) / text.
+ * Colour picker is a fixed swatch strip — we don't need a full HSL
+ * control for the "mark the region" use case. Undo pops the last
+ * committed shape; Clear empties the list.
+ */
+
+type AnnotateTool = 'rectangle' | 'circle' | 'arrow' | 'draw' | 'text';
+
+type AnnotateShape =
+  | {
+      id: string;
+      type: 'rectangle';
+      color: string;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+    }
+  | {
+      id: string;
+      type: 'circle';
+      color: string;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+    }
+  | {
+      id: string;
+      type: 'arrow';
+      color: string;
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+    }
+  | {
+      id: string;
+      type: 'draw';
+      color: string;
+      points: Array<[number, number]>;
+    }
+  | {
+      id: string;
+      type: 'text';
+      color: string;
+      x: number;
+      y: number;
+      text: string;
+    };
+
+const ANNOTATE_COLORS = [
+  '#ef4444', // red (default — matches the red-mark screenshot)
+  '#f97316', // orange
+  '#eab308', // yellow
+  '#22c55e', // green
+  '#3b82f6', // blue
+  '#ffffff', // white (high-contrast on dark images)
+];
+
+const ANNOTATE_STROKE_PX = 6; // visible at modal scale; rendered at the
+// same px value on the export canvas so the
+// mark width looks identical in the result
+
+/**
+ * Canvas-to-display scale for text rendering.
+ *
+ * The canvas backing store is the source image's natural pixel size
+ * (e.g. 2048×2048), but the `<canvas>` is sized down by CSS to fit
+ * the panel (e.g. ~900px wide). A fixed `fontPx = 20` on the
+ * backing store therefore renders at only ~9px on screen — much
+ * smaller than the editing textarea's 20px CSS.
+ *
+ * To make the saved text appear at the same 20px CSS as the
+ * textarea, multiply by `canvas.width / display.width` so the
+ * rendered glyphs always equal 20px on screen regardless of how
+ * the user has the modal sized or how big the source image was.
+ */
+function getTextFontPx(canvas: HTMLCanvasElement | null): number {
+  if (!canvas) return 20;
+  const rect = canvas.getBoundingClientRect();
+  if (!rect.width) return 20;
+  return (20 * canvas.width) / rect.width;
+}
+
+function drawAnnotateShape(
+  canvas: HTMLCanvasElement | null,
+  ctx: CanvasRenderingContext2D,
+  shape: AnnotateShape
+): void {
+  ctx.strokeStyle = shape.color;
+  ctx.fillStyle = shape.color;
+  ctx.lineWidth = ANNOTATE_STROKE_PX;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  if (shape.type === 'rectangle') {
+    const x = Math.min(shape.x1, shape.x2);
+    const y = Math.min(shape.y1, shape.y2);
+    const w = Math.abs(shape.x2 - shape.x1);
+    const h = Math.abs(shape.y2 - shape.y1);
+    ctx.strokeRect(x, y, w, h);
+    return;
+  }
+
+  if (shape.type === 'circle') {
+    const cx = (shape.x1 + shape.x2) / 2;
+    const cy = (shape.y1 + shape.y2) / 2;
+    const rx = Math.abs(shape.x2 - shape.x1) / 2;
+    const ry = Math.abs(shape.y2 - shape.y1) / 2;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    return;
+  }
+
+  if (shape.type === 'arrow') {
+    const dx = shape.x2 - shape.x1;
+    const dy = shape.y2 - shape.y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 1) return;
+    const ux = dx / len;
+    const uy = dy / len;
+    // Arrowhead size — scales with stroke so it stays proportional
+    // when the canvas is shrunk for display.
+    const headLen = Math.max(ANNOTATE_STROKE_PX * 3, 18);
+    const headHalf = headLen * 0.45;
+    // Stop the line short of the tip so the head sits cleanly on top.
+    const tipX = shape.x2;
+    const tipY = shape.y2;
+    const baseX = tipX - ux * headLen;
+    const baseY = tipY - uy * headLen;
+    ctx.beginPath();
+    ctx.moveTo(shape.x1, shape.y1);
+    ctx.lineTo(baseX, baseY);
+    ctx.stroke();
+    // Head triangle
+    ctx.beginPath();
+    ctx.moveTo(tipX, tipY);
+    ctx.lineTo(baseX + -uy * headHalf, baseY + ux * headHalf);
+    ctx.lineTo(baseX - -uy * headHalf, baseY - ux * headHalf);
+    ctx.closePath();
+    ctx.fill();
+    return;
+  }
+
+  if (shape.type === 'draw') {
+    if (shape.points.length < 2) return;
+    ctx.beginPath();
+    const [first, ...rest] = shape.points;
+    ctx.moveTo(first[0], first[1]);
+    for (const [x, y] of rest) ctx.lineTo(x, y);
+    ctx.stroke();
+    return;
+  }
+
+  if (shape.type === 'text') {
+    // Saved text scales to match the editing textarea's 20px CSS —
+    // see `getTextFontPx` for the canvas-to-display ratio math. The
+    // font is therefore always rendered at 20px on screen no matter
+    // the source image's natural resolution.
+    const fontPx = getTextFontPx(canvas);
+    ctx.font = `600 ${fontPx}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+    ctx.textBaseline = 'top';
+    // Multi-line support — the textarea lets the user Shift+Enter
+    // for newlines, so a single fillText would silently drop them.
+    // Each line advances by fontPx × lineHeight (matches the
+    // textarea's `style.lineHeight: 1.25` so what the user types
+    // matches what lands on the export).
+    const lineHeight = 1.25;
+    const lines = shape.text.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], shape.x, shape.y + i * fontPx * lineHeight);
+    }
+    return;
+  }
+}
+
+/**
+ * Measure the rendered bounding box of a `text` shape. Used by the
+ * click-to-edit hit test to figure out whether the user clicked on
+ * an existing label. Returns `width` and `height` in canvas pixels;
+ * (0, 0) for empty strings.
+ *
+ * Must stay in sync with `drawAnnotateShape`'s text branch — if the
+ * font here doesn't match the rendered font, the click hit-box
+ * drifts away from the visible glyphs and the user clicks "near"
+ * the label with no result.
+ */
+function measureTextShape(
+  canvas: HTMLCanvasElement | null,
+  ctx: CanvasRenderingContext2D,
+  text: string
+): { w: number; h: number } {
+  // Must match `drawAnnotateShape`'s text fontPx exactly so the
+  // click-to-edit bbox lines up with the rendered glyphs.
+  const fontPx = getTextFontPx(canvas);
+  ctx.font = `600 ${fontPx}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
+  const lines = text.split('\n');
+  let maxW = 0;
+  for (const line of lines) {
+    const w = ctx.measureText(line).width;
+    if (w > maxW) maxW = w;
+  }
+  return {
+    w: maxW,
+    h: lines.length * fontPx * 1.25,
+  };
+}
+
+/**
+ * Hit-test an existing `text` shape at the given canvas pixel coords.
+ * Walks the shape stack top-down (newest shapes drawn last = on top)
+ * so a click on overlapping labels picks the frontmost one.
+ */
+function findTextShapeAt(
+  canvas: HTMLCanvasElement | null,
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  shapes: AnnotateShape[]
+): Extract<AnnotateShape, { type: 'text' }> | null {
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const s = shapes[i];
+    if (s.type !== 'text') continue;
+    const { w, h } = measureTextShape(canvas, ctx, s.text);
+    if (x >= s.x && x <= s.x + w && y >= s.y && y <= s.y + h) {
+      return s;
+    }
+  }
+  return null;
+}
+
+function AnnotationEditor({
+  imageUrl,
+  onCancel,
+  onAddToMessage,
+}: {
+  imageUrl: string;
+  onCancel: () => void;
+  onAddToMessage: (blob: Blob) => void | Promise<void>;
+}) {
+  // Image loading — done via fetch + Blob rather than a hidden `<img>`
+  // because the `<img onLoad>` path proved unreliable here (zero-sized
+  // elements can be deferred, and `<img>` errors don't surface cleanly
+  // for same-origin proxies that may 401 if cookies aren't sent). The
+  // fetch path explicitly sends cookies, surfaces HTTP errors as toasts,
+  // and lands a fully-decoded HTMLImageElement ready for `drawImage`.
+  const [sourceImage, setSourceImage] = useState<HTMLImageElement | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [tool, setTool] = useState<AnnotateTool>('draw');
+  const [color, setColor] = useState<string>(ANNOTATE_COLORS[0]);
+  const [shapes, setShapes] = useState<AnnotateShape[]>([]);
+  // In-progress shape the user is currently dragging out — kept
+  // outside `shapes` so we can preview without committing until
+  // mouseup.
+  const [draft, setDraft] = useState<AnnotateShape | null>(null);
+  // For Backspace / selection: keep the last-completed shape id so the
+  // user can delete the most recent mark without dragging it.
+  const [lastId, setLastId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Inline text editor — when the Text tool is active and the user
+  // clicks the canvas, we open a dashed-border textarea at the click
+  // point instead of using `window.prompt`. `cx` / `cy` are canvas
+  // pixel coords (where the text shape is anchored when committed);
+  // `wx` / `wy` are wrapper pixel coords (where the textarea is
+  // positioned absolutely on top of the canvas).
+  const [editingText, setEditingText] = useState<{
+    cx: number;
+    cy: number;
+    wx: number;
+    wy: number;
+    value: string;
+  } | null>(null);
+  // When `editingText` is open AND it represents a *re-edit* of an
+  // existing text shape (not a brand-new one), this is that shape's
+  // id. The shape is removed from `shapes` while the edit is in
+  // flight (so the canvas doesn't double-paint it under the
+  // textarea) and replaced — with updated text — on commit. Empty
+  // re-edits delete the shape outright instead of leaving a blank
+  // label behind.
+  const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  // Wrapper ref — the relative-positioned flex container that holds
+  // the canvas. Used to convert mouse-event client coords into
+  // wrapper-relative coords for positioning the textarea overlay.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+
+  // Fetch + decode the source image into an HTMLImageElement. Same-
+  // origin proxy URL so the resulting bitmap doesn't taint the canvas;
+  // the object URL is revoked on unmount so we don't leak memory if
+  // the user opens/closes the editor repeatedly.
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | null = null;
+    setSourceImage(null);
+    setImageError(null);
+    (async () => {
+      try {
+        const res = await fetch(imageUrl, { credentials: 'include' });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const blob = await res.blob();
+        objectUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          if (cancelled) {
+            URL.revokeObjectURL(objectUrl!);
+            return;
+          }
+          const canvas = canvasRef.current;
+          if (canvas) {
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+          }
+          setSourceImage(img);
+        };
+        img.onerror = () => {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          if (!cancelled) {
+            setImageError('Failed to decode image');
+            toast.error('Failed to load image');
+          }
+        };
+        img.src = objectUrl;
+      } catch (err) {
+        if (!cancelled) {
+          const msg = (err as Error).message || 'Failed to load image';
+          setImageError(msg);
+          toast.error(msg);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [imageUrl]);
+
+  // Redraw on any change to the visible shape list. Keeps a single
+  // effect so we never double-paint.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const img = sourceImage;
+    if (!canvas || !img) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    // Skip the shape currently being re-edited — it's drawn on
+    // top by the textarea overlay, painting it on the canvas too
+    // would result in a 1-frame double-render right when the
+    // edit starts (before the textarea mounts).
+    for (const shape of shapes) {
+      if (shape.id === editingShapeId) continue;
+      drawAnnotateShape(canvas, ctx, shape);
+    }
+    if (draft) drawAnnotateShape(canvas, ctx, draft);
+  }, [shapes, draft, sourceImage, editingShapeId]);
+
+  // Convert a mouse event into canvas-space pixel coords. Without
+  // this remap a click that "looks like" it hit (40, 50) on a canvas
+  // scaled to 50% would draw at (80, 100) — the user's on-screen
+  // cursor and the exported mark wouldn't line up.
+  function eventToCanvas(e: React.MouseEvent<HTMLCanvasElement>): {
+    x: number;
+    y: number;
+  } {
+    const canvas = canvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * canvas.width;
+    const y = ((e.clientY - rect.top) / rect.height) * canvas.height;
+    return { x, y };
+  }
+
+  function commitShape(shape: AnnotateShape) {
+    setShapes((prev) => [...prev, shape]);
+    setLastId(shape.id);
+    setDraft(null);
+  }
+
+  function handleMouseDown(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (!sourceImage) return;
+    // If a text edit is in flight, commit it on any canvas click.
+    // The user either meant to commit (a tap without drag — the
+    // existing mouseup drops zero-size drafts, so nothing else
+    // commits) or wanted to start a new shape (a drag — the draft
+    // proceeds normally). Either way the text has to land first
+    // or it would be silently overwritten.
+    if (editingText) commitEditingText();
+    const { x, y } = eventToCanvas(e);
+    const id = crypto.randomUUID();
+    if (tool === 'rectangle' || tool === 'circle' || tool === 'arrow') {
+      setDraft({ id, type: tool, color, x1: x, y1: y, x2: x, y2: y });
+      return;
+    }
+    if (tool === 'draw') {
+      setDraft({ id, type: 'draw', color, points: [[x, y]] });
+      return;
+    }
+    if (tool === 'text') {
+      // Hit-test first — clicking an existing text label re-opens it
+      // for editing instead of starting a fresh label on top. The
+      // shape is removed from the stack during the edit (so we don't
+      // double-paint it under the textarea) and updated in place on
+      // commit.
+      const canvas = canvasRef.current;
+      const t = eventToWrapper(e);
+      if (!canvas || !t) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const hit = findTextShapeAt(canvas, ctx, t.cx, t.cy, shapes);
+      if (hit) {
+        // Position the textarea at the existing label's anchor (not
+        // the click point) so the box doesn't jump when reopened.
+        const pos = canvasToWrapper(hit.x, hit.y);
+        setEditingShapeId(hit.id);
+        setShapes((prev) => prev.filter((s) => s.id !== hit.id));
+        setEditingText({
+          cx: hit.x,
+          cy: hit.y,
+          wx: pos.wx,
+          wy: pos.wy,
+          value: hit.text,
+        });
+        return;
+      }
+      // No hit — start a brand-new label at the click point.
+      setEditingShapeId(null);
+      setEditingText({
+        cx: t.cx,
+        cy: t.cy,
+        wx: t.wx,
+        wy: t.wy,
+        value: '',
+      });
+      return;
+    }
+  }
+
+  /**
+   * Convert a mouse event into canvas-pixel coords (`cx` / `cy`) AND
+   * wrapper-relative coords (`wx` / `wy`). The textarea overlay needs
+   * the wrapper coords to position absolutely inside the centered
+   * canvas container; the committed shape needs the canvas coords to
+   * anchor to the right pixel.
+   */
+  function eventToWrapper(
+    e: React.MouseEvent
+  ): { cx: number; cy: number; wx: number; wy: number } | null {
+    const wrapper = wrapperRef.current;
+    const canvas = canvasRef.current;
+    if (!wrapper || !canvas) return null;
+    const wRect = wrapper.getBoundingClientRect();
+    const cRect = canvas.getBoundingClientRect();
+    const cx = ((e.clientX - cRect.left) / cRect.width) * canvas.width;
+    const cy = ((e.clientY - cRect.top) / cRect.height) * canvas.height;
+    const wx = e.clientX - wRect.left;
+    const wy = e.clientY - wRect.top;
+    return { cx, cy, wx, wy };
+  }
+
+  /**
+   * Inverse of `eventToWrapper` — convert canvas pixel coords back
+   * into wrapper-relative display coords. Used when re-opening an
+   * existing text label, so the textarea lands at the label's
+   * original anchor rather than wherever the user clicked.
+   */
+  function canvasToWrapper(cx: number, cy: number): { wx: number; wy: number } {
+    const wrapper = wrapperRef.current;
+    const canvas = canvasRef.current;
+    if (!wrapper || !canvas) return { wx: 0, wy: 0 };
+    const wRect = wrapper.getBoundingClientRect();
+    const cRect = canvas.getBoundingClientRect();
+    const dx = (cx / canvas.width) * cRect.width;
+    const dy = (cy / canvas.height) * cRect.height;
+    return {
+      wx: cRect.left - wRect.left + dx,
+      wy: cRect.top - wRect.top + dy,
+    };
+  }
+
+  /**
+   * Commit the in-flight textarea content. Three branches:
+   *  - re-edit with non-empty text → update the original shape in place
+   *  - re-edit with empty text   → delete the original shape
+   *  - new edit with non-empty text → insert a fresh shape
+   *  - new edit with empty text   → drop (matches old prompt behaviour)
+   */
+  function commitEditingText() {
+    const cur = editingText;
+    if (!cur) return;
+    const text = cur.value.trim();
+    const editingId = editingShapeId;
+    // Reset edit state first so the textarea unmounts before the
+    // shape reappears underneath it (avoids a 1-frame flash where
+    // both the textarea and the committed shape overlap).
+    setEditingText(null);
+    setEditingShapeId(null);
+    if (!text) {
+      if (editingId) {
+        // Empty re-edit = delete. The shape was already removed
+        // from `shapes` when the edit started, so there's nothing
+        // to clean up — the deletion is implicit.
+      }
+      return;
+    }
+    if (editingId) {
+      setShapes((prev) =>
+        prev.map((s) => (s.id === editingId ? { ...s, text } : s))
+      );
+      return;
+    }
+    commitShape({
+      id: crypto.randomUUID(),
+      type: 'text',
+      color,
+      x: cur.cx,
+      y: cur.cy,
+      text,
+    });
+  }
+
+  function cancelEditingText() {
+    setEditingText(null);
+  }
+
+  // Auto-focus the textarea after it mounts so the user can start
+  // typing immediately. Without this the textarea would render but
+  // the user would have to click into it again — confusing, because
+  // they JUST clicked to place it.
+  useEffect(() => {
+    if (editingText) {
+      // rAF defers focus until after React commits the textarea to
+      // the DOM (otherwise the ref is still null at this point).
+      const id = requestAnimationFrame(() => {
+        textAreaRef.current?.focus();
+      });
+      return () => cancelAnimationFrame(id);
+    }
+    return undefined;
+  }, [editingText?.wx, editingText?.wy]);
+
+  function handleMouseMove(e: React.MouseEvent<HTMLCanvasElement>) {
+    if (!draft) return;
+    const { x, y } = eventToCanvas(e);
+    if (
+      draft.type === 'rectangle' ||
+      draft.type === 'circle' ||
+      draft.type === 'arrow'
+    ) {
+      setDraft({ ...draft, x2: x, y2: y });
+      return;
+    }
+    if (draft.type === 'draw') {
+      setDraft({ ...draft, points: [...draft.points, [x, y]] });
+      return;
+    }
+  }
+
+  function handleMouseUp() {
+    if (!draft) return;
+    // Drop degenerate shapes — a 0-pixel rectangle / circle / arrow
+    // isn't useful and clutters the undo stack.
+    if (
+      draft.type === 'rectangle' ||
+      draft.type === 'circle' ||
+      draft.type === 'arrow'
+    ) {
+      if (
+        Math.abs(draft.x2 - draft.x1) < 2 ||
+        Math.abs(draft.y2 - draft.y1) < 2
+      ) {
+        setDraft(null);
+        return;
+      }
+    }
+    if (draft.type === 'draw' && draft.points.length < 2) {
+      setDraft(null);
+      return;
+    }
+    commitShape(draft);
+  }
+
+  // Backspace removes the most recent mark — matches the
+  // "press Backspace to delete selected marks" copy in the footer.
+  // We treat "most recent" as the last shape on the stack since full
+  // selection on a freehand canvas is more code than this UX warrants.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'Backspace') return;
+      // Don't hijack Backspace when the user is typing in an input
+      // (none exist today, but cheap insurance for the future).
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      e.preventDefault();
+      setShapes((prev) => {
+        if (!prev.length) return prev;
+        const next = prev.slice(0, -1);
+        setLastId(next.length ? next[next.length - 1].id : null);
+        return next;
+      });
+      // Also clear any in-flight drag — Backspace mid-drag should
+      // abort the shape, not leave it dangling on mouseup.
+      setDraft(null);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  function handleUndo() {
+    setShapes((prev) => {
+      if (!prev.length) return prev;
+      const next = prev.slice(0, -1);
+      setLastId(next.length ? next[next.length - 1].id : null);
+      return next;
+    });
+  }
+
+  function handleClear() {
+    setShapes([]);
+    setLastId(null);
+    setDraft(null);
+  }
+
+  async function handleConfirm() {
+    const canvas = canvasRef.current;
+    if (!canvas || busy) return;
+    setBusy(true);
+    try {
+      // toBlob is async and offloads the PNG encode to a worker —
+      // sync toDataURL on a large canvas can stall the UI for several
+      // hundred ms on lower-end machines.
+      const blob: Blob = await new Promise((resolve, reject) => {
+        canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
+          'image/png'
+        );
+      });
+      await onAddToMessage(blob);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const canUndo = shapes.length > 0;
+  const canClear = shapes.length > 0 || draft !== null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={m['playground.image.annotate_title']()}
+      className="bg-background absolute inset-0 z-50 flex flex-col"
+    >
+      {/* Toolbar — top. Mirrors the reference markup: tool cluster on
+          the left, color swatch + undo + clear on the right. Each tool
+          button is a plain `<button>` with an icon; the active tool
+          uses the same `bg-secondary` highlight the reference uses for
+          the "draw" tool. */}
+      <div className="border-border flex shrink-0 flex-wrap items-center gap-1 border-b px-4 py-2">
+        <ToolbarToolButton
+          active={tool === 'rectangle'}
+          label={m['playground.image.annotate_tool_rectangle']()}
+          onClick={() => setTool('rectangle')}
+        >
+          <Square className="size-4" />
+        </ToolbarToolButton>
+        <ToolbarToolButton
+          active={tool === 'circle'}
+          label={m['playground.image.annotate_tool_circle']()}
+          onClick={() => setTool('circle')}
+        >
+          <Circle className="size-4" />
+        </ToolbarToolButton>
+        <ToolbarToolButton
+          active={tool === 'arrow'}
+          label={m['playground.image.annotate_tool_arrow']()}
+          onClick={() => setTool('arrow')}
+        >
+          <ArrowUpRight className="size-4" />
+        </ToolbarToolButton>
+        <ToolbarToolButton
+          active={tool === 'draw'}
+          label={m['playground.image.annotate_tool_draw']()}
+          onClick={() => setTool('draw')}
+        >
+          <Pencil className="size-4" />
+        </ToolbarToolButton>
+        <ToolbarToolButton
+          active={tool === 'text'}
+          label={m['playground.image.annotate_tool_text']()}
+          onClick={() => setTool('text')}
+        >
+          <Type className="size-4" />
+        </ToolbarToolButton>
+
+        {/* Color picker — Popover with a row of swatches. The visible
+            swatch is the current color (matches the reference's
+            "ring + offset" styling). */}
+        <Popover>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label={m['playground.image.annotate_tool_color']()}
+              title={m['playground.image.annotate_tool_color']()}
+              className="ring-background ring-offset-muted-foreground/20 hover:bg-muted focus-visible:border-ring focus-visible:ring-ring/50 ml-1 inline-flex size-7 items-center justify-center rounded-md transition-colors focus-visible:ring-3"
+            >
+              <span
+                aria-hidden
+                className="block size-4 rounded-full ring-2 ring-offset-1"
+                style={{ backgroundColor: color }}
+              />
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={6}
+            className="flex w-auto gap-1 p-2"
+          >
+            {ANNOTATE_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-label={c}
+                onClick={() => setColor(c)}
+                className={cn(
+                  'size-6 rounded-full border-2 transition-all',
+                  c === color
+                    ? 'border-foreground scale-110'
+                    : 'border-transparent hover:scale-110'
+                )}
+                style={{ backgroundColor: c }}
+              />
+            ))}
+          </PopoverContent>
+        </Popover>
+
+        <span className="flex-1" />
+
+        <ToolbarToolButton
+          active={false}
+          label={m['playground.image.annotate_undo']()}
+          onClick={handleUndo}
+          disabled={!canUndo}
+          // Use a wrapper span so we can disable while keeping the
+          // same button shape as the tool cluster.
+        >
+          <Undo2 className="size-4" />
+        </ToolbarToolButton>
+        <ToolbarToolButton
+          active={false}
+          label={m['playground.image.annotate_clear']()}
+          onClick={handleClear}
+          disabled={!canClear}
+        >
+          <Eraser className="size-4" />
+        </ToolbarToolButton>
+        <ToolbarToolButton active={false} label="Close" onClick={onCancel}>
+          <X className="size-4" />
+        </ToolbarToolButton>
+      </div>
+
+      {/* Canvas area — middle. The source image is fetched as a Blob
+          (see useEffect above) and decoded into `sourceImage`; the
+          canvas paints it at natural size plus every committed +
+          draft shape. CSS constrains the displayed size to fit the
+          modal viewport. While loading we show a spinner so the user
+          knows the canvas isn't blank because the tool is broken. */}
+      <div
+        ref={wrapperRef}
+        className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-6"
+      >
+        {sourceImage ? null : imageError ? (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <X className="size-4" />
+            <span>{imageError}</span>
+          </div>
+        ) : (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <Loader2 className="size-4 animate-spin" />
+            <span>{m['playground.image.generating']()}</span>
+          </div>
+        )}
+        <canvas
+          ref={canvasRef}
+          // Mouse coords are remapped to canvas pixels via the
+          // bounding-rect ratio, so the displayed size is purely a
+          // CSS concern.
+          className={cn(
+            'max-h-full max-w-full rounded-lg border shadow-sm',
+            sourceImage ? 'bg-foreground/5' : 'hidden'
+          )}
+          style={{
+            // Force a constrained display size that respects the
+            // image's aspect ratio — `auto` here lets the browser
+            // pick the largest size that fits the modal viewport.
+            width: 'min(100%, 1100px)',
+            height: 'auto',
+            // Tool cursor — pointer for placement tools, crosshair
+            // for shape tools, default for text.
+            cursor:
+              tool === 'text'
+                ? 'text'
+                : tool === 'rectangle' ||
+                    tool === 'circle' ||
+                    tool === 'arrow' ||
+                    tool === 'draw'
+                  ? 'crosshair'
+                  : 'default',
+          }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        />
+        {/* Inline text editor — dashed-border textarea overlaid on
+            top of the canvas at the click point. Only mounted when
+            the Text tool is active and the user has clicked the
+            canvas (or has an in-flight edit). Commits on blur / Enter
+            (without Shift), cancels on Escape. Auto-resizes vertically
+            as the user types so multi-line labels stay readable. */}
+        {editingText ? (
+          <textarea
+            ref={textAreaRef}
+            value={editingText.value}
+            // Track the latest value in state so the commit handler
+            // (called from blur / keydown) reads the final text.
+            onChange={(e) =>
+              setEditingText({
+                ...editingText,
+                value: e.target.value,
+              })
+            }
+            // Click outside or Enter commits. Shift+Enter still
+            // inserts a newline (the standard textarea behaviour).
+            onBlur={commitEditingText}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                commitEditingText();
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                cancelEditingText();
+              }
+            }}
+            // Position absolutely at the click point. We offset by a
+            // few pixels so the dashed border doesn't kiss the
+            // cursor — feels cramped otherwise.
+            style={{
+              position: 'absolute',
+              left: editingText.wx + 4,
+              top: editingText.wy + 4,
+              // Match the canvas-drawn text's font size so the user
+              // sees roughly what they'll get on export. See
+              // `drawAnnotateShape` for the canvas-side fontPx.
+              fontSize: '20px',
+              lineHeight: '1.25',
+              // The user types in the SAME colour the selected circle
+              // is showing — what they see is what lands on the
+              // export. Inline style beats the Tailwind `text-*`
+              // utility because the colour is dynamic (state-driven),
+              // not a fixed token.
+              color,
+            }}
+            // Dashed border, transparent background so the image
+            // shows through, tight min-width so an empty textarea is
+            // still obviously an active editor (not a 0×0 invisible
+            // box). `border-current` picks up the same colour we set
+            // on `style.color` so the dashed border matches the
+            // text the user is typing.
+            className="placeholder:text-muted-foreground/70 min-w-[8rem] resize-none rounded-md border-2 border-dashed border-current bg-transparent px-2 py-1 font-sans font-semibold outline-none"
+            rows={1}
+            placeholder={m['playground.image.annotate_tool_text']()}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        ) : null}
+      </div>
+
+      {/* Footer — mirrors the reference markup: hint on the left,
+          Cancel + primary "Add to message" on the right. The confirm
+          button stays disabled while the image is still loading or a
+          confirm is in flight (the export is async). */}
+      <div className="border-border flex shrink-0 items-center justify-between gap-3 border-t px-4 py-3">
+        <p className="text-muted-foreground min-w-0 text-xs">
+          {m['playground.image.annotate_hint']()}
+        </p>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="border-border bg-background hover:bg-muted inline-flex h-8 items-center justify-center rounded-lg border px-3 text-sm font-medium transition-colors"
+          >
+            {m['playground.image.annotate_cancel']()}
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirm}
+            disabled={!sourceImage || busy}
+            className="bg-primary text-primary-foreground hover:bg-primary/90 inline-flex h-8 items-center justify-center rounded-lg border border-transparent px-3 text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50"
+          >
+            {busy ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              m['playground.image.annotate_confirm']()
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ToolbarToolButton({
+  active,
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      tabIndex={0}
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'inline-flex size-7 items-center justify-center rounded-md border border-transparent transition-colors outline-none select-none',
+        'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-3',
+        'disabled:pointer-events-none disabled:opacity-50',
+        active
+          ? 'bg-secondary text-secondary-foreground'
+          : 'hover:bg-muted hover:text-foreground',
+        '[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0'
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

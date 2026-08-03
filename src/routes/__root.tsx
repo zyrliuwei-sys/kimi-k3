@@ -139,7 +139,6 @@ function RootComponent() {
           />
         ) : null}
         <CustomerService
-          crispWebsiteId={analytics?.crispWebsiteId || undefined}
           tawkPropertyId={analytics?.tawkPropertyId || undefined}
           tawkWidgetId={analytics?.tawkWidgetId || undefined}
         />
