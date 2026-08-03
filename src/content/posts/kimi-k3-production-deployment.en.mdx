@@ -1,0 +1,122 @@
+export const meta = {
+  title:
+    'Production-Ready Kimi K3: Full-Stack Integration and Secure Deployment Guide',
+  description:
+    'A full-stack guide to running Kimi K3 in production — enterprise hosting with Zero Data Retention, reasoning_effort control, Prefix Caching, Partial mode, dynamic tool loading, multimodal inputs, and 50%-off Batch mode.',
+  created_at: '2026-08-03',
+  author_name: 'kimik3 Team',
+  author_image: '/logo.svg',
+  image: '/imgs/generated/kimi-k3-deployment-cover-1785746186215.png',
+};
+
+Wiring a frontier model into production is more than one API call — you have to solve compliance, cost, latency, and continuous fine-tuning. Kimi K3 ships with industrial-grade answers for each.
+
+The picture below frames where K3 sits in a production environment: from compliance boundaries to the inference path, enterprise controls run end-to-end.
+
+![Kimi K3 enterprise hosting and Zero Data Retention](kimi-k3-deployment-cover-1785746186215.png)
+
+## 1. Enterprise hosting and Zero Data Retention (ZDR)
+
+For enterprises, "where the data goes" matters more than "how strong the model is." K3's hosted deployment delivers on that front, at production scale.
+
+![Kimi K3 Zero Data Retention visual](k3-zdr-security-1785746817377.png)
+
+Cloud providers (notably Fireworks AI) expose Kimi K3 as a dedicated Serverless service:
+
+- **US-hosted nodes** — physical infrastructure inside the United States, satisfying residency rules for healthcare, finance, and other regulated industries.
+- **Zero Data Retention (ZDR) on by default** — neither your private prompts nor the model output is persisted. There is no after-the-fact replay path, and the contract is auditable.
+- **Serverless Fine-Tuning** — managed fine-tuning with no training cluster to operate.
+- **Batch mode** — asynchronous jobs (image tagging, document extraction, bulk evaluation) routed through off-peak capacity with an automatic **50% billing discount**.
+
+For teams with sensitive internal data, ZDR is what turns "model-as-a-service" into "model-as-a-trusted-vendor."
+
+## 2. Core API capabilities for developers
+
+Kimi K3 stays **fully OpenAI-SDK-compatible** at the wire level, then layers a handful of advanced controls on top. The concept panel below gathers the core switches into one view.
+
+![Kimi K3 API controls concept](k3-api-controls-1785746820161.png)
+
+### 2.1 Reasoning control — `reasoning_effort`
+
+Thinking mode is on by default. Control the depth with one parameter:
+
+```json
+{ "reasoning_effort": "max" }
+```
+
+Allowed values: `low`, `high`, `max`. Use `low` on latency-sensitive paths and `max` on multi-step reasoning paths to dial the cost/quality trade-off precisely.
+
+### 2.2 Automatic Prefix Caching
+
+When the prompt exceeds 256 tokens, the server **automatically** caches the prefix. Multi-turn conversation latency and token spend both drop — and you do not have to refactor your existing `messages` calls.
+
+### 2.3 Partial mode — forced continuation
+
+Pass `partial: true` on an Assistant message to make the model resume from a fixed prefix:
+
+```json
+{
+  "messages": [
+    { "role": "system", "content": "You write Python." },
+    { "role": "user", "content": "Write a CSV parser" },
+    {
+      "role": "assistant",
+      "content": "import csv\n\ndef parse_csv(path):\n    ",
+      "partial": true
+    }
+  ]
+}
+```
+
+This is a step-change for **structured output** — code completion, JSON templates, SQL fragment assembly — because the model can no longer drift away from the shape you locked in.
+
+### 2.4 Dynamic tool loading and multimodal inputs
+
+Inject tool declarations into the System message and the model picks them up on the fly:
+
+```json
+{
+  "role": "system",
+  "content": "You can call: get_weather(city), search_docs(query)."
+}
+```
+
+On the input side, K3 accepts **Base64 images** and **`ms://` video files** natively — no preprocessing pipeline required for vision or video understanding.
+
+## 3. Python integration (OpenAI-SDK-compatible)
+
+Swap `api_key` and `base_url`, and existing OpenAI code paths transparently run on Kimi K3:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="<YOUR_KIMI_K3_KEY>",
+    base_url="https://api.fireworks.ai/inference/v1",  # Kimi K3 endpoint
+)
+
+resp = client.chat.completions.create(
+    model="kimi-k3",
+    messages=[
+        {"role": "system", "content": "You are a careful code reviewer."},
+        {"role": "user",   "content": "Review this Python snippet."},
+        {"role": "user",   "content": "..."},
+    ],
+    reasoning_effort="high",      # low | high | max
+    extra_body={"partial": False},
+)
+print(resp.choices[0].message.content)
+```
+
+## 4. Production deployment checklist
+
+Before flipping K3 to production traffic, walk through this list:
+
+1. **Compliance** — confirm region + ZDR covers your industry (HIPAA for healthcare, PCI / SOC2 for finance, GDPR for EU traffic).
+2. **Cost** — bulk jobs use Batch + `reasoning_effort=low`. Critical paths use `max` with Prefix Cache reuse. Monitor both axes.
+3. **Deterministic output** — for structured output, lock the prefix with Partial mode and validate with zod / JSON Schema downstream.
+4. **Multimodal** — Base64 for images, `ms://` for video. Ship behind a small-percent canary first.
+5. **Fine-tuning** — high-frequency, low-quality cases go through Serverless Fine-Tuning. Skip building your own training cluster.
+6. **Observability** — emit reasoning trace, activated-expert histogram, and Prefix Cache hit rate as metrics. Watch the cost and quality curves together.
+
+After this checklist, K3 stops being a benchmark number and becomes a member of your production stack.

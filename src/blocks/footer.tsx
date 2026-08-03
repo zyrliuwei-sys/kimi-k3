@@ -1,6 +1,8 @@
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
+import { getLocale } from '@/paraglide/runtime.js';
+import { getLocalPosts, mergePosts } from '@/content/posts';
 
 interface BadgeEntry {
   href: string;
@@ -366,14 +368,13 @@ export function Footer() {
     { label: m['landing.footer.resources_status'](), href: '/' },
     { label: m['landing.footer.resources_signin'](), href: '/sign-in' },
   ];
-  // SEO landing pages for common kimik3 misspellings — kept as raw keyword
-  // labels (identical across locales) so each variant links to its page.
-  const searches: FooterLink[] = [
-    { label: 'kimink3', href: '/kimink3' },
-    { label: 'kimik 3', href: '/kimik-3' },
-    { label: 'kimika 3', href: '/kimika-3' },
-    { label: 'kimmik3', href: '/kimmik3' },
-  ];
+  // Localized blog directory: show the most recent posts as a quick
+  // discovery surface. Local MDX posts are bundled (isomorphic helper),
+  // so we sort newest-first and cap at 4 to keep the column compact.
+  // Database-authored posts are reachable via /blog.
+  const recentPosts = mergePosts([], getLocalPosts(getLocale()), {
+    limit: 4,
+  });
 
   return (
     <footer className="relative overflow-hidden bg-neutral-950 px-4 py-10 text-neutral-300 md:px-8">
@@ -462,22 +463,30 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Popular searches */}
+          {/* Blog directory */}
           <div className="col-span-1">
             <h3 className="text-sm font-semibold text-neutral-100">
-              {m['landing.footer.col_searches']()}
+              {m['landing.footer.col_blog']()}
             </h3>
             <ul className="mt-4 space-y-2">
-              {searches.map((link) => (
-                <li key={link.label}>
+              {recentPosts.map((post) => (
+                <li key={post.slug}>
                   <Link
-                    href={link.href}
-                    className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
+                    href={`/blog/${post.slug}`}
+                    className="line-clamp-2 text-sm break-words text-neutral-400 transition-colors hover:text-neutral-100"
                   >
-                    {link.label}
+                    {post.title}
                   </Link>
                 </li>
               ))}
+              <li>
+                <Link
+                  href="/blog"
+                  className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
+                >
+                  {m['landing.footer.view_all']()}
+                </Link>
+              </li>
             </ul>
           </div>
 

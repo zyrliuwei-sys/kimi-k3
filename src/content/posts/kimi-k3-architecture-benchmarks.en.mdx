@@ -1,0 +1,88 @@
+export const meta = {
+  title:
+    'Breaking the Closed-Source Lock-in: Kimi K3 at 3T Parameters and Frontier-Grade Performance',
+  description:
+    'A deep dive into Kimi K3 — the architecture leap from KDA to Stable Latent MoE, the 1M-token context window, and the benchmarks where K3 is the first open-source model to outscore Fable 5 and Opus 5.',
+  created_at: '2026-08-03',
+  author_name: 'kimik3 Team',
+  author_image: '/logo.svg',
+  image: '/imgs/generated/kimi-k3-architecture-cover-1785746182131.png',
+};
+
+The open-source AI world just hit a watershed moment. **Kimi K3** is the first open-weights flagship to cross the 3-trillion-parameter mark — **2.8T total** and **104B active** — and that scale actually moves the needle on benchmarks. For the first time, an open model sits on the same tier as the top closed-source flagships, which means enterprises no longer have to treat closed APIs as the only path to frontier capability.
+
+Below is a high-level view of one K3 inference pass: input flows through a 1M-token context, gets compressed by KDA into long-term memory, and is then routed through Stable Latent MoE.
+
+![Kimi K3 architecture overview](kimi-k3-architecture-cover-1785746182131.png)
+
+## 1. Architecture: KDA + Stable Latent MoE
+
+K3 only stays efficient at 3T parameters because of two structural bets. The image below visualizes the difference between KDA's hybrid linear attention and a vanilla Transformer — compression plus residual correction rather than full softmax at every step.
+
+![KDA linear attention compression](k3-kda-attention-1785746764870.png)
+
+### Kimi Delta Attention (KDA)
+
+KDA rewrites the attention block with **hybrid linear attention + Attention Residuals**:
+
+- **Linear long-term memory** — a kernel trick compresses a 1M-token context into a low-rank hidden state, dropping cost from `O(n²)` toward `O(n)`.
+- **Attention Residuals** — full attention is preserved at the positions that matter, so local semantics don't get blurred.
+- **Stable perplexity at 1M tokens** — the context window can stretch to **1M tokens** without perplexity blow-up, which vanilla Transformers cannot do.
+
+### Stable Latent MoE
+
+K3 rebuilds the MoE layer from the ground up — routing on **latent state**, not on discrete tokens:
+
+![MoE routing — 16 of 896 experts active](k3-moe-routing-1785746767568.png)
+
+- **896 experts** — enough capacity that each expert can specialize tightly.
+- **16 active per token** — activation rate just **3.7%**, yet expressivity far exceeds a small dense model.
+- **State-based routing** — vastly more stable than discrete top-k gating, which closes the train-inference gap.
+
+Compared with K2, this combo pushes K3's overall **Scaling Efficiency up by 2.5×**.
+
+## 2. Frontier Benchmarks (Closed-Source Parity and Beyond)
+
+K3 set open-weights highs across multiple high-difficulty benchmarks, several of them beating closed flagships outright. The visualization below makes the gap obvious at a glance.
+
+![Kimi K3 benchmark scores visualization](k3-benchmarks-chart-1785746772466.png)
+
+| Benchmark                | Model   | Score              | What it means                                      |
+| ------------------------ | ------- | ------------------ | -------------------------------------------------- |
+| Frontend Arena (Elo)     | Kimi K3 | **1,679**          | #1 globally, first open model to beat Fable 5      |
+| AAI Index                | Kimi K3 | **57**             | #1 open / #3 overall, on par with Opus 5 / GPT-5.5 |
+| Harvey LAB (Legal)       | Kimi K3 | **26.7% pass@1**   | ~2× Fable 5                                        |
+| Tau3-Banking (Finance)   | Kimi K3 | **33.4%**          | Leads Opus 5 in financial reasoning                |
+| SWE-Agent (long-horizon) | Kimi K3 | Parity with Opus 5 | **$0.52 / task**, half the cost                    |
+
+A few highlights worth calling out:
+
+- **Frontend Arena 1,679 Elo** — the first time an open model beats the closed flagships on real-world frontend code, which is the benchmark frontend engineers actually care about.
+- **AAI Index 57** — only Opus 5 and GPT-5.5 score higher, both closed-source.
+- **Harvey LAB 26.7% pass@1** — twice Fable 5 on legal domain tasks, big enough to matter for law-firm and compliance deployments.
+- **Tau3-Banking 33.4%** — K3 leads Opus 5 on financial reasoning. Quant and risk teams should pay attention.
+- **SWE-Agent ≈ $0.52 / task** — long-horizon software engineering completion on par with Opus 5, **half the bill**.
+
+## 3. Performance × Economics — both axes crossed
+
+Side-by-side with the current closed-source flagships:
+
+| Dimension                | Kimi K3   | Fable 5 | Opus 5  | GPT-5.5 |
+| ------------------------ | --------- | ------- | ------- | ------- |
+| Total params             | 2.8T      | —       | —       | —       |
+| Active params            | 104B      | —       | —       | —       |
+| 1M-token context         | ✓         | △       | △       | ✓       |
+| Open-weights / self-host | ✓         | ✗       | ✗       | ✗       |
+| SWE cost per task        | **$0.52** | ~$0.90  | ~$1.05+ | ~$1.10+ |
+
+This is the first time the open-source camp has matched closed flagships on **both axes — frontier capability and production economics** — at the same time. When that happens, the technology decision is no longer about "which provider has the best model" but "which model fits our stack and budget."
+
+## 4. Why this is a turning point
+
+Kimi K3 is not an incremental upgrade — it is a hinge:
+
+1. **No vendor lock-in** — at the same quality tier, K3 can be private-hosted, on-prem deployed, and configured with Zero Data Retention.
+2. **Auditable reasoning** — model weights and inference stack are inspectable. Hallucinations and biases can be traced back to a layer.
+3. **Cost curve that doesn't explode with usage** — at the same token spend, K3 runs about twice as many invocations.
+
+The next article walks through K3's enterprise hosting, the advanced API controls (`reasoning_effort`, Prefix Caching, Partial mode), and the best way to wire it into a production stack.

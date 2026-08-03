@@ -12,8 +12,8 @@ import { baseLocale } from '@/paraglide/runtime.js';
  * local posts via the pure helpers below.
  */
 export const BLOG_POST_SLUGS = [
-  'what-is-shipany',
-  'blocks-vs-components',
+  'kimi-k3-architecture-benchmarks',
+  'kimi-k3-production-deployment',
 ] as const;
 
 export type BlogPostMeta = {

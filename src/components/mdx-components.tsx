@@ -84,10 +84,7 @@ export const mdxComponents: MDXComponents = {
   ),
   code: ({ className, ...props }: HTMLAttributes<HTMLElement>) => (
     <code
-      className={cn(
-        'bg-muted text-foreground rounded px-[0.4rem] py-[0.2rem] font-mono text-sm',
-        className
-      )}
+      className={cn('text-foreground font-mono text-[0.9em]', className)}
       {...props}
     />
   ),

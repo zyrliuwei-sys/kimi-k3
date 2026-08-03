@@ -1,0 +1,87 @@
+export const meta = {
+  title: '打破闭源垄断：Kimi K3 3 万亿级架构演进与前沿性能解析',
+  description:
+    '深入解读 Kimi K3 从 280B 激活到 1M Token 上下文的关键架构升级,以及它在 Frontend Arena、AAI、Harvey LAB、Tau3-Banking 等权威基准上首次全面超越闭源旗舰的事实。',
+  created_at: '2026-08-03',
+  author_name: 'kimik3 团队',
+  author_image: '/logo.svg',
+  image: '/imgs/generated/kimi-k3-architecture-cover-1785746182131.png',
+};
+
+在大模型技术快速迭代的当下,开源社区迎来了一座分水岭。**Kimi K3** 是首个迈入 3 万亿参数规模的开源旗舰模型,以 **2.8 万亿总参数 + 1040 亿激活参数** 的配置,正式跨过了开源与顶尖闭源模型之间的性能鸿沟。这意味着,企业在追求尖端 AI 能力时,不必再把闭源 API 当成唯一选项。
+
+下面这张图概括了 K3 整体上的一个推理数据流:输入穿过 1M token 上下文,被 KDA 压缩成长期记忆,再交给 Stable Latent MoE 做稀疏路由。
+
+![Kimi K3 架构总览](kimi-k3-architecture-cover-1785746182131.png)
+
+## 一、架构革新:KDA 与 Stable Latent MoE 的双轮驱动
+
+Kimi K3 能在 3 万亿规模下保持高效率,依赖的是底层两项结构性的创新。下面这张图把 KDA 与传统 Transformer 的关注点差异视觉化——线性压缩 + 残差修正,而不是每一步都做完整 softmax。
+
+![KDA 线性注意力压缩示意](k3-kda-attention-1785746764870.png)
+
+### Kimi Delta Attention(KDA)
+
+KDA 用一组**混合线性注意力 + Attention Residuals** 重写了 Transformer 的注意力机制:
+
+- **线性长期记忆** —— 用 kernel trick 把 1M token 的上下文压成低秩的隐状态,代价从 `O(n²)` 降到接近 `O(n)`。
+- **Attention Residuals** —— 在关键位置上保留完整的局部 attention,确保局部语义不被压缩糊掉。
+- **长上下文损失小** —— 上下文窗口拉到 **1M Token** 仍能保持稳定的 perplexity,这是传统 Transformer 做不到的。
+
+### Stable Latent MoE
+
+K3 在 MoE 这一层也做了重做——不再是「按 token 选 top-k」,而是「按 latent state 选专家」:
+
+![MoE 路由示意 16/896 激活](k3-moe-routing-1785746767568.png)
+
+- **896 个专家** —— 容量足够大,每个专家都可以专注于非常窄的子任务。
+- **每 token 激活 16 个** —— 激活率仅 **3.7%**,但表达力比小型 dense 模型高一个量级。
+- **路由基于隐状态** —— 稳定性远胜离散 token gating,降低了训练-推理 gap。
+
+相比前代 K2,这套组合让 K3 的整体 **Scaling Efficiency 提升 2.5×**。
+
+## 二、权威基准对比(对标闭源旗舰)
+
+K3 在多个高难度基准上拿到了开源历史最高分,部分维度甚至超过了 Fable 5 / Opus 5。下面这张视觉化的对比图可以让你一眼感受差距。
+
+![Kimi K3 基准得分可视化](k3-benchmarks-chart-1785746772466.png)
+
+| 基准                   | 模型    | 得分                 | 含义                                     |
+| ---------------------- | ------- | -------------------- | ---------------------------------------- |
+| Frontend Arena (Elo)   | Kimi K3 | **1,679**            | 全球第一,首次超越 Fable 5                |
+| AAI Index              | Kimi K3 | **57**               | 开源第一(全球第三),对标 Opus 5 / GPT-5.5 |
+| Harvey LAB (Legal)     | Kimi K3 | **26.7% 一次通过率** | ≈ Fable 5 的 2 倍                        |
+| Tau3-Banking (Finance) | Kimi K3 | **33.4%**            | 金融场景领先 Opus 5                      |
+| SWE-Agent(长流程)      | Kimi K3 | 持平 Opus 5          | **$0.52 / 任务**,成本仅 Opus 5 的 1/2    |
+
+几个关键事实值得专门拎出来说:
+
+- **Frontend Arena 1,679 Elo** —— 终于有一个开源模型在「真实前端开发」维度上把闭源旗舰拍下去了,这是前端工程师最在意的指标。
+- **AAI Index 57** —— 综合智能上拿到全球第三,仅次于 Opus 5 和 GPT-5.5 两条闭源线路。
+- **Harvey LAB 26.7% pass@1** —— 在一次通过的难度下达到 Fable 5 近两倍,律所 / 合规团队的数字。
+- **Tau3-Banking 33.4%** —— 金融 reasoning 领先 Opus 5,量化、风控类应用的关键指标。
+- **SWE-Agent ≈ $0.52 / 任务** —— 长流程软件工程任务上完成度追平 Opus 5,**账单砍半**。
+
+## 三、性能 × 经济性二维同时跨过分水岭
+
+把 K3 跟当前主流闭源旗舰摆在一起看:
+
+| 维度           | Kimi K3   | Fable 5 | Opus 5  | GPT-5.5 |
+| -------------- | --------- | ------- | ------- | ------- |
+| 总参数         | 2.8T      | —       | —       | —       |
+| 激活参数       | 104B      | —       | —       | —       |
+| 1M Context     | ✓         | △       | △       | ✓       |
+| 开源可部署     | ✓         | ✗       | ✗       | ✗       |
+| SWE / 任务成本 | **$0.52** | ≈$0.9   | ≈$1.05+ | ≈$1.1+  |
+
+开源首次在「**前沿性能 + 生产级经济性**」二维度上同时把闭源旗舰钉在原地。当这两件事一起成立时,技术选型的话语权第一次完整地交还给工程团队。
+
+## 四、拐点意味着什么
+
+Kimi K3 不是一次渐进的升级,而是一个分水岭:
+
+1. **企业不再被锁定** —— 同等性能下,K3 可以私有化、本地化、配置 ZDR。
+2. **研发链路可审计** —— 模型权重与推理栈可见,出现幻觉或偏差时能定位到具体层。
+3. **成本曲线不再随用量爆炸** —— 同样的 token 花费,K3 能多跑一倍的调用。
+
+下一篇我们会拆解 Kimi K3 的企业级托管、API 高级控制能力(`reasoning_effort`、Prefix Caching、Partial 模式),以及把它接进生产架构的最佳实践。
