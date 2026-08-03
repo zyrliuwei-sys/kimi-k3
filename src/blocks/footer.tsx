@@ -2,6 +2,317 @@ import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
 
+interface BadgeEntry {
+  href: string;
+  /** Inline-render as a bordered text button (no image) — used for
+   *  directories that don't ship a hosted badge image. */
+  label?: string;
+  img?: { src: string; alt: string; width: number; height?: number };
+  /** Title attribute on the <a> — appears as tooltip on hover. */
+  title?: string;
+  rel?: string;
+}
+
+/**
+ * SEO backlink badges — one row per directory listing the project is
+ * submitted to. Rendered as a horizontal marquee at the top of the
+ * footer. The <a href> external links are what matter for SEO; the
+ * images are decorative. Most SVGs are self-hosted under /badges so
+ * they don't depend on flaky external image hosts; a few large ones
+ * (LaunchVault, ~1.3 MB) are hotlinked.
+ */
+const FOOTER_BADGES: BadgeEntry[] = [
+  {
+    href: 'https://tooldirs.com',
+    img: {
+      src: '/badges/tooldirs-badge.svg',
+      alt: 'Featured on ToolDirs',
+      width: 170,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://theresanaiforthat.com/ai/kimik3-unofficial-guide/?ref=featured&v=7720459',
+    rel: 'noopener noreferrer nofollow',
+    img: {
+      src: '/badges/taaft-badge.svg',
+      alt: "Featured on There's An AI For That",
+      width: 220,
+      height: 44,
+    },
+  },
+  {
+    href: 'https://aijustbetter.com/item/kimik3.net',
+    img: {
+      src: '/badges/aijustbetter-badge.svg',
+      alt: 'Featured on AIJustBetter.com',
+      width: 212,
+      height: 55,
+    },
+  },
+  {
+    href: 'https://tinylaunch.com',
+    img: {
+      src: '/badges/tinylaunch-badge.svg',
+      alt: 'Live on TinyLaunch',
+      width: 202,
+      height: 61,
+    },
+  },
+  {
+    href: 'https://curlship.com/l/2225',
+    img: {
+      src: '/badges/curlship-badge.svg',
+      alt: 'Listed on CurlShip',
+      width: 200,
+      height: 44,
+    },
+  },
+  {
+    href: 'https://saasgrow.app?ref=kimik3.net',
+    img: {
+      src: '/badges/saasgrow-badge.svg',
+      alt: 'kimik3 on SaaSGrow',
+      width: 240,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://startupfa.st',
+    title: 'Powered by Startup Fast',
+    img: {
+      src: '/badges/startupfast-badge.svg',
+      alt: 'Powered by Startup Fast',
+      width: 150,
+      height: 44,
+    },
+  },
+  {
+    href: 'https://www.peterindia.net',
+    img: {
+      src: '/badges/peterindia-badge.gif',
+      alt: 'PeterIndia — IT Knowledge Portal',
+      width: 200,
+      height: 26,
+    },
+  },
+  {
+    href: 'https://showmebest.ai',
+    img: {
+      src: 'https://showmebest.ai/badge/feature-badge-dark.webp',
+      alt: 'Featured on ShowMeBestAI',
+      width: 220,
+      height: 60,
+    },
+  },
+  {
+    href: 'https://www.seewhatnewai.com',
+    title: 'SeeWhatsNewAI',
+    label: 'SeeWhatsNewAI',
+  },
+  {
+    href: 'https://uno.directory',
+    img: {
+      src: '/badges/uno-directory-badge.svg',
+      alt: 'Listed on Uno Directory',
+      width: 120,
+      height: 30,
+    },
+  },
+  {
+    href: 'https://aiextension.ai/kimik3',
+    img: {
+      src: '/badges/aiextension-badge.svg',
+      alt: 'Featured on AIExtension.ai',
+      width: 200,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://wayfindio.com',
+    img: {
+      src: '/badges/wayfindio-badge.svg',
+      alt: 'Featured on Wayfindio',
+      width: 200,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://toolfame.com/item/kimik3',
+    img: {
+      src: '/badges/toolfame-badge.svg',
+      alt: 'Featured on toolfame.com',
+      width: 160,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://toolfame.com/item/kimik3',
+    img: {
+      src: '/badges/toolfame-badge-dark.svg',
+      alt: 'Featured on toolfame.com',
+      width: 160,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://findly.tools/kimik3?utm_source=kimik3',
+    img: {
+      src: '/badges/findly-tools-badge.svg',
+      alt: 'Featured on Findly.tools',
+      width: 175,
+      height: 55,
+    },
+  },
+  {
+    href: 'https://firsto.co/projects/kimik3',
+    title: 'Featured on Firsto: kimik3',
+    img: {
+      src: '/badges/firsto-badge.svg',
+      alt: 'Featured on Firsto: kimik3',
+      width: 111,
+      height: 42,
+    },
+  },
+  {
+    href: 'https://twelve.tools',
+    img: {
+      src: '/badges/twelvetools-badge.svg',
+      alt: 'Featured on Twelve Tools',
+      width: 200,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://mossai.org',
+    title: 'MossAI Tools',
+    label: 'MossAI Tools',
+  },
+  {
+    href: 'https://collectai.tools/item/liuwei',
+    rel: 'noopener',
+    img: {
+      src: '/badges/collectai-badge.svg',
+      alt: 'Listed on CollectAI',
+      width: 220,
+      height: 40,
+    },
+  },
+  {
+    href: 'https://topaitoolsreview.com',
+    img: {
+      src: '/badges/topaitoolsreview-badge.svg',
+      alt: 'Featured on TopAIToolsReview',
+      width: 200,
+      height: 50,
+    },
+  },
+  {
+    href: 'https://www.uneed.best/tool/kimik3',
+    img: {
+      src: 'https://www.uneed.best/EMBED3.png',
+      alt: 'Launching Soon on Uneed',
+      width: 250,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://aiagentsdirectory.com/agent/kimik3',
+    title: 'Discover kimik3 on AI Agents Directory',
+    img: {
+      src: 'https://aiagentsdirectory.com/featured-badge.svg?v=2024',
+      alt: 'kimik3 - Featured on AI Agents Directory',
+      width: 200,
+      height: 50,
+    },
+  },
+  {
+    href: 'https://www.stork.ai/',
+    rel: 'nofollow',
+    title: 'Stork Verified — stork.ai AI tools directory',
+    img: {
+      src: 'https://www.stork.ai/badge/verified-dark.svg',
+      alt: 'Stork Verified — stork.ai AI tools directory',
+      width: 216,
+      height: 44,
+    },
+  },
+  {
+    href: 'https://lovableapp.org',
+    img: {
+      src: 'https://lovableapp.org/lovable-app-badge.svg',
+      alt: 'Lovable App Badge',
+      width: 160,
+    },
+  },
+  {
+    href: 'https://curateclick.com?utm_source=embed-badge&utm_medium=embed&utm_campaign=embed-badge',
+    img: {
+      src: 'https://curateclick.com/featured-badge.svg',
+      alt: 'Featured on CurateClick',
+      width: 175,
+      height: 54,
+    },
+  },
+  {
+    href: 'https://www.launchvault.dev',
+    title: 'Featured on LaunchVault',
+    img: {
+      src: 'https://www.launchvault.dev/images/badges/launch-valut-badge.svg',
+      alt: 'Featured on LaunchVault',
+      width: 195,
+      height: 62,
+    },
+  },
+  {
+    href: 'https://famed.tools/products/kimik3?utm_source=famed.tools',
+    rel: 'noopener',
+    img: {
+      src: 'https://famed.tools/badges/famed-tools-badge-light.svg',
+      alt: 'Featured on famed.tools',
+      width: 150,
+    },
+  },
+];
+
+/**
+ * Render one badge as an <a>. Image-backed badges get a hover-fade; the
+ * text-button fallback (no hosted image) gets a bordered chip so it
+ * still reads as a badge in the marquee.
+ */
+function Badge({ b }: { b: BadgeEntry }) {
+  const rel = b.rel ?? 'noopener noreferrer';
+  if (b.label) {
+    return (
+      <a
+        href={b.href}
+        target="_blank"
+        rel={rel}
+        title={b.title}
+        className="inline-flex h-[44px] shrink-0 items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-300 transition-all hover:border-neutral-500 hover:text-neutral-100"
+      >
+        {b.label}
+      </a>
+    );
+  }
+  return (
+    <a
+      href={b.href}
+      target="_blank"
+      rel={rel}
+      title={b.title}
+      className="inline-block shrink-0 transition-opacity hover:opacity-80"
+    >
+      <img
+        src={b.img!.src}
+        alt={b.img!.alt}
+        width={b.img!.width}
+        height={b.img!.height}
+      />
+    </a>
+  );
+}
+
 interface FooterLink {
   label: string;
   href: string;
@@ -58,6 +369,19 @@ export function Footer() {
   return (
     <footer className="relative overflow-hidden bg-neutral-950 px-4 py-10 text-neutral-300 md:px-8">
       <div className="mx-auto max-w-7xl">
+        {/* SEO backlink marquee — scrolls left → right at the top of the
+            footer so directory listings stay visible without taking
+            vertical space. Two copies of the row make the loop seamless
+            (each copy is 50% wide; the keyframes translate -50%). The
+            `marquee-mask` clips the overflow and fades the edges. */}
+        <div className="marquee-mask -mx-4 mb-12 md:-mx-8">
+          <div className="animate-marquee flex w-max shrink-0 items-center gap-6 px-4 md:px-8">
+            {[...FOOTER_BADGES, ...FOOTER_BADGES].map((b, i) => (
+              <Badge key={`${b.href}-${i}`} b={b} />
+            ))}
+          </div>
+        </div>
+
         <div className="grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-7">
           {/* Product */}
           <div className="col-span-1">
@@ -176,360 +500,6 @@ export function Footer() {
               © {new Date().getFullYear()} anyany.{' '}
               {m['landing.footer.rights']()}
             </p>
-            {/* SEO backlinks — restored (accidentally removed in dfcbbed).
-                Badges are self-hosted under /badges so they don't depend on
-                flaky external image hosts (media.theresanaiforthat.com was
-                unreachable). The <a href> external links are what matter for
-                SEO; the images are just decoration. */}
-            <a
-              href="https://tooldirs.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/tooldirs-badge.svg"
-                alt="Featured on ToolDirs"
-                width={170}
-                height={54}
-              />
-            </a>
-            <a
-              href="https://theresanaiforthat.com/ai/kimik3-unofficial-guide/?ref=featured&v=7720459"
-              target="_blank"
-              rel="noopener noreferrer nofollow"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/taaft-badge.svg"
-                alt="Featured on There's An AI For That"
-                width={220}
-                height={44}
-              />
-            </a>
-            <a
-              href="https://aijustbetter.com/item/kimik3.net"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/aijustbetter-badge.svg"
-                alt="Featured on AIJustBetter.com"
-                width={212}
-                height={55}
-              />
-            </a>
-            <a
-              href="https://tinylaunch.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/tinylaunch-badge.svg"
-                alt="Live on TinyLaunch"
-                width={202}
-                height={61}
-              />
-            </a>
-            <a
-              href="https://curlship.com/l/2225"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/curlship-badge.svg"
-                alt="Listed on CurlShip"
-                width={200}
-                height={44}
-              />
-            </a>
-            <a
-              href="https://saasgrow.app?ref=kimik3.net"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/saasgrow-badge.svg"
-                alt="kimik3 on SaaSGrow"
-                width={240}
-                height={54}
-              />
-            </a>
-            <a
-              href="https://startupfa.st"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Powered by Startup Fast"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/startupfast-badge.svg"
-                alt="Powered by Startup Fast"
-                width={150}
-                height={44}
-              />
-            </a>
-            <a
-              href="https://www.peterindia.net"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/peterindia-badge.gif"
-                alt="PeterIndia — IT Knowledge Portal"
-                width={200}
-                height={26}
-              />
-            </a>
-            <a
-              href="https://showmebest.ai"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/showmebestai-badge.webp"
-                alt="Featured on ShowMeBestAI"
-                width={220}
-                height={60}
-              />
-            </a>
-            <a
-              href="https://www.seewhatnewai.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="SeeWhatsNewAI"
-              className="inline-flex h-[44px] items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-300 transition-all hover:border-neutral-500 hover:text-neutral-100"
-            >
-              SeeWhatsNewAI
-            </a>
-            <a
-              href="https://uno.directory"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/uno-directory-badge.svg"
-                alt="Listed on Uno Directory"
-                width={120}
-                height={30}
-              />
-            </a>
-            <a
-              href="https://aiextension.ai/kimik3"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/aiextension-badge.svg"
-                alt="Featured on AIExtension.ai"
-                width={200}
-                height={54}
-              />
-            </a>
-            <a
-              href="https://wayfindio.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/wayfindio-badge.svg"
-                alt="Featured on Wayfindio"
-                width={200}
-                height={54}
-              />
-            </a>
-            <a
-              href="https://toolfame.com/item/kimik3"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/toolfame-badge.svg"
-                alt="Featured on toolfame.com"
-                width={160}
-                height={54}
-              />
-            </a>
-            <a
-              href="https://toolfame.com/item/kimik3"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/toolfame-badge-dark.svg"
-                alt="Featured on toolfame.com"
-                width={160}
-                height={54}
-              />
-            </a>
-            <a
-              href="https://findly.tools/kimik3?utm_source=kimik3"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/findly-tools-badge.svg"
-                alt="Featured on Findly.tools"
-                width={175}
-                height={55}
-              />
-            </a>
-            <a
-              href="https://firsto.co/projects/kimik3"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Featured on Firsto: kimik3"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/firsto-badge.svg"
-                alt="Featured on Firsto: kimik3"
-                width={111}
-                height={42}
-              />
-            </a>
-            <a
-              href="https://twelve.tools"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/twelvetools-badge.svg"
-                alt="Featured on Twelve Tools"
-                width={200}
-                height={54}
-              />
-            </a>
-            <a
-              href="https://mossai.org"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="MossAI Tools"
-              className="inline-flex h-[44px] items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-300 transition-all hover:border-neutral-500 hover:text-neutral-100"
-            >
-              MossAI Tools
-            </a>
-            <a
-              href="https://collectai.tools/item/liuwei"
-              target="_blank"
-              rel="noopener"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/collectai-badge.svg"
-                alt="Listed on CollectAI"
-                width={220}
-                height={40}
-              />
-            </a>
-            <a
-              href="https://topaitoolsreview.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="/badges/topaitoolsreview-badge.svg"
-                alt="Featured on TopAIToolsReview"
-                width={200}
-                height={50}
-              />
-            </a>
-            <a
-              href="https://www.uneed.best/tool/kimik3"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="https://www.uneed.best/EMBED3.png"
-                alt="Launching Soon on Uneed"
-                width={250}
-                height={54}
-              />
-            </a>
-            <a
-              href="https://aiagentsdirectory.com/agent/kimik3"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Discover kimik3 on AI Agents Directory"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="https://aiagentsdirectory.com/featured-badge.svg?v=2024"
-                alt="kimik3 - Featured on AI Agents Directory"
-                width={200}
-                height={50}
-              />
-            </a>
-            <a
-              href="https://www.stork.ai/"
-              rel="nofollow"
-              title="Stork Verified — stork.ai AI tools directory"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="https://www.stork.ai/badge/verified-dark.svg"
-                alt="Stork Verified — stork.ai AI tools directory"
-                width={216}
-                height={44}
-              />
-            </a>
-            <a
-              href="https://lovableapp.org"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="https://lovableapp.org/lovable-app-badge.svg"
-                width={160}
-                alt="Lovable App Badge"
-              />
-            </a>
-            <a
-              href="https://curateclick.com?utm_source=embed-badge&utm_medium=embed&utm_campaign=embed-badge"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="https://curateclick.com/featured-badge.svg"
-                alt="Featured on CurateClick"
-                width={175}
-                height={54}
-              />
-            </a>
-            {/* Hotlinked (not self-hosted): the LaunchVault SVG embeds a
-                base64 raster and weighs ~1.3 MB — too heavy to ship in
-                /public just for a footer badge. */}
-            <a
-              href="https://www.launchvault.dev"
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Featured on LaunchVault"
-              className="inline-block transition-opacity hover:opacity-80"
-            >
-              <img
-                src="https://www.launchvault.dev/images/badges/launch-valut-badge.svg"
-                alt="Featured on LaunchVault"
-                width={195}
-                height={62}
-              />
-            </a>
           </div>
         </div>
       </div>
