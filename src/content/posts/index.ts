@@ -14,6 +14,7 @@ import { baseLocale } from '@/paraglide/runtime.js';
 export const BLOG_POST_SLUGS = [
   'kimi-k3-architecture-benchmarks',
   'kimi-k3-production-deployment',
+  'kimi-k3-tutorial',
 ] as const;
 
 export type BlogPostMeta = {
@@ -28,6 +29,8 @@ export type BlogPostMeta = {
 type PostModule = {
   default: ComponentType;
   meta: BlogPostMeta;
+  /** Optional structured data for rich results on a local article. */
+  jsonLd?: unknown;
 };
 
 export type BlogPost = {

@@ -1111,6 +1111,7 @@
   "landing.compare.eyebrow": "Pricing Comparison",
   "landing.compare.title": "kimik3 vs Claude vs GPT",
   "landing.compare.description": "A side-by-side look at pricing, context window, and open-weight availability for the leading frontier models — so you can see exactly how Kimi K3 on kimik3 compares to Claude and GPT before you spend a cent.",
+  "landing.compare.deep_dive": "Read the in-depth Kimi K3 vs Claude guide",
   "landing.compare.col_model": "Model",
   "landing.compare.col_vendor": "Provider",
   "landing.compare.col_input": "Input",

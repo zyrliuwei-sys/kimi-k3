@@ -1,5 +1,6 @@
 import { Check, ExternalLink, Sparkles } from 'lucide-react';
 
+import { Link } from '@/core/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 
@@ -81,6 +82,12 @@ export function ComparePricing() {
           <p className="text-foreground/65 mt-5 text-lg leading-relaxed">
             {m['landing.compare.description']()}
           </p>
+          <Link
+            href="/kimi-k3-vs-claude"
+            className="text-primary mt-4 inline-flex text-sm font-semibold underline-offset-4 hover:underline"
+          >
+            {m['landing.compare.deep_dive']()}
+          </Link>
         </div>
 
         {/* takeaway */}

@@ -1,0 +1,206 @@
+export const meta = {
+  title: 'Kimi K3 API: Endpoints, Pricing & JavaScript Examples',
+  description:
+    'Connect to the Kimi K3 API with the OpenAI-compatible chat endpoint, current reference pricing, JavaScript and Python examples, and production safeguards.',
+  updated_at: '2026-08-14',
+};
+
+export const jsonLd = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebApplication',
+      name: 'Kimi K3 API Guide',
+      applicationCategory: 'DeveloperApplication',
+      operatingSystem: 'Web',
+      description:
+        'A developer guide to connecting an application to the Kimi K3 API using an OpenAI-compatible endpoint.',
+      offers: {
+        '@type': 'Offer',
+        priceCurrency: 'USD',
+        description:
+          'Reference Kimi K3 API rates: $3 per million input tokens and $15 per million output tokens.',
+      },
+    },
+    {
+      '@type': 'FAQPage',
+      mainEntity: [
+        {
+          '@type': 'Question',
+          name: 'What is the Kimi K3 API endpoint?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Moonshot documents an OpenAI-compatible chat-completions endpoint at https://api.moonshot.ai/v1/chat/completions. Confirm the current endpoint and model availability in the provider documentation before deployment.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How much does the Kimi K3 API cost?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'This guide uses reference rates of $3 per million input tokens and $15 per million output tokens, with cached-input pricing potentially different. Verify the current official rate card and provider terms.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'Is the Kimi K3 API OpenAI compatible?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'The documented API uses the Chat Completions shape used by OpenAI-compatible SDKs. Test optional parameters, streaming, tools, and structured output against the provider you choose rather than assuming full feature parity.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'Should I call the Kimi K3 API from a browser?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'No. Call the provider from a server-side route or worker so the API key stays secret and your application can enforce authentication, budgets, rate limits, and output validation.',
+          },
+        },
+        {
+          '@type': 'Question',
+          name: 'How do I reduce Kimi K3 API costs?',
+          acceptedAnswer: {
+            '@type': 'Answer',
+            text: 'Measure input and output tokens separately, keep reusable instructions stable for caching where supported, cap unnecessary output, route simple jobs to lower-cost settings, and use asynchronous batch processing for non-interactive volume work.',
+          },
+        },
+      ],
+    },
+  ],
+};
+
+## Kimi K3 API quickstart: first request to production workflow
+
+The Kimi K3 API is a practical route for teams that want to use long-context reasoning, coding, or agentic capability inside their own product. The first request is straightforward. The durable integration is not: it needs server-side secret handling, a clear output contract, telemetry, budgets, retries that do not duplicate work, and a way for a human to review consequential output. This guide shows the shortest path to a working request and the checks that keep it useful after launch.
+
+Moonshot documents an OpenAI-compatible chat-completions endpoint:
+
+```text
+POST https://api.moonshot.ai/v1/chat/completions
+Authorization: Bearer $MOONSHOT_API_KEY
+Content-Type: application/json
+```
+
+Use the current model id supplied by your provider; this guide uses `kimi-k3`. Endpoints, available controls, rates, limits, and regional availability can change, so confirm them in official documentation before a production release. To test task framing before you write code, use the [kimik3 workspace](/) or browse the [Kimi K3 prompt collection](/kimi-k3-prompts).
+
+## 1. Create a key and keep it on the server
+
+Create a project-specific API key in the provider console. Store it in your deployment platform’s secret manager or a server-only environment variable named `MOONSHOT_API_KEY`. Never expose it through a frontend build variable, return it from an API route, paste it into a client-side example, or commit it to a repository. A leaked key can generate charges and give an attacker access to any capability associated with that project.
+
+Your browser or mobile app should call your own backend. That backend authenticates the caller, applies quotas, chooses the model settings, calls the provider, and returns only the output your product needs. This pattern also gives you a place to redact logs, rate-limit abusive traffic, attach a trace id, and cut off a runaway request. It is much easier to add those controls before the first public user than after an incident.
+
+```bash
+export MOONSHOT_API_KEY="server-side-secret"
+export KIMI_MODEL="kimi-k3"
+```
+
+Use separate keys for local development, staging, and production. Name them by workload, such as `prod-support-drafts`, so you can revoke a single integration. Rotate a key immediately if it appears in browser code, a public issue, a screenshot, or a build log.
+
+## 2. Send a minimal JavaScript request
+
+The current API shape is compatible with the familiar Chat Completions style. In Node.js, the official-style SDK approach looks like this. Keep the client in server code, not in a React component.
+
+```ts
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  apiKey: process.env.MOONSHOT_API_KEY,
+  baseURL: 'https://api.moonshot.ai/v1',
+});
+
+const response = await client.chat.completions.create({
+  model: process.env.KIMI_MODEL || 'kimi-k3',
+  messages: [
+    {
+      role: 'system',
+      content: 'Summarize the supplied text in three evidence-based bullets.',
+    },
+    {
+      role: 'user',
+      content: 'Integration tests reveal broken contracts before deployment.',
+    },
+  ],
+});
+
+const text = response.choices[0]?.message?.content ?? '';
+console.log({ text, usage: response.usage });
+```
+
+For a first call, request something small and inspect every field. Confirm that you receive text where the SDK expects it, that the model id is what you intended, and that usage metadata is logged safely. Do not assume a successful HTTP status proves the output meets your product’s requirements. Add a test with representative inputs before you build a workflow around the response.
+
+## 3. Send the same request in Python
+
+Python uses the same message structure with an OpenAI-compatible client. The important part is unchanged: secrets live in the environment and the code runs on a trusted server.
+
+```python
+import os
+from openai import OpenAI
+
+client = OpenAI(
+    api_key=os.environ["MOONSHOT_API_KEY"],
+    base_url="https://api.moonshot.ai/v1",
+)
+
+response = client.chat.completions.create(
+    model=os.getenv("KIMI_MODEL", "kimi-k3"),
+    messages=[
+        {"role": "system", "content": "Return valid JSON with summary and risks."},
+        {"role": "user", "content": "Review this launch note: [paste text here]"},
+    ],
+)
+
+print(response.choices[0].message.content)
+```
+
+When your application needs structured output, ask for an explicit schema in the prompt and validate the result in code. Never pass unvalidated model text directly into SQL, a shell command, HTML, payment instructions, or a privileged tool. A model can produce a nearly correct object with one missing field; your program, not the model, must decide whether it is safe to continue.
+
+## 4. Understand the $3 / $15 per MTok reference price
+
+The Kimi K3 reference rate used here is **$3 per million input tokens** and **$15 per million output tokens**. Cached input may be priced differently, and the current official rate card is the only number to use for a real budget. The asymmetry matters: a prompt-heavy document workflow and a verbose-response workflow can cost very differently even when they make the same number of calls.
+
+Estimate cost by recording input and output tokens separately. If a task has 20,000 input tokens and 2,000 output tokens, calculate each portion against its own rate; then multiply by your expected volume and add retries, tools, storage, and human review. Do not hide token usage behind “requests per month.” A single request can range from a short classification to a million-token analysis.
+
+There are four practical levers. First, put a cap on output when the user needs a short answer. Second, remove irrelevant context rather than blindly sending an entire archive. Third, keep stable system instructions and shared sources in a consistent prefix so a provider can cache them where supported. Fourth, move large non-interactive jobs to batch processing when your provider offers it. Compare the economics with other options on [pricing](/pricing) and [Kimi K3 vs Claude](/kimi-k3-vs-claude).
+
+## 5. Add reasoning, caching, and batch controls carefully
+
+Kimi K3 integrations may expose controls such as `reasoning_effort`, prefix caching, and batch submission. Treat these as experiments, not universal defaults. Use the lowest reasoning setting that passes a representative evaluation set; higher reasoning can improve difficult planning or coding tasks, but may also raise latency and usage. If your provider does not document a setting, do not send a guessed field—feature compatibility can differ across direct and third-party endpoints.
+
+For Prefix Caching, arrange the request from stable to variable: system policy first, then static tool definitions or a common source packet, then the changing user task. Do not inject timestamps, random ids, or re-ordered content into the stable prefix. Track cache-hit behavior in aggregate and confirm that the provider’s retention and data rules fit your product.
+
+For batch work, use an idempotency key per input and save the source version that produced the job. Batch is good for a backlog of independent tasks such as categorization, evaluation, first-pass drafting, or metadata extraction. It is a poor fit for an interactive user waiting at the screen. Test a sample synchronously, validate every result by id, and retry only safe failures.
+
+## 6. Put production boundaries around the model call
+
+An API client needs timeouts, a bounded retry policy, and error classification. Retry network errors and documented transient provider failures with exponential backoff and jitter. Do not retry a request that may have already caused an external action unless you have an idempotency design. Report actionable errors to the caller; keep provider response bodies and keys out of user-facing messages.
+
+Set a budget at the user, workspace, or project level. Require authentication before accepting expensive work. Record request id, model, prompt version, token usage, latency, cache status, and outcome status—while minimizing or redacting sensitive content. Alert on sudden jumps in output tokens, error rate, or spend. These signals catch a bad prompt update and an abusive loop long before an invoice does.
+
+Agentic use needs stricter boundaries. Treat document content, webpages, and tool output as untrusted. Do not let any prompt redefine the permission model. Require human approval before sending an email, changing permissions, purchasing something, deleting data, or publishing content. The [Kimi K3 tutorial](/blog/kimi-k3-tutorial) and [production deployment guide](/blog/kimi-k3-production-deployment) show how to turn those principles into an operating checklist.
+
+## Frequently asked questions
+
+### What is the Kimi K3 API endpoint?
+
+Moonshot documents `https://api.moonshot.ai/v1/chat/completions` as its Chat Completions endpoint. Check the provider documentation at implementation time because endpoint and model availability can change.
+
+### How much does the Kimi K3 API cost?
+
+This page uses the $3-per-million input and $15-per-million output reference rates. Verify current official prices, including cached input and any provider-specific terms, before committing to a forecast.
+
+### Is the Kimi K3 API OpenAI compatible?
+
+It uses the Chat Completions shape supported by OpenAI-compatible SDKs. Test the optional behavior you need—streaming, tools, JSON output, caching, and reasoning settings—against your chosen endpoint.
+
+### Should I call Kimi K3 directly from the browser?
+
+No. Send requests through your own server or worker so the API key remains private and your application can enforce identity, budgets, rate limits, and validation.
+
+### How do I reduce Kimi K3 API cost?
+
+Measure input and output separately, limit unnecessary output, send only relevant context, keep reusable prefixes stable when caching is supported, and use batch processing for large non-interactive workloads.
+
+## Build from here
+
+Try a request in the [kimik3 workspace](/), choose a test case from [Kimi K3 Prompts](/kimi-k3-prompts), compare plans on [pricing](/pricing) and [compare](/compare), then browse the rest of the [Kimi K3 Guide](/blog) for implementation notes.

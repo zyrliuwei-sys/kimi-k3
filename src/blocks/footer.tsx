@@ -12,16 +12,12 @@ interface BadgeEntry {
   img?: { src: string; alt: string; width: number; height?: number };
   /** Title attribute on the <a> — appears as tooltip on hover. */
   title?: string;
-  rel?: string;
 }
 
 /**
- * SEO backlink badges — one row per directory listing the project is
- * submitted to. Rendered as a horizontal marquee at the top of the
- * footer. The <a href> external links are what matter for SEO; the
- * images are decorative. Most SVGs are self-hosted under /badges so
- * they don't depend on flaky external image hosts; a few large ones
- * (LaunchVault, ~1.3 MB) are hotlinked.
+ * Directory badges are a single, optional discovery row in the footer.
+ * They are deliberately non-promotional external links; the images are
+ * decorative and lazy-loaded so they never compete with page content.
  */
 const FOOTER_BADGES: BadgeEntry[] = [
   {
@@ -35,7 +31,6 @@ const FOOTER_BADGES: BadgeEntry[] = [
   },
   {
     href: 'https://theresanaiforthat.com/ai/kimik3-unofficial-guide/?ref=featured&v=7720459',
-    rel: 'noopener noreferrer nofollow',
     img: {
       src: '/badges/taaft-badge.svg',
       alt: "Featured on There's An AI For That",
@@ -192,7 +187,6 @@ const FOOTER_BADGES: BadgeEntry[] = [
   },
   {
     href: 'https://collectai.tools/item/liuwei',
-    rel: 'noopener',
     img: {
       src: '/badges/collectai-badge.svg',
       alt: 'Listed on CollectAI',
@@ -230,7 +224,6 @@ const FOOTER_BADGES: BadgeEntry[] = [
   },
   {
     href: 'https://www.stork.ai/',
-    rel: 'nofollow',
     title: 'Stork Verified — stork.ai AI tools directory',
     img: {
       src: 'https://www.stork.ai/badge/verified-dark.svg',
@@ -268,7 +261,6 @@ const FOOTER_BADGES: BadgeEntry[] = [
   },
   {
     href: 'https://famed.tools/products/kimik3?utm_source=famed.tools',
-    rel: 'noopener',
     img: {
       src: 'https://famed.tools/badges/famed-tools-badge-dark.svg',
       alt: 'Featured on famed.tools',
@@ -292,7 +284,7 @@ const FOOTER_BADGES: BadgeEntry[] = [
  * still reads as a badge in the marquee.
  */
 function Badge({ b }: { b: BadgeEntry }) {
-  const rel = b.rel ?? 'noopener noreferrer';
+  const rel = 'nofollow noopener noreferrer';
   if (b.label) {
     return (
       <a
@@ -319,6 +311,8 @@ function Badge({ b }: { b: BadgeEntry }) {
         alt={b.img!.alt}
         width={b.img!.width}
         height={b.img!.height}
+        loading="lazy"
+        decoding="async"
       />
     </a>
   );
@@ -379,14 +373,11 @@ export function Footer() {
   return (
     <footer className="relative overflow-hidden bg-neutral-950 px-4 py-10 text-neutral-300 md:px-8">
       <div className="mx-auto max-w-7xl">
-        {/* SEO backlink marquee — scrolls left → right at the top of the
-            footer so directory listings stay visible without taking
-            vertical space. Two copies of the row make the loop seamless
-            (each copy is 50% wide; the keyframes translate -50%). The
-            `marquee-mask` clips the overflow and fades the edges. */}
-        <div className="marquee-mask -mx-4 mb-12 md:-mx-8">
-          <div className="animate-marquee flex w-max shrink-0 items-center gap-6 px-4 md:px-8">
-            {[...FOOTER_BADGES, ...FOOTER_BADGES].map((b, i) => (
+        {/* Render each directory badge once. The row scrolls manually on
+            narrow screens instead of duplicating links for a CSS marquee. */}
+        <div className="-mx-4 mb-12 overflow-x-auto pb-2 md:-mx-8">
+          <div className="flex w-max items-center gap-6 px-4 md:px-8">
+            {FOOTER_BADGES.map((b, i) => (
               <Badge key={`${b.href}-${i}`} b={b} />
             ))}
           </div>
@@ -496,7 +487,7 @@ export function Footer() {
               <Link href="/" className="flex items-center gap-2">
                 <img
                   src={envConfigs.app_logo}
-                  alt={envConfigs.app_name}
+                  alt="kimik3"
                   width={32}
                   height={32}
                   className="size-8 rounded-lg"

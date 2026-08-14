@@ -1,0 +1,164 @@
+export const meta = {
+  title: 'Kimi K3 Tutorial: How to Use the 3T-Parameter Frontier Model',
+  description:
+    'A practical Kimi K3 tutorial covering account setup, API keys, first requests, reasoning effort, prefix caching, batch work, and production checks.',
+  created_at: '2026-08-14',
+  author_name: 'kimik3 Team',
+};
+
+export const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: 'How do I start using Kimi K3?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Create an account with a supported provider, create an API key in its console, send one small chat-completions request, and validate the returned text and usage before integrating it into an application.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'When should I change reasoning effort?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Use the lowest setting that reliably meets the task. Raise reasoning effort for multi-step coding, planning, or difficult analysis, then compare quality, latency, and token usage against a small evaluation set.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'What is prefix caching?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Prefix caching reuses a stable leading portion of repeated requests, such as instructions or a shared document. Keep the reusable material identical and place changing user input after it.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'When is batch processing useful?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Batch processing is useful for large, non-interactive workloads such as classifying records, creating drafts, or running an evaluation. It trades immediate responses for lower-cost asynchronous throughput where available.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'How should I protect a Kimi K3 API key?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Keep the key in a server-side secret manager or environment variable, never ship it in browser code, restrict access to the smallest group possible, and rotate it if exposure is suspected.',
+      },
+    },
+  ],
+};
+
+## A Kimi K3 tutorial for a reliable first integration
+
+Kimi K3 is built for long-context reasoning, coding, and agentic work. That makes it tempting to begin with a giant prompt and an ambitious automation. A better first integration is intentionally boring: make one authenticated request, inspect the response and token usage, save a small evaluation set, and only then turn the knobs that affect cost and latency. This Kimi K3 tutorial follows that path from account creation to a production-ready request shape.
+
+The model’s scale is not a substitute for product discipline. Give it a well-defined task, preserve source material that must remain stable, and decide how a human will verify the result. You can try prompt ideas in the [kimik3 workspace](/), browse copy-ready patterns in [Kimi K3 Prompts](/kimi-k3-prompts), and compare the model’s position with alternatives on [our comparison page](/compare).
+
+## 1. Choose the access path before you sign up
+
+Start by deciding whether you are exploring, building an internal tool, or shipping an application. Exploration can happen in a chat interface. An application needs a provider account, billing permissions, an API key, server-side secret storage, and an owner for usage monitoring. Kimi K3 may be available through Moonshot AI or an approved compatible provider; use the provider’s current model identifier, endpoint, limits, and terms rather than copying an identifier from an old blog post.
+
+Create an account in the provider console, complete the required verification, and open the API-keys area. Give the key a descriptive name such as `staging-doc-summarizer`, not a person’s name. A named key lets you revoke one integration without interrupting every other service. Keep development and production keys separate from the beginning. It is a small habit that makes incident response much less painful later.
+
+## 2. Create and store the API key safely
+
+Copy the secret once and place it in a server-side environment variable or secret manager. Do not put it in a React component, a mobile application, a browser extension, a client-visible `VITE_` variable, a screenshot, or a repository. The browser should call your own backend, and your backend should call the model provider. This keeps the key private and gives you one place to apply authentication, rate limits, logging, spend controls, and output validation.
+
+For a local test, an environment variable can look like this:
+
+```bash
+export KIMI_API_KEY="replace-with-a-server-side-secret"
+export KIMI_BASE_URL="https://provider.example/v1"
+export KIMI_MODEL="kimi-k3"
+```
+
+The values above are placeholders. Confirm the current endpoint and model name in the provider’s documentation. A common integration failure is assuming that every OpenAI-compatible provider supports every optional field in exactly the same way. Treat compatibility as a helpful interface convention, not a promise that you can skip testing.
+
+## 3. Send one small, observable request
+
+Make the first request small enough that you can read every input and every output. Ask for a structured answer to a simple task, set a timeout, and log the request ID and usage metadata if the provider returns them. Avoid logging raw customer content or credentials. Your goal is to prove that authentication, networking, error handling, and output extraction work before adding streaming, tools, or enormous context windows.
+
+```ts
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  apiKey: process.env.KIMI_API_KEY,
+  baseURL: process.env.KIMI_BASE_URL,
+});
+
+const completion = await client.chat.completions.create({
+  model: process.env.KIMI_MODEL || 'kimi-k3',
+  messages: [
+    { role: 'system', content: 'Answer in three concise bullets.' },
+    {
+      role: 'user',
+      content: 'Explain why integration tests catch contract regressions.',
+    },
+  ],
+});
+
+console.log(completion.choices[0]?.message?.content);
+```
+
+Read the response as a user would, then record it in a tiny evaluation file. Include five to ten examples that represent your real workload: an easy request, a long document, an ambiguous question, a malformed input, and a task where the model should refuse or escalate. This set becomes the baseline for every configuration change. Without it, “the output seems better” is the only signal you have.
+
+## 4. Shape prompts and context deliberately
+
+Kimi K3 can work with long context, but a large window is not an instruction to paste everything into every call. Start the request with stable policy and task instructions, then add the facts relevant to the current decision, then add the user’s changing question. Tell the model what source has priority when documents conflict. Tell it whether to quote evidence, produce JSON, or ask a clarification question. A clear output contract is more reliable than a generic request to “be helpful.”
+
+For example, a document-review prompt can say: “Use only the supplied contract. Return a table with clause, risk, evidence quote, and recommended owner. If the document does not support a conclusion, write `not established`.” That instruction lets a reviewer see both the result and the boundary around it. The [prompt collection](/kimi-k3-prompts) includes templates for similar research, coding, and agent workflows.
+
+## 5. Tune `reasoning_effort` with an evaluation, not a hunch
+
+Some Kimi K3 integrations expose a `reasoning_effort` control or an equivalent quality/latency setting. The right setting depends on the task. A short classification or rewrite often benefits from the lowest effective effort; a multi-file debugging plan, a complex analysis, or a long-horizon agent plan may justify more. Higher effort can increase latency and token consumption, so do not make it the default merely because the task sounds important.
+
+Run the same evaluation set at each supported setting. Compare factual accuracy, instruction following, completion rate, elapsed time, and tokens. Use the lowest setting that meets the acceptance bar. Keep the setting in configuration rather than hardcoding it in every call so you can roll it back or run a controlled experiment. If the provider does not support the exact field, omit it rather than sending an invented parameter.
+
+## 6. Arrange stable content for Prefix Caching
+
+Prefix caching can reduce repeated-work cost and latency when a provider supports it. The cacheable idea is simple: requests that begin with the same material can reuse the work of processing that material. Put stable system instructions, tool definitions, documentation, or a shared reference corpus before the variable user question. Keep that leading material byte-for-byte stable where the provider’s caching rules require it.
+
+Do not cache secrets or personal data just because it is repeated. Separate tenant-specific material, establish retention expectations with your provider, and use a short-lived or isolated context where the product requires it. Measure cache hits and misses in aggregate. If a supposed shared prefix changes every request because timestamps, random IDs, or reordered tools are included, it is not really a reusable prefix.
+
+## 7. Use Batch for work that does not need an instant answer
+
+Batch processing is a delivery model, not a model-quality setting. It is useful when you have hundreds or thousands of independent jobs: enriching a catalog, generating first-pass descriptions, grading an evaluation set, or classifying historical support tickets. Prepare a validated input file, give every row an idempotency key, submit it asynchronously according to the provider’s current batch format, and store the source version that produced it.
+
+Before you trust a batch, run a representative sample synchronously. Validate output format, check for policy-sensitive content, and estimate the total cost. When results return, reconcile every input id with an output id and retry only the safe failures. Never turn a partial batch result into a silent success. The [pricing page](/pricing) is a useful place to compare request economics before you choose interactive versus asynchronous work.
+
+## 8. Add the production safeguards that make the tutorial real
+
+Production quality comes from the boundaries around the model call. Authenticate the user before accepting a request. Enforce a per-user or per-project budget. Set connection and total timeouts. Retry only transient failures, with bounded exponential backoff. Validate structured output before sending it to a downstream system. Keep an audit record that contains the minimum necessary metadata, not a permanent copy of private prompts.
+
+For agentic flows, require human approval before actions that send messages, alter permissions, spend money, delete data, or publish content. Treat tool output as untrusted input, even if the tool belongs to your own team. A model can summarize a page that contains hostile instructions; your application still decides what tools are available and which actions are allowed. The [production deployment guide](/blog/kimi-k3-production-deployment) expands on those operational controls.
+
+## Frequently asked questions
+
+### How do I start using Kimi K3?
+
+Create a provider account, generate a scoped API key, store it only on the server, and make a small request that you can inspect. Build a short evaluation set before you add streaming, tools, or a large document corpus.
+
+### When should I change reasoning effort?
+
+Change it only after you have representative examples to compare. Raise it for tasks that need more deliberate multi-step work; keep it low for simple work that already meets your quality bar.
+
+### What is Prefix Caching?
+
+It is a way to reuse stable leading context across repeated requests when your provider supports it. Keep common instructions and shared source material at the beginning, and place the changing question after them.
+
+### When should I use Batch?
+
+Use batch processing for high-volume, non-interactive jobs where delayed results are acceptable. Validate a sample synchronously first, reconcile every result by ID, and make retries idempotent.
+
+### Is Kimi K3 an official product of kimik3?
+
+No. kimik3 is an independent guide and workspace. Kimi K3 is a model from Moonshot AI; always check the provider you use for its current access, pricing, and data-handling terms.
+
+## Next steps
+
+Run a small experiment in the [kimik3 workspace](/), select a workflow from [Kimi K3 Prompts](/kimi-k3-prompts), compare cost and context trade-offs on [pricing](/pricing) and [compare](/compare), then return to the [Kimi K3 Guide](/blog) for architecture and deployment notes.

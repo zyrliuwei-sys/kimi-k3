@@ -1,0 +1,210 @@
+export const meta = {
+  title: 'Kimi K3 Prompts: 50+ Examples for Coding, Writing & Research',
+  description:
+    'Copy 50+ Kimi K3 prompts for coding, writing, research, and agent workflows, with a practical method for adapting each one to your work.',
+  updated_at: '2026-08-14',
+};
+
+export const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: 'How do I use Kimi K3 prompts?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Start with the prompt closest to your task, replace the bracketed context with your own material, and ask Kimi K3 to show assumptions before it produces a final answer.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Should I put every detail in one Kimi K3 prompt?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Give the model the goal, audience, source material, constraints, and output format. Keep nonessential background out of the first pass and add it only when the result needs correction.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Which prompts work best for coding?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Coding prompts work best when they include the runtime, relevant files or error output, acceptance criteria, and a request for a minimal patch plus tests.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Can I use Kimi K3 prompts for research?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Yes. Ask for a research plan, an evidence table, explicit uncertainty, and citations or quoted excerpts that you can verify before relying on a conclusion.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'How can I improve a weak Kimi K3 response?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Point to the missing requirement, paste the relevant source material, and request a revision rather than starting from scratch. A concrete critique is usually more useful than a longer original prompt.',
+      },
+    },
+  ],
+};
+
+## Kimi K3 prompts that produce usable first drafts
+
+A good prompt is not a magic spell. It is a compact brief: a clear outcome, the context Kimi K3 cannot infer, the limits that matter, and a definition of a useful answer. The 52 Kimi K3 prompts below are designed to be copied, then edited. Replace every item in square brackets with information from your real task. If the work has consequences, ask for assumptions and verify the result before you act on it.
+
+This collection is deliberately organized by the jobs people actually bring to a frontier model: turning a bug report into a patch, turning notes into a document, turning a pile of sources into a decision, and turning a vague goal into an agent plan. If you want a no-code first pass, start in the [kimik3 workspace](/). If you are comparing the cost of longer iterations, see [pricing](/pricing) and the current [model comparison](/compare).
+
+<div className="border-border bg-muted/40 my-8 rounded-2xl border p-5">
+  <strong>Use this pattern first:</strong> state the role, the deliverable, the
+  evidence, the constraints, and the review test. For example: “Act as a senior
+  TypeScript reviewer. Using the error log and file below, propose the smallest
+  safe patch. Do not change the public API. Explain the test I should run.”
+</div>
+
+## Coding prompts
+
+1. **Trace a bug.** “Act as a senior [language] engineer. Read this error and the related code. Identify the most likely root cause, rank two alternatives, and propose the smallest patch with a regression test: [paste].”
+
+2. **Explain a codebase.** “Create a map of this repository for a new maintainer. Explain the entry points, data flow, important modules, and three places where a change could create regressions: [files or tree].”
+
+3. **Plan a feature.** “Turn this product request into an implementation plan for [stack]. List affected files, data changes, API contracts, edge cases, and acceptance tests before writing code: [request].”
+
+4. **Refactor safely.** “Refactor this function for readability without changing behavior. Preserve its public signature, call out any hidden assumptions, and return a focused diff plus tests: [function].”
+
+5. **Write tests first.** “Given this requirement and existing function, write the smallest useful test matrix. Include normal cases, boundaries, invalid input, and one regression risk. Use [test framework]: [details].”
+
+6. **Review a pull request.** “Review this patch as if it will run in production. Separate blocking bugs, maintainability concerns, and optional improvements. Cite the exact line or behavior for every finding: [diff].”
+
+7. **Debug a performance issue.** “This endpoint is slow under [load]. Form hypotheses from the trace, name the measurements needed to distinguish them, and recommend the lowest-risk experiment first: [trace and code].”
+
+8. **Convert an API client.** “Rewrite this [language] client to use [target SDK]. Keep retries, timeouts, errors, and pagination explicit. Explain any semantic difference between the two APIs: [source].”
+
+9. **Design a schema.** “Model these entities in [database]. Show tables, keys, indexes, deletion behavior, and the query patterns each index supports. Flag any requirement that needs clarification: [entities].”
+
+10. **Harden input handling.** “Audit this handler for validation, authorization, injection, and data-exposure risks. Return concrete fixes that fit the existing framework; do not invent new infrastructure: [handler].”
+
+11. **Write migration notes.** “Create a safe rollout plan for this schema change. Include forward migration, backfill, deploy order, rollback limits, and monitoring signals: [change].”
+
+12. **Make an interface accessible.** “Inspect this component against keyboard, focus, label, contrast, and screen-reader expectations. Provide a minimal accessible rewrite and explain how to test it manually: [component].”
+
+13. **Generate a CLI command.** “Design a [runtime] CLI command that performs [task]. Specify flags, defaults, error messages, exit codes, dry-run behavior, and examples before implementing it.”
+
+## Writing prompts
+
+14. **Turn notes into a brief.** “Turn these notes into a one-page brief for [audience]. Lead with the decision, distinguish facts from assumptions, and end with the next owner and date: [notes].”
+
+15. **Write an executive update.** “Draft a concise weekly update for [leaders]. Use sections for outcome, evidence, risks, and asks. Keep it under [word count] and avoid motivational filler: [raw notes].”
+
+16. **Create an outline.** “Build a detailed outline for an article about [topic] aimed at [reader]. Each section should answer a real question, include the evidence needed, and avoid repeating the conclusion.”
+
+17. **Rewrite for clarity.** “Rewrite this for a [technical/nontechnical] reader. Preserve all factual claims, shorten sentences, define jargon once, and list any ambiguous statement you could not safely rewrite: [draft].”
+
+18. **Draft a product page.** “Write a landing-page draft for [product] aimed at [buyer]. State the job it does, the proof, the limitations, and a specific next step. Do not use superlatives without evidence.”
+
+19. **Prepare interview questions.** “Create ten open-ended interview questions for [participant type] about [problem]. Order them from context to behavior to evidence; avoid leading wording.”
+
+20. **Turn a meeting into decisions.** “Convert this transcript into decisions, unresolved questions, owners, and deadlines. Quote the relevant passage when ownership is uncertain: [transcript].”
+
+21. **Write a support reply.** “Draft a calm, direct reply to this customer. Acknowledge the impact, explain only verified facts, give the next action and timing, and do not promise work we cannot control: [ticket].”
+
+22. **Edit a technical guide.** “Edit this guide for scanability. Add descriptive headings, remove repetition, preserve commands exactly, and identify steps a first-time user could misread: [guide].”
+
+23. **Create a comparison.** “Compare [option A] and [option B] for [use case]. Use a table for criteria, say where evidence is incomplete, and end with a conditional recommendation rather than a universal winner.”
+
+24. **Write a changelog.** “Turn these merged changes into customer-facing release notes. Group by user outcome, mention any action required, and keep implementation details only where they affect behavior: [changes].”
+
+25. **Draft a proposal.** “Write a proposal for [decision]. Include the problem, options considered, recommendation, cost, risks, success metrics, and the decision requested from the reader.”
+
+26. **Create a content QA pass.** “Check this draft for unsupported claims, duplicated ideas, missing transitions, audience mismatch, and vague calls to action. Return an annotated checklist before revising: [draft].”
+
+## Research prompts
+
+27. **Frame a research question.** “Turn this broad topic into a research question, subquestions, definitions, and disconfirming evidence. Explain what a reliable answer would require: [topic].”
+
+28. **Build a source plan.** “For this decision, list the primary sources, data, experts, and counterarguments I should seek. Rank them by credibility and explain what each can and cannot establish: [decision].”
+
+29. **Extract evidence.** “Read these sources and produce an evidence table with claim, supporting excerpt, source, date, confidence, and caveat. Do not merge distinct claims: [sources].”
+
+30. **Summarize a paper.** “Summarize this paper for [audience]. Cover the question, method, findings, limitations, and practical implications. Separate the authors’ claims from your interpretation: [paper].”
+
+31. **Find contradictions.** “Compare these documents. List agreements, direct contradictions, differences in definitions, and the evidence needed to resolve each conflict: [documents].”
+
+32. **Create a literature review.** “Organize these studies by theme and method. Identify consensus, contested findings, missing populations, and the three strongest next questions: [citations or notes].”
+
+33. **Analyze a dataset description.** “Before analyzing this dataset, identify unit of analysis, time period, missingness, likely bias, causal limits, and suitable visualizations. Ask only the questions that materially change the analysis: [description].”
+
+34. **Prepare a diligence memo.** “Create a diligence memo on [company or project] from these materials. Distinguish confirmed facts, management claims, risks, open questions, and documents to request next: [materials].”
+
+35. **Evaluate a claim.** “Evaluate this claim without assuming it is true. State the mechanism, the strongest evidence for and against it, likely confounders, and what would change your confidence: [claim].”
+
+36. **Design a survey.** “Create a neutral survey for [population] about [topic]. Define the decision it informs, avoid double-barreled questions, include response scales, and propose a sampling caveat.”
+
+37. **Prepare a research handoff.** “Turn this investigation into a handoff package. Include the question, method, sources, evidence table, unresolved items, and exactly what the next researcher should verify: [notes].”
+
+38. **Explain a difficult concept.** “Explain [concept] to a reader who knows [adjacent knowledge]. Use one precise analogy, one counterexample, and a short check-for-understanding question.”
+
+39. **Audit an answer.** “Audit the following answer for factual leaps, stale assumptions, missing citations, and overconfident language. Return a corrected version only after listing what changed: [answer].”
+
+## Agent prompts
+
+40. **Plan before acting.** “You are an agent working on [goal]. First produce a numbered plan, the tools or information each step needs, stopping conditions, and risks. Wait for approval before taking external actions.”
+
+41. **Create a tool contract.** “Design the input and output contract for a tool that does [job]. Include validation, permissions, idempotency, failure modes, and examples of safe and unsafe calls.”
+
+42. **Run a research loop.** “Investigate [question] in iterations. For each iteration, state the hypothesis, source to check, finding, confidence, and the next best question. Stop when further search has low expected value.”
+
+43. **Triage a queue.** “Classify these [tickets/leads/issues] by urgency, impact, and confidence. Draft the next action and route each item to an owner, but flag any case where the evidence is insufficient: [queue].”
+
+44. **Build a browser task plan.** “Plan a browser-assisted workflow to collect [information]. Define permitted sites, fields to capture, deduplication rules, rate limits, and a human-review checkpoint before submission.”
+
+45. **Design an approval gate.** “For this workflow, identify every action that changes money, user data, publication status, or permissions. Add a human approval gate and an audit record for each: [workflow].”
+
+46. **Handle failure safely.** “Given this agent run and error, classify the failure as retryable, fixable, or escalation-worthy. Propose bounded retries, what context to preserve, and the exact human question when escalation is needed: [run log].”
+
+47. **Write an evaluator.** “Create an evaluation rubric for an agent that must [job]. Define pass/fail examples, a scoring scale, adversarial cases, and checks that cannot be delegated to the agent itself.”
+
+48. **Coordinate subtasks.** “Break [goal] into independent subtasks. State dependencies, expected artifacts, shared assumptions, and the integration test that proves the combined result works.”
+
+49. **Create an operations runbook.** “Write a runbook for an agent-assisted [process]. Include trigger, inputs, tool permissions, normal path, exceptions, rollback, monitoring, and an on-call handoff.”
+
+50. **Summarize tool results.** “Read these tool outputs and produce a decision-ready summary. Keep raw observations separate from conclusions, highlight conflicts, and list the minimum next action: [outputs].”
+
+51. **Constrain an automation.** “Automate [task] only within these boundaries: [scope]. Never perform [prohibited actions]. Log [fields]. If confidence falls below [threshold], stop and ask [human role].”
+
+52. **Post-run review.** “Review this completed agent run. Compare the plan with the outcome, identify wasted work, safety misses, and reusable improvements, then write one change to the next runbook: [run].”
+
+## Make the prompt fit the task
+
+Copying a prompt verbatim is a starting point, not the finish line. Add the source text instead of describing it from memory. Say who will use the output and what decision it supports. Set a format that makes review cheap: a table for comparisons, a patch for a bug, a list of open questions for research. For complex work, ask Kimi K3 for a plan first and approve the plan before requesting the final artifact. That makes long-context work more legible and prevents a polished answer from hiding an incorrect premise.
+
+For a hands-on model walkthrough, read the [Kimi K3 tutorial](/blog/kimi-k3-tutorial). For deployment controls such as caching and batch work, the [production deployment guide](/blog/kimi-k3-production-deployment) adds operational detail. And when choosing a model for the workflow, review [Kimi K3 versus Claude](/kimi-k3-vs-claude) alongside the live [pricing](/pricing).
+
+## Frequently asked questions
+
+### How do I use Kimi K3 prompts?
+
+Choose the closest example, replace the brackets with real context, and say what a successful output looks like. After the first response, give a specific critique: “keep the structure, but add a risk table” is more useful than “make it better.”
+
+### How long should a Kimi K3 prompt be?
+
+Long enough to remove consequential ambiguity, but not so long that irrelevant history buries the task. A focused brief with sources and constraints beats a long manifesto. Use follow-up turns to add information only when it changes the answer.
+
+### Do prompts need a role such as “senior engineer”?
+
+A role helps only when it clarifies standards and vocabulary. “Review this as a senior security engineer and prioritize exploitability” is useful because it changes the rubric. A decorative role without a clear deliverable usually does not help.
+
+### Can I use these prompts with files or long documents?
+
+Yes. Tell the model what the file is, the question to answer, and which parts deserve special scrutiny. Ask it to quote or reference the relevant section so you can check the result against the source.
+
+### What should I do if the answer sounds confident but is wrong?
+
+Ask for the assumptions, source excerpts, and an alternative explanation. For any important decision, validate claims against the original material or an authoritative source rather than treating fluency as evidence.
+
+## Keep learning
+
+Try a first prompt on the [kimik3 home page](/), compare plans on [pricing](/pricing), inspect the existing [Kimi K3 comparison](/compare), or browse every article in the [Kimi K3 Guide](/blog).

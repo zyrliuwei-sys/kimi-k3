@@ -1111,6 +1111,7 @@
   "landing.compare.eyebrow": "价格对比",
   "landing.compare.title": "kimik3 对比 Claude 对比 GPT",
   "landing.compare.description": "主流前沿模型的定价、上下文长度与开源情况横向对比——让你在花一分钱之前,看清 kimik3 上的 Kimi K3 与 Claude、GPT 到底差在哪。",
+  "landing.compare.deep_dive": "阅读 Kimi K3 与 Claude 的深度对比",
   "landing.compare.col_model": "模型",
   "landing.compare.col_vendor": "提供商",
   "landing.compare.col_input": "输入",

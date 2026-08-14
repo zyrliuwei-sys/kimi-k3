@@ -19,6 +19,8 @@ type PageMeta = {
 type PageModule = {
   default: ComponentType;
   meta: PageMeta;
+  /** Optional structured data exported by content pages that need rich results. */
+  jsonLd?: unknown;
 };
 
 // Eagerly bundle the static content pages (small legal/info MDX files).
@@ -59,6 +61,7 @@ export function staticPageRouteOptions(slug: string) {
         localizeUrl(`${envConfigs.app_url}/${slug}`, {
           locale: loc as ReturnType<typeof getLocale>,
         }).href;
+      const jsonLd = loadPage(slug, locale)?.jsonLd;
       return {
         meta: [
           { title: meta.title },
@@ -78,6 +81,14 @@ export function staticPageRouteOptions(slug: string) {
           })),
           { rel: 'alternate', hrefLang: 'x-default', href: urlFor('en') },
         ],
+        scripts: jsonLd
+          ? [
+              {
+                type: 'application/ld+json',
+                children: JSON.stringify(jsonLd),
+              },
+            ]
+          : [],
       };
     },
     component: StaticPage,

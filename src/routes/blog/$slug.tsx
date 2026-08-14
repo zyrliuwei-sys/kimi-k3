@@ -32,6 +32,10 @@ export const Route = createFileRoute('/blog/$slug')({
       localizeUrl(`${envConfigs.app_url}/blog/${post.slug}`, {
         locale: loc as any,
       }).href;
+    const jsonLd =
+      post.source === 'local'
+        ? loadLocalPost(post.slug, locale)?.jsonLd
+        : undefined;
     return {
       meta: [
         { title: post.title },
@@ -51,6 +55,14 @@ export const Route = createFileRoute('/blog/$slug')({
         })),
         { rel: 'alternate', hrefLang: 'x-default', href: urlFor('en') },
       ],
+      scripts: jsonLd
+        ? [
+            {
+              type: 'application/ld+json',
+              children: JSON.stringify(jsonLd),
+            },
+          ]
+        : [],
     };
   },
   component: BlogPostPage,
