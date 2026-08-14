@@ -5,7 +5,7 @@ import { ArrowLeft, Calendar } from 'lucide-react';
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
-import { getLocale, localizeUrl } from '@/paraglide/runtime.js';
+import { getLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
 import { Footer } from '@/blocks/footer';
 import { Header } from '@/blocks/header';
 import { MarkdownContent } from '@/components/markdown-content';
@@ -28,12 +28,29 @@ export const Route = createFileRoute('/blog/$slug')({
     const canonical = localizeUrl(`${envConfigs.app_url}/blog/${post.slug}`, {
       locale: locale as any,
     }).href;
+    const urlFor = (loc: string) =>
+      localizeUrl(`${envConfigs.app_url}/blog/${post.slug}`, {
+        locale: loc as any,
+      }).href;
     return {
       meta: [
-        { title: `${post.title} | ${envConfigs.app_name}` },
+        { title: post.title },
         { name: 'description', content: post.description },
+        { property: 'og:title', content: post.title },
+        { property: 'og:description', content: post.description },
+        { property: 'og:url', content: canonical },
+        { name: 'twitter:title', content: post.title },
+        { name: 'twitter:description', content: post.description },
       ],
-      links: [{ rel: 'canonical', href: canonical }],
+      links: [
+        { rel: 'canonical', href: canonical },
+        ...locales.map((loc) => ({
+          rel: 'alternate',
+          hrefLang: loc,
+          href: urlFor(loc),
+        })),
+        { rel: 'alternate', hrefLang: 'x-default', href: urlFor('en') },
+      ],
     };
   },
   component: BlogPostPage,

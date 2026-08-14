@@ -515,7 +515,7 @@ export function Footer() {
         <div className="mt-12 flex flex-col gap-4 border-t border-neutral-800 pt-8 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
             <p className="text-sm text-neutral-500">
-              © {new Date().getFullYear()} anyany.{' '}
+              © {new Date().getFullYear()} kimik3 Team.{' '}
               {m['landing.footer.rights']()}
             </p>
           </div>
@@ -525,7 +525,7 @@ export function Footer() {
       {/* Big brand text — decorative, fades at the bottom */}
       <div className="pointer-events-none relative mx-auto -mb-[11%] flex max-w-[1080px] items-center justify-center gap-2 px-4 pb-2 text-center text-[6rem] leading-none font-bold text-neutral-900 duration-200 ease-in-out sm:-mb-[7%] sm:text-[14rem] md:text-[11rem] lg:text-[14rem] xl:text-[20rem]">
         <div className="animate-[pulse_4s_infinite] text-neutral-900 drop-shadow-xl drop-shadow-black/10">
-          anyany
+          kimik3 Team
         </div>
         <div className="absolute bottom-0 left-0 z-20 h-[20%] w-full bg-linear-to-b from-transparent via-neutral-950 to-neutral-950"></div>
       </div>

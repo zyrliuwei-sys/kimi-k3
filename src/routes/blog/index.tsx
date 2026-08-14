@@ -19,15 +19,17 @@ export const Route = createFileRoute('/blog/')({
     const locale = loaderData?.locale;
     const urlFor = (loc: string) =>
       localizeUrl(`${envConfigs.app_url}/blog`, { locale: loc as any }).href;
+    const title = 'Kimi K3 Guide — Tutorials, Prompts & Pricing';
+    const description = m['blog.description']({}, { locale: locale as any });
     return {
       meta: [
-        {
-          title: `${m['blog.title']({}, { locale: locale as any })} | ${envConfigs.app_name}`,
-        },
-        {
-          name: 'description',
-          content: m['blog.description']({}, { locale: locale as any }),
-        },
+        { title },
+        { name: 'description', content: description },
+        { property: 'og:title', content: title },
+        { property: 'og:description', content: description },
+        { property: 'og:url', content: urlFor(locale ?? 'en') },
+        { name: 'twitter:title', content: title },
+        { name: 'twitter:description', content: description },
       ],
       links: [
         { rel: 'canonical', href: urlFor(locale ?? 'en') },
@@ -36,6 +38,7 @@ export const Route = createFileRoute('/blog/')({
           hrefLang: loc,
           href: urlFor(loc),
         })),
+        { rel: 'alternate', hrefLang: 'x-default', href: urlFor('en') },
       ],
     };
   },

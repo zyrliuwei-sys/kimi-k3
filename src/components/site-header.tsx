@@ -63,7 +63,7 @@ export function SiteHeader({ navLinks }: { navLinks?: NavLink[] }) {
         <Link href="/" className="flex items-center gap-2">
           <img
             src={envConfigs.app_logo}
-            alt={envConfigs.app_name}
+            alt="kimik3"
             width={28}
             height={28}
             className="size-7 rounded-lg"

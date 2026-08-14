@@ -3,7 +3,12 @@ import { notFound, useLoaderData } from '@tanstack/react-router';
 
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
-import { baseLocale, getLocale, localizeUrl } from '@/paraglide/runtime.js';
+import {
+  baseLocale,
+  getLocale,
+  locales,
+  localizeUrl,
+} from '@/paraglide/runtime.js';
 
 type PageMeta = {
   title: string;
@@ -50,12 +55,29 @@ export function staticPageRouteOptions(slug: string) {
       const canonical = localizeUrl(`${envConfigs.app_url}/${slug}`, {
         locale: locale as ReturnType<typeof getLocale>,
       }).href;
+      const urlFor = (loc: string) =>
+        localizeUrl(`${envConfigs.app_url}/${slug}`, {
+          locale: loc as ReturnType<typeof getLocale>,
+        }).href;
       return {
         meta: [
           { title: meta.title },
           { name: 'description', content: meta.description },
+          { property: 'og:title', content: meta.title },
+          { property: 'og:description', content: meta.description },
+          { property: 'og:url', content: canonical },
+          { name: 'twitter:title', content: meta.title },
+          { name: 'twitter:description', content: meta.description },
         ],
-        links: [{ rel: 'canonical', href: canonical }],
+        links: [
+          { rel: 'canonical', href: canonical },
+          ...locales.map((loc) => ({
+            rel: 'alternate',
+            hrefLang: loc,
+            href: urlFor(loc),
+          })),
+          { rel: 'alternate', hrefLang: 'x-default', href: urlFor('en') },
+        ],
       };
     },
     component: StaticPage,

@@ -75,7 +75,8 @@ export function ComparePricing() {
             {m['landing.compare.eyebrow']()}
           </span>
           <h1 className="mt-6 text-[clamp(2.25rem,5vw,3.5rem)] font-medium tracking-[-0.02em]">
-            <span className="text-brand-gradient">KimiK3</span> vs Claude vs GPT
+            <span className="text-brand-gradient">Kimi K3</span> vs Claude vs
+            GPT
           </h1>
           <p className="text-foreground/65 mt-5 text-lg leading-relaxed">
             {m['landing.compare.description']()}

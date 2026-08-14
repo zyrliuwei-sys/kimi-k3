@@ -25,7 +25,7 @@ import type { SiteData } from './schema';
 // scoring logic and section names stay in English so the schema doesn't slip)
 // ────────────────────────────────────────────────────────────────────────────
 
-export const AUDIT_SYSTEM_PROMPT = `You are KimiK3's Website Audit Engine.
+export const AUDIT_SYSTEM_PROMPT = `You are kimik3's Website Audit Engine.
 
 TASK
 You will receive the parsed metadata of a public web page (URL, HTTP details, HTML head tags, headings, images, scripts, semantic HTML signals, JSON-LD blocks, visible text preview, side probes for robots.txt/llms.txt/sitemap.xml, security response headers).
@@ -87,7 +87,7 @@ DIMENSION DEFINITIONS
    - Skip-to-content link or equivalent
    - Heading order respects hierarchy
 
-5) AI READABILITY (LLM citation & discovery — distinctive KimiK3 angle)
+5) AI READABILITY (LLM citation & discovery — distinctive kimik3 angle)
    - llms.txt (https://llmstxt.org) present at site root
    - llms-full.txt present and substantial
    - robots.txt explicitly allows GPTBot, ClaudeBot, Claude-Web, PerplexityBot, Google-Extended
@@ -306,7 +306,7 @@ export function buildAuditMessages(siteData: SiteData): ChatTurn[] {
     {
       role: 'system',
       content:
-        "You are KimiK3's Website Audit Engine — a precise, evidence-based web auditor that produces strict JSON output matching the AuditReport schema. Follow output contract strictly: no prose outside JSON, write all findings in the detected locale, cite real HTML evidence, and never invent facts not present in the input.",
+        "You are kimik3's Website Audit Engine — a precise, evidence-based web auditor that produces strict JSON output matching the AuditReport schema. Follow output contract strictly: no prose outside JSON, write all findings in the detected locale, cite real HTML evidence, and never invent facts not present in the input.",
     },
     { role: 'user', content: buildUserPrompt(siteData, locale) },
   ];

@@ -259,7 +259,13 @@ def main() -> int:
             diff_text += f"\n+++ b/{f}\n@@ -0,0 +1 @@\n"
             diff_text += "\n".join("+" + l for l in lines)
     else:
-        files = git("diff", "--cached", "--name-only").splitlines()
+        # A staged deletion fixes a forbidden tracked file; it must not be
+        # treated as an attempt to add that file again. Keep deleted paths in
+        # diff_text for the secret scan (which only inspects added lines), but
+        # exclude them from filename and size checks.
+        files = git(
+            "diff", "--cached", "--diff-filter=ACMR", "--name-only"
+        ).splitlines()
         diff_text = git("diff", "--cached", "--unified=0", "--no-color")
 
     files = sorted(set(f for f in files if f))

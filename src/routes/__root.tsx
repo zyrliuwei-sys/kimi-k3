@@ -14,8 +14,7 @@ import { ThemeProvider } from 'next-themes';
 
 import { envConfigs } from '@/config';
 import { getQueryClient } from '@/lib/query-client';
-import { m } from '@/paraglide/messages.js';
-import { getLocale, locales, localizeUrl } from '@/paraglide/runtime.js';
+import { getLocale } from '@/paraglide/runtime.js';
 import { GoogleAnalytics } from '@/components/analytics/google-analytics';
 import { Plausible } from '@/components/analytics/plausible';
 import { CustomerService } from '@/components/customer-service';
@@ -65,31 +64,25 @@ export const Route = createRootRoute({
       envConfigs.app_url ||
       '';
     const locale = getLocale();
-    const title = m['common.metadata.title']({}, { locale });
-    const description = m['common.metadata.description']({}, { locale });
     const imageUrl = `${appUrl}/seo/og.png`;
     return {
       meta: [
         { charSet: 'utf-8' },
         { name: 'viewport', content: 'width=device-width, initial-scale=1' },
-        { title },
-        { name: 'description', content: description },
         { name: 'saashub-verification', content: '0ew2a9pav93w' },
         { name: 'stackscope-claim', content: '2fpl5ars' },
-        // Open Graph (Facebook, LinkedIn, Slack, …)
+        // Route-specific title, description, og:url, and canonical tags are
+        // intentionally declared by each public route. Keeping them here
+        // would make every page look like the homepage to crawlers.
+        // Open Graph fields that genuinely apply site-wide stay at the root.
         { property: 'og:type', content: 'website' },
-        { property: 'og:site_name', content: envConfigs.app_name },
-        { property: 'og:title', content: title },
-        { property: 'og:description', content: description },
-        { property: 'og:url', content: appUrl },
+        { property: 'og:site_name', content: 'kimik3' },
         { property: 'og:image', content: imageUrl },
         { property: 'og:image:width', content: '1200' },
         { property: 'og:image:height', content: '630' },
         { property: 'og:locale', content: locale },
         // Twitter / X
         { name: 'twitter:card', content: 'summary_large_image' },
-        { name: 'twitter:title', content: title },
-        { name: 'twitter:description', content: description },
         { name: 'twitter:image', content: imageUrl },
       ],
       links: [
@@ -101,11 +94,6 @@ export const Route = createRootRoute({
         // POST /api/ai-tasks request).
         { rel: 'preconnect', href: 'https://api.evolink.ai' },
         { rel: 'dns-prefetch', href: 'https://api.evolink.ai' },
-        ...locales.map((loc) => ({
-          rel: 'alternate',
-          hrefLang: loc,
-          href: localizeUrl(`${appUrl}/`, { locale: loc }).href,
-        })),
       ],
     };
   },

@@ -62,6 +62,10 @@ src/config/db/schema.ts
 
 # npm (project uses pnpm)
 package-lock.json
+.npmrc
+
+# Local rollback copies should not become release artifacts.
+*.bak
 
 # Runtime image uploads (no-storage local fallback)
 /public/uploads/
