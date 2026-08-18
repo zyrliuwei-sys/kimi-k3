@@ -86,8 +86,28 @@ export const Route = createRootRoute({
         { name: 'twitter:image', content: imageUrl },
       ],
       links: [
+        // Google Search uses the favicon declared on the homepage. Keep these
+        // URLs stable and provide a raster fallback: it is easier for image
+        // crawlers to process than relying on SVG support alone.
         { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
-        { rel: 'apple-touch-icon', href: '/favicon.svg' },
+        {
+          rel: 'icon',
+          href: '/favicon-48x48.png',
+          type: 'image/png',
+          sizes: '48x48',
+        },
+        {
+          rel: 'icon',
+          href: '/favicon-32x32.png',
+          type: 'image/png',
+          sizes: '32x32',
+        },
+        {
+          rel: 'apple-touch-icon',
+          href: '/apple-touch-icon.png',
+          sizes: '180x180',
+        },
+        { rel: 'manifest', href: '/site.webmanifest' },
         // Preconnect + DNS prefetch to the upstream image gateway. Saves
         // ~200-400ms of TLS handshake on the very first generation submit
         // (DNS + TCP + TLS round-trip otherwise happens inside the
