@@ -89,6 +89,7 @@ export const Route = createRootRoute({
         // Google Search uses the favicon declared on the homepage. Keep these
         // URLs stable and provide a raster fallback: it is easier for image
         // crawlers to process than relying on SVG support alone.
+        { rel: 'icon', href: '/favicon.ico', sizes: 'any' },
         { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
         {
           rel: 'icon',
