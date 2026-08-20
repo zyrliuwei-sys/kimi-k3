@@ -16,6 +16,7 @@ import { envConfigs } from '@/config';
 import { getQueryClient } from '@/lib/query-client';
 import { getLocale } from '@/paraglide/runtime.js';
 import { GoogleAnalytics } from '@/components/analytics/google-analytics';
+import { MicrosoftClarity } from '@/components/analytics/microsoft-clarity';
 import { Plausible } from '@/components/analytics/plausible';
 import { CustomerService } from '@/components/customer-service';
 import { GoogleOneTap } from '@/components/google-one-tap';
@@ -147,6 +148,7 @@ function RootComponent() {
             src={analytics.plausibleSrc || undefined}
           />
         ) : null}
+        <MicrosoftClarity projectId="y4qjrzezd3" />
         <CustomerService
           tawkPropertyId={analytics?.tawkPropertyId || undefined}
           tawkWidgetId={analytics?.tawkWidgetId || undefined}
