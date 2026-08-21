@@ -7,6 +7,7 @@ import { getLocalPosts, mergePosts } from '@/content/posts';
 const STATIC_PATHS = [
   '',
   '/pricing',
+  '/image-generator',
   '/blog',
   '/privacy-policy',
   '/terms-of-service',

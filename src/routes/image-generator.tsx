@@ -7,20 +7,43 @@ import {
   ImagePlayground,
   PlaygroundUpgradeCard,
 } from '@/blocks/api-playground';
+import {
+  IMAGE_GENERATOR_CANONICAL,
+  IMAGE_GENERATOR_DESCRIPTION,
+  IMAGE_GENERATOR_STRUCTURED_DATA,
+  IMAGE_GENERATOR_TITLE,
+  ImageGeneratorSeoContent,
+} from '@/components/image-generator-seo-content';
 import { PlaygroundShell } from '@/components/playground-shell';
 
 type ImageGeneratorSearch = {
   prompt?: string;
-  autoSubmit?: boolean;
+  autoSubmit?: true;
 };
 
 export const Route = createFileRoute('/image-generator')({
   validateSearch: (search: Record<string, unknown>): ImageGeneratorSearch => ({
     prompt: typeof search.prompt === 'string' ? search.prompt : undefined,
-    autoSubmit: search.autoSubmit === '1',
+    // Returning false here serializes it as `?autoSubmit=false`, creating a
+    // needless redirect/canonical duplicate for the bare route. Keep the
+    // parameter only for the one URL-driven submit state we support.
+    autoSubmit: search.autoSubmit === '1' ? true : undefined,
   }),
   head: () => ({
-    meta: [{ title: 'AI Image Generator | Kimi K3' }],
+    meta: [
+      { title: IMAGE_GENERATOR_TITLE },
+      { name: 'description', content: IMAGE_GENERATOR_DESCRIPTION },
+      { property: 'og:title', content: IMAGE_GENERATOR_TITLE },
+      { property: 'og:description', content: IMAGE_GENERATOR_DESCRIPTION },
+      { property: 'og:url', content: IMAGE_GENERATOR_CANONICAL },
+    ],
+    links: [{ rel: 'canonical', href: IMAGE_GENERATOR_CANONICAL }],
+    scripts: [
+      {
+        type: 'application/ld+json',
+        children: JSON.stringify(IMAGE_GENERATOR_STRUCTURED_DATA),
+      },
+    ],
   }),
   component: ImageGeneratorWorkspace,
 });
@@ -36,35 +59,38 @@ function ImageGeneratorWorkspace() {
   if (store.mode !== 'image') store.setMode('image');
 
   return (
-    <PlaygroundShell
-      brand="Kimi K3"
-      brandHref="/api-playground"
-      upgradeCard={<PlaygroundUpgradeCard />}
-      navItems={[
-        {
-          href: '/',
-          label: m['playground.nav.home'](),
-          icon: Home,
-        },
-        {
-          href: '/api-playground',
-          label: m['playground.nav.chat'](),
-          icon: MessageSquarePlus,
-        },
-        {
-          href: '/photo-to-anime',
-          label: m['playground.nav.image'](),
-          icon: Image,
-        },
-      ]}
-    >
-      <ImagePlayground
-        initialTab="mine"
-        initialPrompt={prompt}
-        communityPageHref="/photo-to-anime"
-        autoPreviewFirst={false}
-        autoSubmit={autoSubmit}
-      />
-    </PlaygroundShell>
+    <>
+      <PlaygroundShell
+        brand="Kimi K3"
+        brandHref="/api-playground"
+        upgradeCard={<PlaygroundUpgradeCard />}
+        navItems={[
+          {
+            href: '/',
+            label: m['playground.nav.home'](),
+            icon: Home,
+          },
+          {
+            href: '/api-playground',
+            label: m['playground.nav.chat'](),
+            icon: MessageSquarePlus,
+          },
+          {
+            href: '/photo-to-anime',
+            label: m['playground.nav.image'](),
+            icon: Image,
+          },
+        ]}
+      >
+        <ImagePlayground
+          initialTab="mine"
+          initialPrompt={prompt}
+          communityPageHref="/photo-to-anime"
+          autoPreviewFirst={false}
+          autoSubmit={autoSubmit}
+        />
+      </PlaygroundShell>
+      <ImageGeneratorSeoContent />
+    </>
   );
 }

@@ -87,17 +87,18 @@ export const Route = createRootRoute({
         { name: 'twitter:image', content: imageUrl },
       ],
       links: [
-        // Google Search uses the favicon declared on the homepage. Keep these
-        // URLs stable and provide a raster fallback: it is easier for image
-        // crawlers to process than relying on SVG support alone.
-        { rel: 'icon', href: '/favicon.ico', sizes: 'any' },
-        { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
+        // Google Search requires a square favicon whose dimensions are a
+        // multiple of 48px. Put the dedicated 48px PNG first: the .ico
+        // fallback also contains a 32px rendition, which a crawler can pick
+        // instead when it is declared first and then reject for Search.
         {
           rel: 'icon',
           href: '/favicon-48x48.png',
           type: 'image/png',
           sizes: '48x48',
         },
+        { rel: 'icon', href: '/favicon.ico', sizes: 'any' },
+        { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
         {
           rel: 'icon',
           href: '/favicon-32x32.png',

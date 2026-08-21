@@ -155,13 +155,24 @@ async function GET({
       });
       if (polled.status === 'success') {
         const imageUrls: string[] = (polled as any).urls || [];
-        // Rehost successful images to R2 so the URLs don't expire on us.
-        // Same pattern as video: best-effort, fall back to provider URL
-        // if storage isn't configured or the upload fails.
-        let finalUrls = imageUrls;
-        let imageStorageKeys: string[] = [];
-        const saveFiles = await buildRehostSaveFiles();
-        if (saveFiles && imageUrls.length) {
+        // Persist and return the provider URL immediately. Waiting for the
+        // optional R2 copy here made a completed image sit on the spinner
+        // for several extra seconds. The durable copy is upgraded below in
+        // the background, exactly as the synchronous submit path does.
+        const taskResult = {
+          remoteTaskId,
+          imageUrls,
+          provider: task.provider,
+        };
+        await updateTask({
+          taskId: task.id,
+          status: AITaskStatus.SUCCESS,
+          taskResult,
+        });
+
+        void (async () => {
+          const saveFiles = await buildRehostSaveFiles();
+          if (!saveFiles || !imageUrls.length) return;
           try {
             const saved = await saveFiles(
               imageUrls.map((url, i) => ({
@@ -171,31 +182,36 @@ async function GET({
                 type: 'image',
               }))
             );
-            finalUrls = saved
+            const finalUrls = saved
               .map((s, i) => s.url || imageUrls[i])
               .filter(Boolean);
-            imageStorageKeys = saved
+            const imageStorageKeys = saved
               .map((s) => s.key)
               .filter((key): key is string => typeof key === 'string' && !!key);
+            await updateTask({
+              taskId: task.id,
+              status: AITaskStatus.SUCCESS,
+              taskResult: {
+                ...taskResult,
+                imageUrls: finalUrls,
+                ...(imageStorageKeys.length ? { imageStorageKeys } : {}),
+              },
+            });
           } catch (err: any) {
             console.warn(
-              '[evolink-image] rehost failed, using provider URL:',
+              '[evolink-image] background rehost failed, keeping provider URL:',
               err?.message
             );
           }
-        }
-        await updateTask({
-          taskId: task.id,
-          status: AITaskStatus.SUCCESS,
-          taskResult: {
-            remoteTaskId,
-            imageUrls: finalUrls,
-            ...(imageStorageKeys.length ? { imageStorageKeys } : {}),
-            provider: task.provider,
-          },
-        });
-        const refreshed = await findTask(task.id);
-        return respData(taskEnvelope(refreshed || task));
+        })();
+
+        return respData(
+          taskEnvelope({
+            ...task,
+            status: AITaskStatus.SUCCESS,
+            taskResult,
+          })
+        );
       }
       if (polled.status === 'failed') {
         // Persist the provider's terminal reason so My Images can show an
