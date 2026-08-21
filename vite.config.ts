@@ -137,13 +137,18 @@ export default defineConfig({
               // blob worker — which killed the dev server's HMR connection
               // and made /api/ppt/generate requests fail with ERR_CONNECTION_REFUSED.
               "worker-src 'self' blob:",
-              // Styles: Tailwind + shadcn rely on inline styles.
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              // Images: R2/S3 public buckets + base64 inline attachments +
-              // GA4 tracking pixel (googletagmanager.com loads a 1x1 gif
-              // through the GTM script tag — without an explicit allow, it
-              // trips the fallback `script-src` and gets blocked).
-              "img-src 'self' data: blob: https://api.evolink.ai https://*.evolink.ai https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.amazonaws.com https://i.ytimg.com https://yt3.ggpht.com https://www.googletagmanager.com https://saasgrow.app https://curlship.com https://*.curlship.com https://showmebest.ai https://twelve.tools",
+              // Styles: Tailwind + shadcn rely on inline styles. Google One
+              // Tap injects its own stylesheet from accounts.google.com.
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com",
+              // Images: generated-image providers can hand back a signed URL
+              // on a per-request CDN host. The app normally rewrites those
+              // through `/api/ai-tasks/:id/image`, but existing task rows and
+              // provider redirects may still point at the original host.
+              // Permit HTTPS images as a safe rendering fallback; this does
+              // not grant script, fetch, frame, or media permissions.
+              // The strict referrer policy above prevents prompt/query paths
+              // from being sent to those image hosts.
+              "img-src 'self' data: blob: https: https://api.evolink.ai https://*.evolink.ai https://*.r2.cloudflarestorage.com https://*.r2.dev https://*.amazonaws.com https://i.ytimg.com https://yt3.ggpht.com https://www.googletagmanager.com https://saasgrow.app https://curlship.com https://*.curlship.com https://showmebest.ai https://twelve.tools",
               // Fonts: @fontsource (bundled, served from self) + Google Fonts.
               "font-src 'self' data: https://fonts.gstatic.com",
               // XHR/fetch: AI providers, Stripe API, Replicate, Resend,
@@ -151,11 +156,11 @@ export default defineConfig({
               // (google-analytics.com + google.com /g/collect). The wildcard
               // covers unknown AI providers you might enable later; tighten
               // once you've finalized the list.
-              "connect-src 'self' https://api.stripe.com https://api.evolink.ai https://api.openai.com https://*.amazonaws.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://api.resend.com https://api.replicate.com https://generativelanguage.googleapis.com https://api.fal.ai https://api.kie.ai https://www.google-analytics.com https://www.google.com https://challenges.cloudflare.com",
+              "connect-src 'self' https://api.stripe.com https://api.evolink.ai https://api.openai.com https://*.amazonaws.com https://*.r2.cloudflarestorage.com https://*.r2.dev https://api.resend.com https://api.replicate.com https://generativelanguage.googleapis.com https://api.fal.ai https://api.kie.ai https://www.google-analytics.com https://www.google.com https://accounts.google.com https://challenges.cloudflare.com",
               // Stripe Elements / checkout iframes, YouTube embeds, and the
               // Cloudflare Turnstile challenge iframe (challenges.cloudflare.com).
               // Add more hosts here if you embed other video providers.
-              'frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.youtube-nocookie.com https://www.youtube.com https://challenges.cloudflare.com',
+              'frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://www.youtube-nocookie.com https://www.youtube.com https://accounts.google.com https://challenges.cloudflare.com',
               "frame-ancestors 'none'",
               "form-action 'self'",
               "base-uri 'self'",

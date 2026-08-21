@@ -3,7 +3,6 @@ import { createFileRoute } from '@tanstack/react-router';
 
 import { useSession } from '@/core/auth/client';
 import { useRouter } from '@/core/i18n/navigation';
-import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
 import { SignInForm } from '@/components/login/sign-in-form';
@@ -85,15 +84,13 @@ function SignInPage() {
 
   const configQuery = usePublicConfig();
   const configs = configQuery.data ?? {};
-  const appName = configs.app_name || envConfigs.app_name;
-
   const emailEnabled = configs.email_auth_enabled !== 'false';
   const googleEnabled = configs.google_auth_enabled === 'true';
   const githubEnabled = configs.github_auth_enabled === 'true';
   const passwordResetEnabled = configs.password_reset_enabled === 'true';
 
   return (
-    <SignInShell appName={appName}>
+    <SignInShell>
       <SignInForm
         afterLoginUrl={afterLoginUrl}
         switchQuery={switchQuery}

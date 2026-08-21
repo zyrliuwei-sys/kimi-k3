@@ -407,6 +407,32 @@
   }
 }
 
+/* Footer directory badges use a duplicated track so they can move from left
+   to right without leaving an empty gap. The visible canonical links pause on
+   hover or keyboard focus, keeping each external destination usable. */
+@keyframes footer-badges-scroll-right {
+  from {
+    transform: translateX(-50%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+.animate-footer-badges {
+  animation: footer-badges-scroll-right 110s linear infinite;
+  will-change: transform;
+}
+.footer-badge-marquee:hover .animate-footer-badges,
+.footer-badge-marquee:focus-within .animate-footer-badges {
+  animation-play-state: paused;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-footer-badges {
+    animation: none;
+    transform: none;
+  }
+}
+
 /* Scroll reveal */
 .reveal {
   opacity: 0;
@@ -486,5 +512,14 @@
 /*  SupportWidget component. Re-enable by removing this rule.                */
 /* -------------------------------------------------------------------------- */
 button[aria-label='Contact support'] {
+  display: none !important;
+}
+
+/* Crisp's default tropical-island launcher may remain in the DOM after an
+   earlier third-party script injection. Keep this legacy support bubble out
+   of the product UI even when a stale script or remote config re-adds it. */
+html body .crisp-client,
+html body #crisp-chatbox,
+html body iframe[src*='crisp.chat'] {
   display: none !important;
 }

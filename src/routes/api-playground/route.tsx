@@ -99,7 +99,7 @@ function PlaygroundLayout() {
           icon: MessageSquarePlus,
         },
         {
-          href: '/api-playground/image',
+          href: '/photo-to-anime',
           label: m['playground.nav.image'](),
           icon: Image,
         },

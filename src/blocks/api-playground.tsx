@@ -1,4 +1,10 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useRef,
+  useState,
+  type ImgHTMLAttributes,
+} from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import {
@@ -19,14 +25,11 @@ import {
   Gift,
   Image as ImageIcon,
   LayoutGrid,
-  LayoutTemplate,
   Loader2,
   Maximize2,
   MessageSquarePlus,
   MoveRight,
-  Palette,
   Pencil,
-  PenTool,
   Plus,
   RefreshCw,
   Search as SearchIcon,
@@ -377,6 +380,7 @@ async function extractVideoFrames(
 /* ------------------------------------------------------------------ */
 
 export function ApiPlayground() {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -882,12 +886,20 @@ export function ApiPlayground() {
   const hasThread = messages.length > 0 || isThinking;
   const canSend = !!input.trim() || attachments.length > 0;
 
+  function handleGenerateImage() {
+    const prompt = input.trim();
+    if (!prompt || isThinking) return;
+    navigate({ to: '/image-generator', search: { prompt, autoSubmit: '1' } });
+  }
+
   const composerProps = {
     input,
     setInput,
     onKeyDown: handleKeyDown,
     onSend: handleSend,
+    onGenerateImage: handleGenerateImage,
     canSend,
+    canGenerateImage: !!input.trim(),
     isThinking: isThinking || uploading,
     modelId,
     onSelectModel: setModelId,
@@ -1117,50 +1129,14 @@ function AuthPromptDialog({
 /*  Composer (textarea + toolbar + disclaimer)                         */
 /* ------------------------------------------------------------------ */
 
-// Quick-action starter prompts shown beneath the composer. Each entry has a
-// localized label and prompt for both supported locales; the active one is
-// picked at render time with getLocale(). Tapping a button drops its prompt
-// into the input and focuses it.
-const QUICK_ACTIONS = [
-  {
-    id: 'screenshot',
-    zh: '截图还原网页',
-    en: 'Screenshot to Web',
-    promptZh: '把这个截图还原成一个完整、可运行的网页。',
-    promptEn: 'Turn this screenshot into a complete, working webpage.',
-  },
-  {
-    id: 'animation',
-    zh: '复刻动画原型',
-    en: 'Animation Prototype',
-    promptZh: '复刻这个动画原型，还原所有的交互与动效。',
-    promptEn:
-      'Replicate this animation prototype with all interactions and motion.',
-  },
-  {
-    id: 'docs',
-    zh: '超多文档分析',
-    en: 'Multi-doc Analysis',
-    promptZh: '分析这批文档并提取关键信息与结论。',
-    promptEn:
-      'Analyze these documents and extract the key insights and conclusions.',
-  },
-  {
-    id: 'code',
-    zh: '大型代码开发',
-    en: 'Large Codebase',
-    promptZh: '开发一个大型代码项目，结构清晰、可维护。',
-    promptEn:
-      'Build a large-scale code project with a clean, maintainable structure.',
-  },
-] as const;
-
 function Composer({
   input,
   setInput,
   onKeyDown,
   onSend,
+  onGenerateImage,
   canSend,
+  canGenerateImage,
   isThinking,
   modelId,
   onSelectModel,
@@ -1176,7 +1152,9 @@ function Composer({
   setInput: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
+  onGenerateImage: () => void;
   canSend: boolean;
+  canGenerateImage: boolean;
   isThinking: boolean;
   // The model id the parent currently has selected. Passed straight to
   // `ChatModelPicker` so the trigger reflects the user's last pick
@@ -1198,10 +1176,6 @@ function Composer({
   // right of the + button. New users need a permanent reminder of which
   // file types are supported; this is the playground, not a polished app.
   const [showHint] = useState(true);
-
-  // Quick-action labels/prompts follow the active locale: zh shows Chinese,
-  // en shows English.
-  const isZh = getLocale() === 'zh';
 
   return (
     <div className="w-full">
@@ -1317,7 +1291,7 @@ function Composer({
           className="placeholder:text-foreground/40 block max-h-[280px] min-h-[2.5rem] w-full resize-none bg-transparent px-4 pt-2 font-mono text-[15px] leading-relaxed outline-none"
         />
 
-        <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="flex items-center justify-between gap-2 pt-3">
           <div className="flex items-center gap-1.5">
             <button
               type="button"
@@ -1339,6 +1313,18 @@ function Composer({
           </div>
 
           <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={onGenerateImage}
+              disabled={!canGenerateImage || isThinking}
+              title={m['playground.image.generate_from_prompt']()}
+              className="text-foreground hover:bg-foreground/5 inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ImageIcon className="size-4" />
+              <span className="hidden sm:inline">
+                {m['playground.image.generate_from_prompt']()}
+              </span>
+            </button>
             <ChatModelPicker selectedId={modelId} onSelect={onSelectModel} />
             <button
               type="button"
@@ -1352,32 +1338,6 @@ function Composer({
           </div>
         </div>
       </motion.div>
-
-      {/* Quick actions — 4 starter prompts beneath the composer, in the
-          reference layout (equal-width outlined rectangles, single row; 2
-          cols on mobile, 4 cols on sm+). Label and prompt follow the active
-          locale: Chinese in zh, English in en. */}
-      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {QUICK_ACTIONS.map((action) => {
-          const label = isZh ? action.zh : action.en;
-          const prompt = isZh ? action.promptZh : action.promptEn;
-          return (
-            <button
-              key={action.id}
-              type="button"
-              onClick={() => {
-                setInput(prompt);
-                taRef.current?.focus();
-              }}
-              className="border-foreground/15 hover:border-foreground/30 hover:bg-foreground/[0.03] dark:bg-foreground/5 flex items-center justify-center rounded-2xl border bg-white px-3 py-2.5 text-center transition-colors"
-            >
-              <span className="text-foreground text-[13px] leading-tight font-medium">
-                {label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -1802,6 +1762,9 @@ interface ImageTaskRow {
   /** Every image the submission produced (1-4). Drives the row layout
    *  in My Images: each batch is one row, all its images side-by-side. */
   imageUrls?: string[] | null;
+  /** Public/provider URLs paired with `imageUrls`. Used only if the
+   * authenticated image proxy cannot render the primary URL. */
+  imageFallbackUrls?: string[] | null;
   /** Every video the submission produced. Mirrors `imageUrls` for
    *  video tasks (Seedance writes a single `videoUrl`; multi-clip
    *  batches surface an array). Drives the My Videos row layout. */
@@ -1831,6 +1794,7 @@ interface ImageTaskRow {
 export function ChatPlayground() {
   const store = usePlaygroundStore();
   const { activeChatId, clearActive } = store;
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: session } = useSession();
 
@@ -2235,6 +2199,12 @@ export function ChatPlayground() {
     }
   }
 
+  function handleGenerateImage() {
+    const prompt = input.trim();
+    if (!prompt || isThinking) return;
+    navigate({ to: '/image-generator', search: { prompt, autoSubmit: '1' } });
+  }
+
   // Pass-through to the legacy Composer (re-uses the chat-mode file picker,
   // video-frame extraction, attachment chips). Cleaner than re-implementing.
   const composerProps = {
@@ -2242,7 +2212,9 @@ export function ChatPlayground() {
     setInput,
     onKeyDown: handleKeyDown,
     onSend: handleSend,
+    onGenerateImage: handleGenerateImage,
     canSend: !!input.trim() || attachments.length > 0,
+    canGenerateImage: !!input.trim(),
     isThinking: isThinking || uploading,
     modelId,
     onSelectModel: setModelId,
@@ -2706,6 +2678,35 @@ function GalleryWall({ items = GALLERY_ITEMS }: { items?: Tile[] } = {}) {
               <Sparkles className="size-6 text-white opacity-0 transition-opacity duration-300 group-hover/card:opacity-90" />
             </div>
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Static Community gallery for the image playground. Unlike the full-bleed
+ * masonry wall, this is ordinary document content: the prompt composer sits
+ * above it and every community image keeps its own aspect ratio in a static
+ * waterfall layout below.
+ */
+function CommunityImageGrid() {
+  return (
+    <div className="columns-2 gap-1 sm:columns-3 lg:columns-4 xl:columns-5">
+      {GALLERY_ITEMS.map((tile) => (
+        <div
+          key={tile.src}
+          className="group/card bg-muted relative mb-1 break-inside-avoid overflow-hidden"
+          style={{ aspectRatio: tile.ratio }}
+        >
+          <img
+            src={tile.src}
+            alt={tile.alt}
+            loading="eager"
+            decoding="async"
+            className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover/card:scale-[1.03]"
+          />
+          <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors duration-300 group-hover/card:bg-black/15" />
         </div>
       ))}
     </div>
@@ -3955,8 +3956,8 @@ const VIDEO_GALLERY_TABS = [
 
 /**
  * User's own generated images, grouped into **batch rows**: one row per
- * submission, oldest at the top and newest at the bottom (caller passes
- * the list pre-reversed). When the user picks `N=2` the row lays out two
+ * submission, newest at the top and oldest at the bottom. When the user picks
+ * `N=2` the row lays out two
  * tiles side-by-side; `N=4` → four tiles. Multi-image submissions that
  * used to lose every frame past the first now show all of them, and
  * the batch they belong to is immediately readable as a unit.
@@ -3978,54 +3979,17 @@ const VIDEO_GALLERY_TABS = [
  * short-lived processing placeholder survives.
  */
 
-/**
- * Rounded-pill chip strip rendered beneath the image composer. Each
- * chip is a localized starter prompt — clicking drops the prompt
- * into the textarea and focuses it. Disabled while a submit /
- * polling cycle is in flight so the chip click can't race the
- * in-flight request.
- */
-function ImageQuickActions({
-  isZh,
-  disabled,
-  onPick,
-}: {
-  isZh: boolean;
-  disabled: boolean;
-  onPick: (prompt: string) => void;
-}) {
-  return (
-    <div className="pointer-events-auto flex flex-wrap items-center justify-center gap-2">
-      {IMAGE_QUICK_ACTIONS.map((action) => {
-        const label = isZh ? action.zh : action.en;
-        const prompt = isZh ? action.promptZh : action.promptEn;
-        const Icon = action.Icon;
-        return (
-          <button
-            key={action.id}
-            type="button"
-            aria-pressed={false}
-            disabled={disabled}
-            onClick={() => onPick(prompt)}
-            className="bg-sidebar/80 border-border/60 text-foreground/80 hover:border-primary/40 hover:bg-sidebar hover:text-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs shadow-xs transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Icon className="size-3.5" />
-            {label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
 function MyImageRows({
   rows,
   onSelect,
   highlightId,
+  submittingPrompt,
 }: {
   rows: ImageTaskRow[];
   onSelect: (id: string) => void;
   highlightId?: string | null;
+  /** Appears before the submit endpoint returns a real task id. */
+  submittingPrompt?: string | null;
 }) {
   const now = Date.now();
   // Processing tile stays visible AS LONG AS the row is still reported
@@ -4055,7 +4019,7 @@ function MyImageRows({
     return false;
   });
 
-  if (visibleRows.length === 0) {
+  if (visibleRows.length === 0 && !submittingPrompt) {
     // The section header above still names "Your generated images" and
     // the right-aligned "← Community" link is the way out, so the list
     // area is deliberately left blank — no sparkles placeholder, no
@@ -4066,7 +4030,7 @@ function MyImageRows({
 
   // Group rows by the user's local calendar day so the day header only
   // appears once at the top of that day's cluster. Rows already arrive
-  // newest-first (the call site reverses the server list), so the day
+  // newest-first from the server, so the day
   // headers stack top-down in reverse-chronological order. We key on
   // `YYYY-MM-DD` in local time — UTC would group late-evening posts
   // into the "next day" and confuse the user.
@@ -4127,6 +4091,26 @@ function MyImageRows({
 
   return (
     <div className="flex flex-col items-start gap-5">
+      {submittingPrompt ? (
+        <div className="flex w-full flex-col items-start gap-3">
+          <div className="text-muted-foreground flex items-center gap-1.5 px-1 text-xs font-medium">
+            <Sparkles className="size-3.5" />
+            <span>{m['playground.image.generated_label']()}</span>
+          </div>
+          <div className="bg-card/40 w-full p-2">
+            <ProcessingTile
+              prompt={submittingPrompt}
+              taskId="submitting-image"
+            />
+          </div>
+          <p className="text-muted-foreground line-clamp-2 max-w-md px-1 text-xs">
+            <span className="text-foreground/70 mr-1 font-medium">
+              {m['playground.image.batch_prompt_label']()}
+            </span>
+            {submittingPrompt}
+          </p>
+        </div>
+      ) : null}
       {groups.map((group) => (
         // Larger gap between the day header and the first row of that
         // day's batch — gives the "AUG 1, 2026" label enough breathing
@@ -4190,6 +4174,7 @@ function MyImageRows({
                         <MyImageTile
                           key={`${r.id}-${i}`}
                           url={url}
+                          fallbackUrl={r.imageFallbackUrls?.[i]}
                           prompt={r.prompt || 'Generated image'}
                           onSelect={() => onSelect(r.id)}
                           highlight={highlight && i === 0}
@@ -4239,12 +4224,11 @@ function ProcessingTile({
     <div
       data-task-id={taskId}
       className={cn(
-        // Match MyImageTile's compact width so the spinner aligns with
-        // the loaded tiles in the same row — not a giant placeholder
-        // stretching across the whole card. `rounded-lg` matches the
-        // MyImageTile so the in-flight spinner sits flush with the
-        // surrounding tiles once the row settles.
-        'bg-foreground/5 relative aspect-square w-56 shrink-0 overflow-hidden rounded-lg',
+        // A broad frame reserves the same visual territory as the final
+        // result. That keeps the generation progress in the exact spot
+        // where the image will appear, instead of making it look like a
+        // disconnected thumbnail.
+        'bg-foreground/5 relative aspect-[16/9] w-full max-w-[36rem] shrink-0 overflow-hidden rounded-lg',
         highlight &&
           'ring-foreground ring-offset-background ring-4 ring-offset-2'
       )}
@@ -4278,12 +4262,14 @@ function ProcessingTile({
 
 function MyImageTile({
   url,
+  fallbackUrl,
   prompt,
   onSelect,
   highlight,
   taskId,
 }: {
   url: string;
+  fallbackUrl?: string | null;
   prompt: string;
   onSelect: () => void;
   highlight?: boolean;
@@ -4301,14 +4287,18 @@ function MyImageTile({
   // arrived, leaving a gap before the bytes actually painted.
   const [isLoaded, setIsLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const { activeSrc, useFallback } = useImageFallback(url, fallbackUrl);
   // If the image is already cached (browsers can resolve it
   // synchronously from the HTTP cache), `onLoad` may have already fired
   // before this effect ran — `imgRef.current.complete` is the only
   // reliable way to know. Without this, a cached image would show the
   // loading overlay forever.
   useEffect(() => {
-    if (imgRef.current?.complete) setIsLoaded(true);
-  }, [url]);
+    setIsLoaded(false);
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      setIsLoaded(true);
+    }
+  }, [activeSrc]);
   return (
     <button
       type="button"
@@ -4331,7 +4321,7 @@ function MyImageTile({
     >
       <img
         ref={imgRef}
-        src={url}
+        src={activeSrc}
         alt={prompt}
         loading="lazy"
         decoding="async"
@@ -4343,6 +4333,10 @@ function MyImageTile({
           setIsLoaded(true);
         }}
         onError={(e) => {
+          if (useFallback()) {
+            setIsLoaded(false);
+            return;
+          }
           e.currentTarget.style.display = 'none';
           // Treat errors as "loaded" too — otherwise the spinner would
           // sit on top of a hidden <img> forever and the user would
@@ -4386,78 +4380,80 @@ function MyImageTile({
 }
 
 /**
- * Image-mode quick actions — preset chips shown below the composer.
- * Each entry holds a localized label + starter prompt for both
- * supported locales; the active one is picked at render time with
- * `getLocale()`. Clicking a chip drops its prompt into the textarea
- * and focuses it so the user can tweak before sending.
- *
- * The prompts are *templates* — they assume a reference image is
- * attached (`使用第一张参考图`, `风格迁移`, etc.) so they read
- * naturally whether or not the user has actually uploaded one. The
- * model treats them as instructions on the attached image; if no
- * reference is present the prompt still parses as a request.
+ * Keep the authenticated same-origin proxy as the normal path, but fall back
+ * to the matching public/provider URL when that proxy is unavailable. The
+ * list endpoint already returns these paired URLs; keeping the decision in
+ * the browser prevents one transient proxy failure from blanking the whole
+ * image workspace.
  */
-const IMAGE_QUICK_ACTIONS = [
-  {
-    id: 'style-transfer',
-    Icon: Palette,
-    zh: '风格迁移',
-    en: 'Style Transfer',
-    promptZh: '将这张参考图转换为梵高《星夜》的笔触风格，保持构图与主体不变。',
-    promptEn:
-      "Re-render this reference image in the brushstroke style of Van Gogh's Starry Night, keeping the composition and subject intact.",
-  },
-  {
-    id: 'background',
-    Icon: Eraser,
-    zh: '背景',
-    en: 'Background',
-    promptZh:
-      '移除这张图片的背景，主体保留，背景替换为纯白渐变，适合产品展示。',
-    promptEn:
-      'Remove the background of this image, keep the subject intact, and replace it with a clean white gradient — product-shot ready.',
-  },
-  {
-    id: 'virtual-makeup',
-    Icon: Sparkles,
-    zh: '虚拟化妆',
-    en: 'Virtual Makeup',
-    promptZh:
-      '为图中人物应用自然、淡雅的妆容：哑光底妆、淡粉唇色、温和大地色眼影，整体保持真实。',
-    promptEn:
-      'Apply a natural, soft makeup look to the person in this image: matte foundation, soft pink lips, gentle earth-tone eyeshadow — keep the result photorealistic.',
-  },
-  {
-    id: 'cover-design',
-    Icon: LayoutTemplate,
-    zh: '封面设计',
-    en: 'Cover Design',
-    promptZh:
-      '为这张图片设计一个杂志封面布局：左侧粗体大标题、右侧图片占三分之二、底部小字作者署名。',
-    promptEn:
-      'Lay this image out as a magazine cover: a bold oversized title on the left, the image filling two-thirds on the right, and a small author byline at the bottom.',
-  },
-  {
-    id: 'logo-design',
-    Icon: PenTool,
-    zh: '标志设计',
-    en: 'Logo Design',
-    promptZh:
-      '将这张图片的核心元素抽象为一个极简矢量风格的 logo：单色、几何化、可在小尺寸下识别。',
-    promptEn:
-      'Abstract the core element of this image into a minimal vector-style logo: monochrome, geometric, recognizable at small sizes.',
-  },
-] as const;
+function useImageFallback(src: string, fallbackSrc?: string | null) {
+  const [activeSrc, setActiveSrc] = useState(src);
 
-export function ImagePlayground() {
+  useEffect(() => {
+    setActiveSrc(src);
+  }, [src, fallbackSrc]);
+
+  function useFallback() {
+    if (!fallbackSrc || fallbackSrc === activeSrc) return false;
+    setActiveSrc(fallbackSrc);
+    return true;
+  }
+
+  return { activeSrc, useFallback };
+}
+
+/** A plain `<img>` with the same proxy → public URL failover as gallery tiles. */
+function ImageWithFallback({
+  src,
+  fallbackSrc,
+  onError,
+  ...props
+}: ImgHTMLAttributes<HTMLImageElement> & {
+  src: string;
+  fallbackSrc?: string | null;
+}) {
+  const { activeSrc, useFallback } = useImageFallback(src, fallbackSrc);
+
+  return (
+    <img
+      {...props}
+      src={activeSrc}
+      onError={(event) => {
+        if (!useFallback()) onError?.(event);
+      }}
+    />
+  );
+}
+
+export function ImagePlayground({
+  initialTab = 'community',
+  initialPrompt = '',
+  myImagesPageHref,
+  communityPageHref,
+  autoPreviewFirst = false,
+  autoSubmit = false,
+  redirectOnSubmit = false,
+  staticCommunity = false,
+}: {
+  initialTab?: 'community' | 'mine';
+  initialPrompt?: string;
+  myImagesPageHref?: '/image-generator';
+  communityPageHref?: '/photo-to-anime';
+  autoPreviewFirst?: boolean;
+  /** Submit the prompt as soon as this workspace finishes hydrating. */
+  autoSubmit?: boolean;
+  /** Send marketing-page submissions to the dedicated workspace first. */
+  redirectOnSubmit?: boolean;
+  /** Render the community waterfall in normal document flow, below the composer. */
+  staticCommunity?: boolean;
+}) {
   const store = usePlaygroundStore();
   const { activeImageId } = store;
   const { data: session } = useSession();
 
-  const [tab, setTab] = useState<'community' | 'mine'>('community');
+  const [tab, setTab] = useState<'community' | 'mine'>(initialTab);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(initialPrompt);
   // Reference images for img2img. Up to MAX_REFERENCES images; the
   // server picks the first one for the request body. Each chip has its
   // own note input so the user can describe what that specific image
@@ -4477,6 +4473,10 @@ export function ImagePlayground() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const MAX_REFERENCES = 10;
   const [pollingTaskId, setPollingTaskId] = useState<string | null>(null);
+  // Covers the short handoff from the page navigation / click to the moment
+  // the API returns a durable task id. Without this the My Images feed looks
+  // empty during a synchronous provider request.
+  const [submittingPrompt, setSubmittingPrompt] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [uploadingReference, setUploadingReference] = useState(false);
   // Track when the current submit started so the LATEST RESULT panel
@@ -4491,6 +4491,8 @@ export function ImagePlayground() {
   // so the image paints instantly (no route bundle, no task fetch),
   // then lazily load the full task for prompt / model / download.
   const [previewTaskId, setPreviewTaskId] = useState<string | null>(null);
+  const didAutoPreviewRef = useRef(false);
+  const didAutoSubmitRef = useRef<string | null>(null);
   // Task id of the most recently landed image. Used to (a) scroll the
   // matching tile into view and (b) ring-highlight it for 2s so the
   // user knows which tile in the grid is their new one.
@@ -4512,6 +4514,20 @@ export function ImagePlayground() {
   // page at /api-playground/image/$id rather than opening an overlay,
   // so the URL is shareable and back-navigation works.
   const navigate = useNavigate();
+
+  // Keep the complete prompt visible while it is being written. A fixed
+  // two-row textarea let wrapped lines run underneath the toolbar, which
+  // made longer prompts look clipped before the user submitted them.
+  useEffect(() => {
+    const textarea = promptRef.current;
+    if (!textarea) return;
+
+    const maxHeight = 192;
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+    textarea.style.overflowY =
+      textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+  }, [prompt]);
 
   // Models this deployment's Evolink key actually serves. Cached an hour
   // server-side, so this is cheap; `staleTime` keeps it out of refetches.
@@ -4539,6 +4555,29 @@ export function ImagePlayground() {
     enabled: tab === 'mine',
     staleTime: 30_000,
   });
+
+  // The dedicated image workspace opens with the latest completed image in
+  // focus, making its right-hand preview useful from the first paint. Once a
+  // user closes the preview, respect that choice for the rest of the visit.
+  useEffect(() => {
+    if (didAutoPreviewRef.current || !autoPreviewFirst) return;
+    const latest = (myImagesQuery.data?.tasks ?? []).find(
+      (task) =>
+        task.status === 'success' &&
+        (task.imageUrls?.length || task.thumbnailUrl)
+    );
+    if (!latest) return;
+    didAutoPreviewRef.current = true;
+    setPreviewTaskId(latest.id);
+  }, [autoPreviewFirst, myImagesQuery.data]);
+
+  // Chat hands its typed prompt to this workspace through the URL. If the
+  // route stays mounted for a new prompt, update the composer in place.
+  useEffect(() => {
+    if (!initialPrompt) return;
+    setPrompt(initialPrompt);
+    setTab('mine');
+  }, [initialPrompt]);
 
   const queryClient = useQueryClient();
   const taskQuery = useQuery({
@@ -4724,9 +4763,14 @@ export function ImagePlayground() {
     // immediately; otherwise they're stuck staring at the Community
     // wall for a few seconds while the request flies.
     onMutate: () => {
+      const submittedPrompt = prompt.trim();
       setTab('mine');
+      setSubmittingPrompt(submittedPrompt);
+      return { submittedPrompt };
     },
-    onSuccess: (data) => {
+    onSuccess: (data, _variables, context) => {
+      const submittedPrompt = context?.submittedPrompt || prompt;
+      setSubmittingPrompt(null);
       // Sync submissions return status='success' with imageUrls inline —
       // cache the task into the query cache so the active-image panel
       // can render immediately, without waiting for a poll.
@@ -4746,11 +4790,10 @@ export function ImagePlayground() {
       // (kept below for correctness) will reconcile any prompt /
       // timestamp deltas with the authoritative server copy.
       queryClient.setQueryData(['image-tasks', 'mine'], (old: any) => {
-        if (!old) return old;
         const isImmediate = data.status === 'success';
         const syntheticRow: any = {
           id: data.taskId,
-          prompt,
+          prompt: submittedPrompt,
           status: isImmediate ? 'success' : 'processing',
           model: data.task?.model ?? model ?? null,
           createdAt: data.task?.createdAt ?? new Date().toISOString(),
@@ -4763,8 +4806,8 @@ export function ImagePlayground() {
             ? (data.task?.taskResult?.imageUrls?.[0] ?? data.imageUrl ?? null)
             : null,
         };
-        if (old.tasks?.some((t: any) => t.id === data.taskId)) return old;
-        return { tasks: [syntheticRow, ...old.tasks] };
+        if (old?.tasks?.some((t: any) => t.id === data.taskId)) return old;
+        return { tasks: [syntheticRow, ...(old?.tasks ?? [])] };
       });
       store.setActiveImageId(data.taskId);
       setPrompt('');
@@ -4807,6 +4850,7 @@ export function ImagePlayground() {
       // on "Generating... Ns" forever when the request fails.
       setGeneratingSince(null);
       setEstimatedTotal(null);
+      setSubmittingPrompt(null);
       const msg = e.message || '';
       const isInsufficient = /insufficient/i.test(msg);
       const isNoProvider = /not configured/i.test(msg);
@@ -4823,6 +4867,37 @@ export function ImagePlayground() {
       toast.error(key ? m[key]() : msg);
     },
   });
+
+  function handleImageSubmit() {
+    const submittedPrompt = prompt.trim();
+    if (!submittedPrompt || submitMutation.isPending || pollingTaskId) return;
+
+    if (redirectOnSubmit) {
+      navigate({
+        to: '/image-generator',
+        search: { prompt: submittedPrompt, autoSubmit: '1' },
+      });
+      return;
+    }
+
+    submitMutation.mutate();
+  }
+
+  // A prompt sent from the public gallery should start immediately after the
+  // workspace opens. The ref makes URL-driven submissions one-shot even if a
+  // model-list or task-list query causes a rerender while the request is live.
+  useEffect(() => {
+    const submittedPrompt = initialPrompt.trim();
+    if (
+      !autoSubmit ||
+      !submittedPrompt ||
+      didAutoSubmitRef.current === submittedPrompt
+    ) {
+      return;
+    }
+    didAutoSubmitRef.current = submittedPrompt;
+    handleImageSubmit();
+  }, [autoSubmit, initialPrompt]);
 
   async function handleReferenceUpload(files: FileList | null) {
     if (!files?.length) return;
@@ -5054,13 +5129,25 @@ export function ImagePlayground() {
   // was unreliable on cross-origin streaming responses in Chrome.
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden">
+    <div
+      className={cn(
+        'w-full',
+        staticCommunity
+          ? 'overflow-visible'
+          : 'flex h-full min-h-0 flex-1 overflow-hidden'
+      )}
+    >
       {/* Center column — gallery / my-images grid + floating composer.
           Sits as the first sibling in the outer flex-row; the
           `ImagePreviewPanel` aside takes the second slot. flex-1 +
           min-w-0 lets the column shrink when the 620px panel opens
           without overflowing the viewport. */}
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div
+        className={cn(
+          'relative flex min-w-0 flex-1 flex-col',
+          staticCommunity ? 'overflow-visible' : 'min-h-0 overflow-hidden'
+        )}
+      >
         {/* Floating segmented tab bar — sits above the wall, centered.
           Aceternity-style: a NoiseBackground pill wraps two cut-out
           buttons that read as "windows" through the slab. The inactive
@@ -5081,7 +5168,17 @@ export function ImagePlayground() {
                   <button
                     key={t.id}
                     type="button"
-                    onClick={() => setTab(t.id)}
+                    onClick={() => {
+                      if (t.id === 'community' && communityPageHref) {
+                        navigate({ to: communityPageHref });
+                        return;
+                      }
+                      if (t.id === 'mine' && myImagesPageHref) {
+                        navigate({ to: myImagesPageHref });
+                        return;
+                      }
+                      setTab(t.id);
+                    }}
                     className={cn(
                       'inline-flex h-full cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-all outline-none',
                       active
@@ -5098,39 +5195,38 @@ export function ImagePlayground() {
           </NoiseBackground>
         </div>
 
-        {/* Scroll track. `pb-56` clears the floating composer (with
-          breathing room for the reference-image strip — its tallest
-          state can push the composer past 200px). The scrollbar is
-          hidden and overscroll contained, matching the reference. */}
-        <div className="flex-1 overflow-hidden">
-          <div className="no-scrollbar h-full overflow-y-auto overscroll-y-none pb-56">
+        {/* The Community gallery is document content rather than a moving
+          background: prompt first, then a static grid of every image. */}
+        <div
+          className={cn(
+            'flex-1',
+            staticCommunity ? 'overflow-visible' : 'overflow-hidden',
+            tab === 'community' && 'order-2'
+          )}
+        >
+          <div
+            className={cn(
+              'no-scrollbar',
+              staticCommunity
+                ? 'h-auto overflow-visible'
+                : 'h-full scroll-pb-72 overflow-y-auto overscroll-y-none'
+            )}
+          >
             {tab === 'community' ? (
-              <div className="min-h-full w-full">
-                <GalleryWall />
-                {/* CTA end-cap — the payoff after scrolling the wall. */}
-                <div className="flex flex-col items-center px-4 py-20">
-                  <p className="text-foreground text-center text-2xl font-bold tracking-tight sm:text-3xl">
-                    {m['playground.image.wall_cta_title']()}
-                  </p>
-                  <p className="text-muted-foreground mt-3 max-w-xs text-center text-sm leading-relaxed">
-                    {m['playground.image.wall_cta_sub']()}
-                  </p>
-                  <button
-                    type="button"
-                    // Jump straight to My Images — the user's own workspace
-                    // — instead of leaving them on the Community wall while
-                    // they type. The composer is floating (rendered outside
-                    // this tab branch), so focusing it right after the tab
-                    // switch still lands on a live textarea.
-                    onClick={() => {
-                      setTab('mine');
-                      promptRef.current?.focus();
-                    }}
-                    className="border-border bg-background hover:bg-foreground/5 mt-8 inline-flex h-10 items-center justify-center gap-2 rounded-full border px-3 text-sm font-medium shadow-xs transition-all"
-                  >
-                    <SparklesIcon className="size-4" />
-                    {m['playground.image.wall_cta_button']()}
-                  </button>
+              <div className="w-full py-8">
+                <div
+                  className={cn(
+                    'w-full',
+                    // The static generator page deliberately presents the
+                    // community wall as a full-bleed visual surface. Keep
+                    // the regular playground comfortably constrained, but
+                    // let the editorial page's tiles meet both edges.
+                    staticCommunity
+                      ? 'max-w-none px-0'
+                      : 'mx-auto max-w-7xl px-4'
+                  )}
+                >
+                  <CommunityImageGrid />
                 </div>
               </div>
             ) : (
@@ -5139,19 +5235,13 @@ export function ImagePlayground() {
               // instead of replacing the grid in place. The grid therefore
               // stays visible behind the panel so the user can hop between
               // their other generations without a back-and-forth dance.
-              <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-6">
+              <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-16 pb-10">
                 <section>
-                  <header className="mb-3 flex items-center justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setTab('community')}
-                      className="text-muted-foreground hover:text-foreground text-xs transition-colors"
-                    >
-                      ← {m['playground.image.wall_cta_button']()}
-                    </button>
-                  </header>
                   <MyImageRows
-                    rows={[...(myImagesQuery.data?.tasks ?? [])].reverse()}
+                    // The API is already newest-first. Keeping that order
+                    // puts fresh, durable R2-backed images ahead of old
+                    // provider URLs that may have expired.
+                    rows={myImagesQuery.data?.tasks ?? []}
                     onSelect={(id) => {
                       // Inline preview — image paints immediately from
                       // the row's cached imageUrls[0] (no fetch). The
@@ -5160,6 +5250,7 @@ export function ImagePlayground() {
                       setPreviewTaskId(id);
                     }}
                     highlightId={recentlyLandedTaskId}
+                    submittingPrompt={submittingPrompt}
                   />
                 </section>
               </div>
@@ -5167,12 +5258,16 @@ export function ImagePlayground() {
           </div>
         </div>
 
-        {/* Floating composer — always visible (Community, My Images grid,
-          and now while a preview is open in the right panel). The
-          preview panel sits in its own column at 620px so the two never
-          collide on the same x-axis. The scroll track's `pb-56` keeps
-          the last batch row clear of the composer's footprint. */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center justify-center gap-3 px-4 pb-6">
+        {/* The composer is a flex sibling rather than an overlay: image rows
+          scroll only in the space above it, with a clear gap before input. */}
+        <div
+          className={cn(
+            'pointer-events-none z-20 flex flex-col items-center justify-center px-4',
+            tab === 'community'
+              ? 'relative order-1 shrink-0 pt-16 pb-4'
+              : 'border-border/60 bg-background/95 relative order-3 shrink-0 border-t pt-4 pb-4 backdrop-blur-sm'
+          )}
+        >
           <div
             onPaste={handleReferencePaste}
             className="border-border bg-sidebar/80 pointer-events-auto w-full max-w-3xl rounded-[28px] border p-1.5 shadow-xs backdrop-blur-sm"
@@ -5257,13 +5352,12 @@ export function ImagePlayground() {
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
                   e.preventDefault();
-                  if (prompt.trim() && !submitMutation.isPending)
-                    submitMutation.mutate();
+                  handleImageSubmit();
                 }
               }}
               placeholder={m['playground.image.prompt_placeholder']()}
               rows={2}
-              className="placeholder:text-muted-foreground block w-full resize-none bg-transparent px-3 py-2.5 text-base leading-relaxed outline-none"
+              className="placeholder:text-muted-foreground block max-h-48 min-h-[4.5rem] w-full resize-none bg-transparent px-3 py-2.5 text-base leading-relaxed outline-none"
             />
 
             <div className="flex items-center gap-1 px-1 pb-1">
@@ -5324,7 +5418,7 @@ export function ImagePlayground() {
                 disabled={
                   !prompt.trim() || submitMutation.isPending || !!pollingTaskId
                 }
-                onClick={() => submitMutation.mutate()}
+                onClick={handleImageSubmit}
                 className="bg-foreground text-background inline-flex size-9 items-center justify-center rounded-full transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label={m['playground.image.submit']()}
               >
@@ -5336,22 +5430,6 @@ export function ImagePlayground() {
               </button>
             </div>
           </div>
-          {/* Quick-action preset chips — localizable starter prompts
-            shown beneath the composer (Community / My Images tab).
-            Clicking drops the prompt into the textarea and focuses
-            it so the user can tweak before sending. Disabled while
-            a submit or polling is in flight so the chip click can't
-            race the in-flight request. Sits inside the floating
-            wrapper so it stacks below the composer without leaving
-            the absolute-positioned column. */}
-          <ImageQuickActions
-            isZh={getLocale() === 'zh'}
-            disabled={submitMutation.isPending || !!pollingTaskId}
-            onPick={(prompt) => {
-              setPrompt(prompt);
-              promptRef.current?.focus();
-            }}
-          />
         </div>
 
         <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
@@ -5489,19 +5567,39 @@ function ImagePreviewPanel({
   // Resolve the highest-quality URL we have. `detail.taskResult` carries
   // the resolved provider URLs from the polling endpoint; the row's
   // `thumbnailUrl` is the cached fallback when the request hasn't landed.
-  const previewUrls: string[] = (() => {
+  const { previewUrls, previewFallbackUrls } = (() => {
     if (detail?.taskResult) {
       const r =
         typeof detail.taskResult === 'string'
           ? JSON.parse(detail.taskResult)
           : detail.taskResult;
-      if (Array.isArray(r?.imageUrls) && r.imageUrls.length) return r.imageUrls;
-      if (typeof r?.imageUrl === 'string') return [r.imageUrl];
+      if (Array.isArray(r?.imageUrls) && r.imageUrls.length) {
+        return {
+          previewUrls: r.imageUrls,
+          previewFallbackUrls: Array.isArray(r.imageFallbackUrls)
+            ? r.imageFallbackUrls
+            : [],
+        };
+      }
+      if (typeof r?.imageUrl === 'string') {
+        return {
+          previewUrls: [r.imageUrl],
+          previewFallbackUrls: Array.isArray(r.imageFallbackUrls)
+            ? r.imageFallbackUrls
+            : [],
+        };
+      }
     }
-    if (row?.imageUrls?.length) return row.imageUrls;
-    return [];
+    if (row?.imageUrls?.length) {
+      return {
+        previewUrls: row.imageUrls,
+        previewFallbackUrls: row.imageFallbackUrls ?? [],
+      };
+    }
+    return { previewUrls: [], previewFallbackUrls: [] };
   })();
   const previewUrl = previewUrls[0] || row?.thumbnailUrl;
+  const previewFallbackUrl = previewFallbackUrls[0];
 
   /**
    * Save-as download — proxy through `/api/ai-tasks/$id/image?download=1`
@@ -5605,8 +5703,9 @@ function ImagePreviewPanel({
           <div className="flex min-h-full items-center justify-center">
             {previewUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <ImageWithFallback
                 src={previewUrl}
+                fallbackSrc={previewFallbackUrl}
                 alt={
                   row?.prompt || m['playground.image.preview_default_label']()
                 }
@@ -5633,6 +5732,7 @@ function ImagePreviewPanel({
             <div className="flex gap-2">
               {stripRows.map((r) => {
                 const url = r.imageUrls?.[0] || r.thumbnailUrl;
+                const fallbackUrl = r.imageFallbackUrls?.[0];
                 if (!url) return null;
                 const active = r.id === taskId;
                 return (
@@ -5647,7 +5747,12 @@ function ImagePreviewPanel({
                       active ? 'border-primary' : 'border-transparent'
                     )}
                   >
-                    <img alt="" src={url} className="size-full object-cover" />
+                    <ImageWithFallback
+                      alt=""
+                      src={url}
+                      fallbackSrc={fallbackUrl}
+                      className="size-full object-cover"
+                    />
                   </button>
                 );
               })}

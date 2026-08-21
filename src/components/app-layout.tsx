@@ -89,11 +89,14 @@ export function AppLayout({
       if (redirectingRef.current) return;
       redirectingRef.current = true;
       // Remember where the user was headed so sign-in can send them back.
+      // Replace the protected route in history: otherwise browser Back would
+      // revisit it and immediately trigger this guard again instead of going
+      // back to the page the user came from.
       // pathname is already locale-free; append the live query string.
       const search =
         typeof window !== 'undefined' ? window.location.search : '';
       const callbackUrl = `${pathname}${search}`;
-      router.push(`/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`);
+      router.replace(`/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`);
       return;
     }
 

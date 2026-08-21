@@ -15,7 +15,7 @@
     // Server-side runtime fallbacks for the build-time VITE_* values — keep in
     // sync with .env.production (better-auth trustedOrigins, payment callbacks).
     "VITE_APP_URL": "https://<worker>.<your-subdomain>.workers.dev",
-    "VITE_APP_NAME": "My App",
+    "VITE_APP_NAME": "kimik3",
   },
   "d1_databases": [
     {

@@ -25,20 +25,14 @@ import { respData } from '@/lib/resp';
 async function GET() {
   const configs = await getAllConfigs();
 
-  // Exposed in the composer menu are:
-  //   - gpt-image-2 (OpenAI flagship, ~15-25s typical) — DEFAULT
-  //   - gpt-image-1.5-lite (if the gateway serves it — filtered at runtime)
-  //
-  // Nano Banana 2 (gemini-3.1-flash-image-preview) is parked for now —
-  // the deployment's gateway returns empty imageUrls for it, so the user
-  // sees a submit succeed but no image land. Drop it back into the list
-  // when the upstream provider is fixed. Decide default vs. alt ordering
-  // via `evolink_image_model` in admin.
-  const EXPOSED_MODELS = ['gpt-image-2', 'gpt-image-1.5-lite'];
-  const defaultModel = configs?.evolink_image_model || EXPOSED_MODELS[0];
+  // The gateway can list `gpt-image-1.5-lite` while rejecting it at the
+  // generation endpoint. Keep the product on the one model that is known
+  // to accept image-generation requests for this integration. Add a model
+  // here only after a real generation request has succeeded with it.
+  const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 
   if (!configs?.evolink_api_key) {
-    return respData({ models: [], defaultModel });
+    return respData({ models: [], defaultModel: DEFAULT_IMAGE_MODEL });
   }
 
   // Touch the gateway so we surface "out of credits" early; the result
@@ -52,18 +46,18 @@ async function GET() {
     await listEvolinkImageModels(
       provider,
       `${configs.evolink_api_key}|${configs.evolink_base_url || ''}`,
-      EXPOSED_MODELS
+      [DEFAULT_IMAGE_MODEL]
     );
   } catch {
     // ignore — the menu still serves, submit will surface the real error
   }
 
-  // Filter to only models the gateway actually serves, in the order we
-  // want them shown. If the listing call above dropped any model, it
-  // won't appear in the menu — submit will silently reroute to the
-  // default in that case.
+  // Model discovery is advisory only: a provider can list an id that it
+  // then rejects during submission. Always return the safe default rather
+  // than a stale admin setting or an unverified discovery result.
+  const defaultModel = DEFAULT_IMAGE_MODEL;
   return respData(
-    { models: EXPOSED_MODELS, defaultModel },
+    { models: [DEFAULT_IMAGE_MODEL], defaultModel },
     {
       headers: {
         // Public + 5min edge cache. The composer asks for this on every

@@ -1,7 +1,14 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { ImagePlayground } from '@/blocks/api-playground';
-
+// Legacy image route → dedicated image-generation workspace.
 export const Route = createFileRoute('/api-playground/image')({
-  component: ImagePlayground,
+  server: {
+    handlers: {
+      GET: () =>
+        new Response(null, {
+          status: 301,
+          headers: { Location: '/image-generator' },
+        }),
+    },
+  },
 });

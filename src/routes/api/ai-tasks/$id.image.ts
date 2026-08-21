@@ -1,7 +1,10 @@
 import { createFileRoute } from '@tanstack/react-router';
 
+import { extractImageUrls } from '@/core/ai/image-urls';
 import { getAuth } from '@/core/auth';
 import { findTask } from '@/modules/ai-tasks/service';
+import { getAllConfigs } from '@/modules/config/service';
+import { getStorage } from '@/modules/storage/service';
 import { respErr } from '@/lib/resp';
 
 import { parseTaskResult } from './-shared';
@@ -45,38 +48,100 @@ async function GET({
     }
 
     const result = parseTaskResult(task.taskResult);
-    // imageTasks land here — the same shape the synced/async paths persist:
-    // an `imageUrls[]` array, with an `imageUrl` single-string fallback.
-    const firstUrl: string | undefined = (() => {
-      if (Array.isArray(result.imageUrls) && result.imageUrls[0]) {
-        return result.imageUrls[0];
+    // imageTasks land here with an `imageUrls[]` array, plus a legacy
+    // `imageUrl` fallback. `?index=N` lets galleries serve every image in a
+    // multi-image batch through this same-origin proxy, avoiding CSP blocks
+    // from short-lived provider/CDN hosts.
+    const imageUrls = extractImageUrls({
+      ...result,
+      imageUrls: result.imageUrls ?? result.images,
+      imageUrl: result.imageUrl,
+    });
+    const requestedIndex = Number(
+      new URL(request.url).searchParams.get('index') ?? 0
+    );
+    const index = Number.isInteger(requestedIndex)
+      ? Math.max(0, Math.min(requestedIndex, imageUrls.length - 1))
+      : 0;
+    const download = new URL(request.url).searchParams.get('download') === '1';
+    const filename = `image-${task.id}-${index + 1}.png`;
+
+    // Image rehosting runs after the initial provider response. Prefer the
+    // durable storage object once it exists: provider image URLs are often
+    // short-lived, so refetching them is the main reason an older gallery
+    // tile could remain on its loading skeleton forever. The deterministic
+    // key also repairs tasks made before `imageStorageKeys` was persisted.
+    const storageKey =
+      result.imageStorageKeys?.[index] ||
+      (task.provider === 'evolink-image'
+        ? `evolink/image/${task.id}-${index}.png`
+        : undefined);
+    if (storageKey) {
+      const storage = await getStorage();
+      if (storage) {
+        try {
+          const file = await storage.downloadFile({ key: storageKey });
+          if (file?.bytes) {
+            return new Response(new Uint8Array(file.bytes), {
+              headers: new Headers({
+                'Content-Type': file.mime || 'image/png',
+                'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${filename}"`,
+                'Cache-Control': 'private, max-age=3600',
+                'Content-Length': String(file.bytes.length),
+              }),
+            });
+          }
+        } catch (error: any) {
+          // The provider URL below is still a valid short-term fallback when
+          // storage is unavailable or this particular upload did not finish.
+          console.warn(
+            '[ai-image] storage read failed, using provider URL:',
+            error?.message
+          );
+        }
       }
-      if (typeof result.imageUrl === 'string' && result.imageUrl) {
-        return result.imageUrl;
-      }
-      return undefined;
-    })();
-    if (!firstUrl || !/^https?:\/\//i.test(firstUrl)) {
+    }
+
+    const sourceUrl = imageUrls[index];
+    if (!sourceUrl) {
       return respErr('Image is unavailable', { status: 404 });
     }
 
-    const download = new URL(request.url).searchParams.get('download') === '1';
-    const filename = `image-${task.id}.png`;
+    // New tasks have already normalized relative provider paths. This branch
+    // keeps older rows renderable too, instead of treating `/files/...` as a
+    // route on our own application.
+    let imageUrl = sourceUrl;
+    if (!/^https?:\/\//i.test(imageUrl)) {
+      const configs = await getAllConfigs();
+      const baseUrl = (
+        configs.evolink_base_url || 'https://api.evolink.ai/v1'
+      ).replace(/\/$/, '');
+      try {
+        imageUrl = new URL(imageUrl, `${baseUrl}/`).toString();
+      } catch {
+        return respErr('Image URL is invalid', { status: 404 });
+      }
+    }
 
-    const upstream = await fetch(firstUrl, { redirect: 'follow' });
+    const upstream = await fetch(imageUrl, { redirect: 'follow' });
     if (!upstream.ok) {
       return respErr('Upstream image is unavailable', { status: 502 });
     }
     // Best-effort MIME detection: trust upstream `content-type`, fall
     // back to the URL extension, then PNG.
     const upstreamType = upstream.headers.get('content-type') || '';
-    const extMatch = firstUrl.match(/\.(png|jpe?g|webp|gif)(?:\?|$)/i);
+    const extMatch = imageUrl.match(/\.(png|jpe?g|webp|gif)(?:\?|$)/i);
     const inferredExt = extMatch
       ? extMatch[1].toLowerCase().replace('jpg', 'jpeg')
       : 'png';
-    const mime =
-      upstreamType ||
-      (inferredExt === 'jpeg' ? 'image/jpeg' : `image/${inferredExt}`);
+    // Some object stores return `application/octet-stream` for perfectly
+    // valid image bytes. Passing that through leaves Chromium unable to
+    // paint an <img>; only trust an explicit `image/*` header.
+    const mime = /^image\//i.test(upstreamType)
+      ? upstreamType.split(';')[0]
+      : inferredExt === 'jpeg'
+        ? 'image/jpeg'
+        : `image/${inferredExt}`;
 
     // Streaming passthrough: `Response.body` is a `ReadableStream` that
     // Node / Nitro / Edge runtimes will pipe to the client as it fills.

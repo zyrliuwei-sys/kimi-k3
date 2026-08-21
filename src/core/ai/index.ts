@@ -103,10 +103,9 @@ export interface ImageProviderPick {
 
 /**
  * Pick the image provider. **Evolink only** — this deployment is wired
- * to a single image gen provider (gpt-image-2 on Evolink). The menu hard
- * -codes just this one model so the wire-up is easy to debug before we
- * re-enable the others. If we ever add a second provider, re-introduce
- * the fallback chain here.
+ * to a single image gen provider on Evolink. The default is the verified
+ * GPT Image 2 id; the route only exposes additional models after live model
+ * discovery confirms that the configured upstream account accepts them.
  */
 export async function pickImageProvider(
   configs: Record<string, any>
@@ -116,8 +115,7 @@ export async function pickImageProvider(
     apiKey: configs.evolink_api_key,
     baseUrl: configs.evolink_base_url,
   });
-  // Hardcoded fallback — admin can override via `evolink_image_model`,
-  // but only `gpt-image-2` is exposed in the menu right now.
+  // Safe fallback — admins can still override this in `evolink_image_model`.
   const model = configs.evolink_image_model || 'gpt-image-2';
   return {
     provider: evolink as unknown as AIProvider,

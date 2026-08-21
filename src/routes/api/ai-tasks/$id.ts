@@ -1,6 +1,11 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { AIMediaType, EvolinkVideoProvider, getAIManager } from '@/core/ai';
+import {
+  AIMediaType,
+  EvolinkVideoProvider,
+  extractImageUrls,
+  getAIManager,
+} from '@/core/ai';
 import { EvolinkImageProvider } from '@/core/ai/evolink-image';
 import { getAuth } from '@/core/auth';
 import { AITaskStatus, findTask, updateTask } from '@/modules/ai-tasks/service';
@@ -18,6 +23,33 @@ function videoFileUrls(taskId: string, result: Record<string, any>) {
   };
 }
 
+function imageFileUrls(taskId: string, result: Record<string, any>) {
+  const rawUrls = extractImageUrls(result);
+  const imageUrls = rawUrls
+    .filter((url: unknown): url is string => typeof url === 'string' && !!url)
+    .map((url: string, index: number) =>
+      /^data:image\//i.test(url) || isPublicR2ImageUrl(url)
+        ? url
+        : `/api/ai-tasks/${encodeURIComponent(taskId)}/image?index=${index}`
+    );
+  // The primary URLs stay same-origin. Keep public HTTPS source URLs as an
+  // owner-only fallback for the browser when an authenticated proxy request
+  // transiently fails (for example while the DB connection is reconnecting).
+  const imageFallbackUrls = rawUrls.map((url) =>
+    /^https:\/\//i.test(url) ? url : ''
+  );
+  return { imageUrls, imageFallbackUrls, imageUrl: imageUrls[0] };
+}
+
+function isPublicR2ImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && parsed.hostname.endsWith('.r2.dev');
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Standard envelope for the polling endpoint. Every terminal/in-flight
  * response uses this shape so the client can read `task.taskResult.imageUrls`
@@ -29,6 +61,7 @@ function videoFileUrls(taskId: string, result: Record<string, any>) {
  */
 function taskEnvelope(task: any) {
   const cached = parseTaskResult(task.taskResult);
+  const images = imageFileUrls(task.id, cached);
   return {
     task: {
       id: task.id,
@@ -38,13 +71,17 @@ function taskEnvelope(task: any) {
       prompt: task.prompt,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
-      // taskResult already carries the image URLs / video URL; expose it
-      // raw so the client can pick the keys it knows about.
-      taskResult: cached,
-      // Also lift the most common accessors to the top level for the
-      // preview page, which historically read `taskResult.imageUrls`.
-      imageUrls: cached?.imageUrls,
-      imageUrl: cached?.imageUrls?.[0] || cached?.imageUrl,
+      // Expose image URLs through our authenticated proxy. Provider CDN hosts
+      // are not assumed to be in CSP and can expire, while the original URLs
+      // remain persisted privately in `taskResult` on the server.
+      taskResult: {
+        ...cached,
+        imageUrls: images.imageUrls,
+        imageFallbackUrls: images.imageFallbackUrls,
+      },
+      imageUrls: images.imageUrls,
+      imageFallbackUrls: images.imageFallbackUrls,
+      imageUrl: images.imageUrl,
       ...videoFileUrls(task.id, cached),
     },
   };
@@ -122,6 +159,7 @@ async function GET({
         // Same pattern as video: best-effort, fall back to provider URL
         // if storage isn't configured or the upload fails.
         let finalUrls = imageUrls;
+        let imageStorageKeys: string[] = [];
         const saveFiles = await buildRehostSaveFiles();
         if (saveFiles && imageUrls.length) {
           try {
@@ -136,6 +174,9 @@ async function GET({
             finalUrls = saved
               .map((s, i) => s.url || imageUrls[i])
               .filter(Boolean);
+            imageStorageKeys = saved
+              .map((s) => s.key)
+              .filter((key): key is string => typeof key === 'string' && !!key);
           } catch (err: any) {
             console.warn(
               '[evolink-image] rehost failed, using provider URL:',
@@ -149,6 +190,7 @@ async function GET({
           taskResult: {
             remoteTaskId,
             imageUrls: finalUrls,
+            ...(imageStorageKeys.length ? { imageStorageKeys } : {}),
             provider: task.provider,
           },
         });
@@ -156,7 +198,16 @@ async function GET({
         return respData(taskEnvelope(refreshed || task));
       }
       if (polled.status === 'failed') {
-        await updateTask({ taskId: task.id, status: AITaskStatus.FAILED });
+        // Persist the provider's terminal reason so My Images can show an
+        // actionable failed state rather than an empty "generated" card.
+        await updateTask({
+          taskId: task.id,
+          status: AITaskStatus.FAILED,
+          taskResult: {
+            ...stored,
+            error: { message: String(polled.message).slice(0, 800) },
+          },
+        });
         const refreshed = await findTask(task.id);
         return respData(taskEnvelope(refreshed || task));
       }

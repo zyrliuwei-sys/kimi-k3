@@ -28,6 +28,68 @@ function assertProductionAuthSecret() {
 const recentVerificationEmailSentAt = new Map<string, number>();
 const VERIFICATION_EMAIL_MIN_INTERVAL_MS = 60_000;
 
+/**
+ * Better Auth collapses an OAuth token-exchange rejection into the generic
+ * `invalid_code` browser error. In local development, retain just the
+ * provider's safe diagnostic fields so configuration mistakes can be fixed
+ * without printing authorization codes, cookies, or client secrets.
+ */
+function toSafeAuthLogValue(value: unknown): unknown {
+  if (value instanceof Error) {
+    const error = value as Error & Record<string, unknown>;
+    return {
+      name: error.name,
+      message: error.message,
+      status: typeof error.status === 'number' ? error.status : undefined,
+      statusText:
+        typeof error.statusText === 'string' ? error.statusText : undefined,
+      providerError: typeof error.error === 'string' ? error.error : undefined,
+      providerDescription:
+        typeof error.error_description === 'string'
+          ? error.error_description
+          : undefined,
+    };
+  }
+
+  if (value && typeof value === 'object') {
+    const error = value as Record<string, unknown>;
+    return {
+      status: typeof error.status === 'number' ? error.status : undefined,
+      statusText:
+        typeof error.statusText === 'string' ? error.statusText : undefined,
+      providerError: typeof error.error === 'string' ? error.error : undefined,
+      providerDescription:
+        typeof error.error_description === 'string'
+          ? error.error_description
+          : undefined,
+      message: typeof error.message === 'string' ? error.message : undefined,
+    };
+  }
+
+  return typeof value === 'string' ? value : undefined;
+}
+
+function getAuthLogger(): NonNullable<BetterAuthOptions['logger']> {
+  // Production intentionally keeps the existing no-log behavior: OAuth
+  // errors can contain provider-specific details that do not belong in
+  // production logs. Local development gets enough information to diagnose
+  // an invalid client secret, expired code, or PKCE mismatch.
+  if (process.env.NODE_ENV !== 'development') {
+    return { disabled: true };
+  }
+
+  return {
+    level: 'error',
+    disableColors: true,
+    log: (level, message, ...args) => {
+      console.error(
+        `[auth:${level}] ${message || 'OAuth token exchange failed'}`,
+        ...args.map(toSafeAuthLogValue)
+      );
+    },
+  };
+}
+
 function getDatabaseProvider(provider: string): 'sqlite' | 'pg' | 'mysql' {
   switch (provider) {
     case 'sqlite':
@@ -242,6 +304,14 @@ export { sendWelcomeEmail };
 
 export function getAuth(configs?: Record<string, string>) {
   assertProductionAuthSecret();
+  // Callers that provide admin settings must still retain the documented
+  // environment fallbacks when a setting is absent from the config table or
+  // the database is temporarily unavailable. Database values intentionally
+  // win when both are present.
+  if (configs) {
+    configs = { ...envConfigs, ...configs };
+  }
+
   // Rebuild if any social provider credential changed
   if (configs) {
     const nextSignature = getSocialSignature(configs);
@@ -477,7 +547,7 @@ export function getAuth(configs?: Record<string, string>) {
           },
         }
       : {}),
-    logger: { disabled: true },
+    logger: getAuthLogger(),
   } satisfies BetterAuthOptions);
 
   if (canCacheAuthInstance) authInstance = instance;

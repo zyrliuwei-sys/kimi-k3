@@ -4,7 +4,7 @@ import { and, count, eq, gt, sql } from 'drizzle-orm';
 import { getAuth, sendWelcomeEmail } from '@/core/auth';
 import { db } from '@/core/db';
 import { account, credit, user } from '@/config/db/schema';
-import { getConfig, getDbConfigs } from '@/modules/config/service';
+import { getAllConfigs, getConfig } from '@/modules/config/service';
 import { grantForNewUser } from '@/modules/credits/service';
 import { grantRoleForNewUser } from '@/modules/rbac/service';
 import {
@@ -125,7 +125,11 @@ async function handle(request: Request) {
 
   // Force-refresh the config cache — signup bonus decisions must reflect
   // the latest admin-set values, not whatever was cached up to 1h ago.
-  const configs = await getDbConfigs(true);
+  // `getAuth()` needs the resolved configuration, not just the DB rows.
+  // OAuth credentials deliberately support environment fallbacks for local
+  // development. Passing `getDbConfigs()` here skipped those fallbacks when
+  // an admin value was absent or the config database was temporarily down.
+  const configs = await getAllConfigs(true);
 
   // Cloudflare Turnstile bot verification on credential endpoints. Two
   // gates must be open: the admin explicitly enabled the feature AND a

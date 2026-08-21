@@ -283,7 +283,15 @@ const FOOTER_BADGES: BadgeEntry[] = [
  * text-button fallback (no hosted image) gets a bordered chip so it
  * still reads as a badge in the marquee.
  */
-function Badge({ b }: { b: BadgeEntry }) {
+function Badge({
+  b,
+  decorative = false,
+}: {
+  b: BadgeEntry;
+  /** Duplicate marquee entries remain visual-only, so keyboard users don't
+   *  encounter the same external links twice. */
+  decorative?: boolean;
+}) {
   const rel = 'nofollow noopener noreferrer';
   if (b.label) {
     return (
@@ -292,6 +300,8 @@ function Badge({ b }: { b: BadgeEntry }) {
         target="_blank"
         rel={rel}
         title={b.title}
+        aria-hidden={decorative || undefined}
+        tabIndex={decorative ? -1 : undefined}
         className="inline-flex h-[44px] shrink-0 items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-300 transition-all hover:border-neutral-500 hover:text-neutral-100"
       >
         {b.label}
@@ -304,6 +314,8 @@ function Badge({ b }: { b: BadgeEntry }) {
       target="_blank"
       rel={rel}
       title={b.title}
+      aria-hidden={decorative || undefined}
+      tabIndex={decorative ? -1 : undefined}
       className="inline-block shrink-0 transition-opacity hover:opacity-80"
     >
       <img
@@ -373,13 +385,24 @@ export function Footer() {
   return (
     <footer className="relative overflow-hidden bg-neutral-950 px-4 py-10 text-neutral-300 md:px-8">
       <div className="mx-auto max-w-7xl">
-        {/* Render each directory badge once. The row scrolls manually on
-            narrow screens instead of duplicating links for a CSS marquee. */}
-        <div className="-mx-4 mb-12 overflow-x-auto pb-2 md:-mx-8">
-          <div className="flex w-max items-center gap-6 px-4 md:px-8">
-            {FOOTER_BADGES.map((b, i) => (
-              <Badge key={`${b.href}-${i}`} b={b} />
-            ))}
+        {/* Duplicate the row for a gapless marquee. The leading copy is
+            decorative; the canonical links remain available exactly once to
+            keyboard and assistive-technology users. */}
+        <div className="footer-badge-marquee -mx-4 mb-12 overflow-hidden px-4 md:-mx-8 md:px-8">
+          <div className="animate-footer-badges flex w-max items-center">
+            <div
+              aria-hidden="true"
+              className="flex shrink-0 items-center gap-6 pr-6"
+            >
+              {FOOTER_BADGES.map((b, i) => (
+                <Badge key={`duplicate-${b.href}-${i}`} b={b} decorative />
+              ))}
+            </div>
+            <div className="flex shrink-0 items-center gap-6 pr-6">
+              {FOOTER_BADGES.map((b, i) => (
+                <Badge key={`${b.href}-${i}`} b={b} />
+              ))}
+            </div>
           </div>
         </div>
 

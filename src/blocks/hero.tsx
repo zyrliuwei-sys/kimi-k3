@@ -56,15 +56,6 @@ export function Hero() {
               {m['landing.hero.cta_api']()}
               <ArrowRight className="size-4" />
             </Link>
-            <Link
-              href="/compare"
-              className={cn(
-                buttonVariants({ variant: 'outline', size: 'lg' }),
-                'h-11 rounded-full px-6 text-sm'
-              )}
-            >
-              {m['landing.hero.cta_compare']()}
-            </Link>
           </motion.div>
         </div>
       </div>

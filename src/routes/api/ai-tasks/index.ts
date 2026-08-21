@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router';
 
-import { AIMediaType, getAIManager } from '@/core/ai';
+import { AIMediaType, extractImageUrls, getAIManager } from '@/core/ai';
 import { getAuth } from '@/core/auth';
 import {
   AITaskStatus,
@@ -105,6 +105,11 @@ async function GET({ request }: { request: Request }) {
           // with all of its images side-by-side, instead of dropping
           // every image past the first one.
           imageUrls: media.imageUrls,
+          // Direct HTTPS fallback for a transient failure in the authenticated
+          // image proxy. The list itself is authenticated, so these URLs are
+          // only exposed to the task owner; the UI tries them only after the
+          // same-origin proxy has failed.
+          imageFallbackUrls: media.imageFallbackUrls,
           // videoUrls mirrors imageUrls for Seedance tasks. Each tile
           // in My Videos reads from this array — without it the grid
           // would always render the loading spinner because the list
@@ -124,6 +129,8 @@ async function GET({ request }: { request: Request }) {
           // Keep `thumbnailUrl` for the sidebar — that surface only
           // needs the first frame.
           thumbnailUrl: media.thumbnailUrl,
+          // A concise provider failure reason for the My Images error tile.
+          errorMessage: media.errorMessage,
         };
       }),
     });
@@ -149,6 +156,33 @@ function proxyVideoUrl(taskId: string, url: string): string {
   if (typeof url !== 'string') return url;
   if (!/^https?:\/\//i.test(url)) return url;
   return `/api/ai-tasks/${encodeURIComponent(taskId)}/file`;
+}
+
+/**
+ * Render generated images through the authenticated same-origin proxy. The
+ * provider may return a short-lived CDN URL whose host is not safe to add to
+ * CSP; proxying keeps the image visible without widening `img-src`.
+ */
+function proxyImageUrl(taskId: string, url: string, index: number): string {
+  if (typeof url !== 'string') return url;
+  // R2's `.r2.dev` URLs are explicitly public objects. Serving them directly
+  // avoids making every new image depend on a second authenticated request to
+  // our proxy (which is the failure mode that blanked the gallery).
+  if (isPublicR2ImageUrl(url)) return url;
+  // Base64/data URLs already are browser-ready. Everything else, including
+  // platform-relative paths such as `/files/<id>.png`, goes through the
+  // authenticated proxy where it is resolved against the provider base URL.
+  if (/^data:image\//i.test(url)) return url;
+  return `/api/ai-tasks/${encodeURIComponent(taskId)}/image?index=${index}`;
+}
+
+function isPublicR2ImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' && parsed.hostname.endsWith('.r2.dev');
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -179,23 +213,31 @@ function proxyVideoUrl(taskId: string, url: string): string {
  */
 function parseTaskMedia(t: any): {
   imageUrls: string[];
+  imageFallbackUrls: string[];
   videoUrls: string[];
   thumbnailUrl?: string;
   posterUrl?: string;
+  errorMessage?: string;
 } {
   try {
     const raw = t.taskResult;
     const r = typeof raw === 'string' ? JSON.parse(raw) : raw;
-    if (!r) return { imageUrls: [], videoUrls: [] };
+    if (!r) return { imageUrls: [], imageFallbackUrls: [], videoUrls: [] };
 
-    const imageUrls: string[] = collectUrls(r, [['imageUrls'], ['images']]);
-    if (!imageUrls.length && typeof r.imageUrl === 'string' && r.imageUrl) {
-      imageUrls.push(r.imageUrl);
-    } else if (!imageUrls.length && typeof r.url === 'string' && r.url) {
-      // Some providers fold the lone image URL into a generic `url` key.
-      // Surface it as an image URL so My Images doesn't drop the row.
-      imageUrls.push(r.url);
-    }
+    // Central normalizer understands OpenAI's `data[]`, `images[]`, direct
+    // URLs, and base64 payloads. Keeping the list endpoint on the same
+    // normalizer as submit/poll prevents a provider-specific result shape
+    // from turning into a front-end 404.
+    const rawImageUrls = extractImageUrls(r);
+    const imageUrls = rawImageUrls.map((url, index) =>
+      proxyImageUrl(t.id, url, index)
+    );
+    // The proxy remains the primary path so private buckets stay private.
+    // Public/CDN URLs are retained only as a browser fallback for the rare
+    // case where a second authenticated proxy request cannot reach the DB.
+    const imageFallbackUrls = rawImageUrls.map((url) =>
+      /^https:\/\//i.test(url) ? url : ''
+    );
 
     const rawVideoUrls: string[] = collectUrls(r, [['videos'], ['video_urls']]);
     if (!rawVideoUrls.length && typeof r.videoUrl === 'string' && r.videoUrl) {
@@ -206,9 +248,23 @@ function parseTaskMedia(t: any): {
     const posterUrl =
       typeof r.posterUrl === 'string' && r.posterUrl ? r.posterUrl : undefined;
     const thumbnailUrl = imageUrls[0] || posterUrl || videoUrls[0];
-    return { imageUrls, videoUrls, thumbnailUrl, posterUrl };
+    const rawError = r?.error;
+    const errorMessage =
+      typeof rawError?.message === 'string'
+        ? rawError.message.slice(0, 800)
+        : typeof r?.errorMessage === 'string'
+          ? r.errorMessage.slice(0, 800)
+          : undefined;
+    return {
+      imageUrls,
+      imageFallbackUrls,
+      videoUrls,
+      thumbnailUrl,
+      posterUrl,
+      errorMessage,
+    };
   } catch {
-    return { imageUrls: [], videoUrls: [] };
+    return { imageUrls: [], imageFallbackUrls: [], videoUrls: [] };
   }
 }
 

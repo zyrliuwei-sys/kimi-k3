@@ -1,5 +1,3 @@
-import { Link } from '@/core/i18n/navigation';
-import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
 import { AuthIllustration } from '@/components/login/auth-illustration';
 
@@ -16,10 +14,9 @@ import { AuthIllustration } from '@/components/login/auth-illustration';
 
 type SignInShellProps = {
   children: React.ReactNode;
-  appName: string;
 };
 
-export function SignInShell({ children, appName }: SignInShellProps) {
+export function SignInShell({ children }: SignInShellProps) {
   const badges = [
     m['auth.signin.badges.0'](),
     m['auth.signin.badges.1'](),
@@ -31,13 +28,6 @@ export function SignInShell({ children, appName }: SignInShellProps) {
       <div className="bg-background grid w-full max-w-6xl grid-cols-1 overflow-hidden md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:rounded-3xl md:border md:shadow-[0_32px_80px_-40px_rgba(13,11,8,0.25)]">
         {/* Left column — form. */}
         <div className="flex flex-col gap-8 p-6 sm:p-10 md:p-12">
-          <Link
-            href="/"
-            className="text-foreground/80 hover:text-foreground self-start text-sm font-semibold tracking-tight transition-colors"
-          >
-            {appName || envConfigs.app_name}
-          </Link>
-
           <div className="flex flex-1 flex-col justify-center">
             <div className="mx-auto flex w-full max-w-sm flex-col gap-7">
               <header className="flex flex-col gap-2 text-left">

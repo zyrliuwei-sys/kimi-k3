@@ -1,7 +1,14 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { ArrowDownToLine, ArrowLeft, Loader2 } from 'lucide-react';
+import {
+  ArrowDownToLine,
+  ArrowLeft,
+  Check,
+  Loader2,
+  Sparkles,
+} from 'lucide-react';
+import { motion } from 'motion/react';
 
 import { useRouter } from '@/core/i18n/navigation';
 import { apiGet } from '@/lib/api-client';
@@ -28,6 +35,14 @@ function ImagePreviewPage() {
     queryKey: ['image-task-preview', id],
     queryFn: () => apiGet<{ task: any }>(`/api/ai-tasks/${id}`),
     enabled: !!id,
+    // This endpoint is the existing provider-polling path. Keeping the poll
+    // on this page means handing off from the composer never abandons an
+    // async generation midway through its lifecycle.
+    refetchInterval: (query) => {
+      const status = query.state.data?.task?.status;
+      return status === 'success' || status === 'failed' ? false : 1500;
+    },
+    refetchIntervalInBackground: true,
   });
 
   const t = query.data?.task;
@@ -38,8 +53,21 @@ function ImagePreviewPage() {
     t?.taskResult?.imageUrls ??
     (t?.taskResult?.imageUrl ? [t.taskResult.imageUrl] : []) ??
     [];
+  const fallbackUrls: string[] =
+    t?.taskResult?.imageFallbackUrls ?? t?.imageFallbackUrls ?? [];
   const prompt: string = t?.prompt ?? '';
   const model: string = t?.model ?? '';
+  const status: string = t?.status ?? 'processing';
+  const isGenerating =
+    !query.isError &&
+    status !== 'success' &&
+    status !== 'failed' &&
+    status !== 'canceled';
+  const failureMessage =
+    t?.taskResult?.error?.message ??
+    t?.taskResult?.errorMessage ??
+    m['playground.image.failed_unknown']();
+  const downloadUrl = `/api/ai-tasks/${encodeURIComponent(id)}/image?download=1`;
 
   // ESC returns to the My Images grid (the page the user came from).
   // Matches the "Back to grid" link in the top bar — used the same way
@@ -66,11 +94,16 @@ function ImagePreviewPage() {
           <ArrowLeft className="size-4" />
           {m['playground.image.preview_back']()}
         </Link>
-        <span className="text-muted-foreground text-xs">
-          {model ? `${model} · ` : ''}
-          {urls.length > 1
-            ? m['playground.image.preview_count']({ count: urls.length })
-            : ''}
+        <span className="text-muted-foreground inline-flex items-center gap-1.5 text-xs">
+          {isGenerating ? <Loader2 className="size-3 animate-spin" /> : null}
+          {status === 'success' ? (
+            <Check className="size-3 text-emerald-500" />
+          ) : null}
+          {isGenerating
+            ? m['playground.image.generating']()
+            : model
+              ? `${model}${urls.length > 1 ? ` · ${m['playground.image.preview_count']({ count: urls.length })}` : ''}`
+              : ''}
         </span>
       </div>
 
@@ -78,9 +111,51 @@ function ImagePreviewPage() {
         {/* Image column — single image on mobile, stack of n images
             on desktop when the task was a multi-image generation. */}
         <div className="bg-foreground/5 flex-1 overflow-hidden rounded-2xl">
-          {query.isLoading ? (
-            <div className="flex h-96 items-center justify-center">
-              <Loader2 className="text-muted-foreground size-8 animate-spin" />
+          {query.isLoading || isGenerating ? (
+            <div className="relative flex h-[min(68svh,46rem)] min-h-96 items-center justify-center overflow-hidden">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_45%,hsl(var(--primary)/0.14),transparent_42%)]" />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.94 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.45, ease: 'easeOut' }}
+                className="relative flex max-w-sm flex-col items-center px-6 text-center"
+              >
+                <div className="bg-background/80 border-border flex size-16 items-center justify-center rounded-2xl border shadow-xl backdrop-blur">
+                  <Sparkles className="text-primary size-7 animate-pulse" />
+                </div>
+                <h1 className="mt-5 text-xl font-semibold tracking-tight">
+                  {m['playground.image.generating']()}
+                </h1>
+                <p className="text-muted-foreground mt-2 text-sm leading-6">
+                  {prompt || m['playground.image.preview_unavailable']()}
+                </p>
+                <div className="bg-border mt-6 h-1.5 w-44 overflow-hidden rounded-full">
+                  <motion.div
+                    animate={{ x: ['-65%', '155%'] }}
+                    transition={{
+                      duration: 1.45,
+                      repeat: Infinity,
+                      ease: 'easeInOut',
+                    }}
+                    className="bg-primary h-full w-2/3 rounded-full"
+                  />
+                </div>
+              </motion.div>
+            </div>
+          ) : status === 'failed' || status === 'canceled' ? (
+            <div className="flex h-96 flex-col items-center justify-center gap-3 px-6 text-center">
+              <p className="text-base font-medium">
+                {m['playground.image.failed_label']()}
+              </p>
+              <p className="text-muted-foreground max-w-sm text-sm leading-6">
+                {failureMessage}
+              </p>
+              <Link
+                to="/api-playground/image"
+                className="border-border hover:bg-muted mt-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors"
+              >
+                {m['playground.image.preview_back']()}
+              </Link>
             </div>
           ) : query.isError || urls.length === 0 ? (
             <div className="flex h-96 flex-col items-center justify-center gap-2 text-center">
@@ -100,14 +175,15 @@ function ImagePreviewPage() {
               {urls.map((u, i) => (
                 <a
                   key={u}
-                  href={u}
+                  href={fallbackUrls[i] || u}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="bg-background block w-full overflow-hidden rounded-xl"
                   title={m['playground.image.open_in_new_tab']()}
                 >
-                  <img
+                  <ImageWithFallback
                     src={u}
+                    fallbackSrc={fallbackUrls[i]}
                     alt={prompt || `Generated image ${i + 1}`}
                     className="mx-auto max-h-[80vh] w-auto object-contain"
                   />
@@ -148,8 +224,7 @@ function ImagePreviewPage() {
 
             {urls.length > 0 ? (
               <a
-                href={urls[0]}
-                download
+                href={downloadUrl}
                 className="brand-gradient mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-3 text-sm font-semibold text-white transition-all hover:opacity-95"
               >
                 <ArrowDownToLine className="size-4" />
@@ -168,5 +243,38 @@ function ImagePreviewPage() {
         </aside>
       </div>
     </div>
+  );
+}
+
+/** Keep the proxy URL private by default, but never blank a valid R2 image
+ * solely because the authenticated proxy had a transient failure. */
+function ImageWithFallback({
+  src,
+  fallbackSrc,
+  alt,
+  className,
+}: {
+  src: string;
+  fallbackSrc?: string | null;
+  alt: string;
+  className?: string;
+}) {
+  const [activeSrc, setActiveSrc] = useState(src);
+
+  useEffect(() => {
+    setActiveSrc(src);
+  }, [src, fallbackSrc]);
+
+  return (
+    <img
+      src={activeSrc}
+      alt={alt}
+      className={className}
+      onError={() => {
+        if (fallbackSrc && fallbackSrc !== activeSrc) {
+          setActiveSrc(fallbackSrc);
+        }
+      }}
+    />
   );
 }
