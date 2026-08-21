@@ -2304,6 +2304,9 @@ type Tile = {
   src: string;
   ratio: number;
   alt: string;
+  /** Intrinsic-sized attributes for static gallery images. */
+  width?: number;
+  height?: number;
   // 'image' renders <img>; 'video' renders a looping muted <video> with an
   // underlying <img> poster fallback (so the cell still shows the first
   // frame when autoplay is throttled or the video fails to decode).
@@ -2420,6 +2423,10 @@ const GALLERY_ITEMS: Tile[] = MEIGEN_IMAGE_FILES.map((fileName, i) => ({
   src: `/image/${fileName}`,
   ratio: TILE_RATIOS[i % TILE_RATIOS.length],
   alt: 'community image',
+  // The static waterfall uses this same ratio for its fixed frame. These
+  // attributes reserve matching document space before a lazy image arrives.
+  width: Math.round(TILE_RATIOS[i % TILE_RATIOS.length] * 1000),
+  height: 1000,
 }));
 
 /**
@@ -2690,10 +2697,14 @@ function GalleryWall({ items = GALLERY_ITEMS }: { items?: Tile[] } = {}) {
  * above it and every community image keeps its own aspect ratio in a static
  * waterfall layout below.
  */
-function CommunityImageGrid() {
+function CommunityImageGrid({
+  eagerFirstImage = false,
+}: {
+  eagerFirstImage?: boolean;
+}) {
   return (
     <div className="columns-2 gap-1 sm:columns-3 lg:columns-4 xl:columns-5">
-      {GALLERY_ITEMS.map((tile) => (
+      {GALLERY_ITEMS.map((tile, index) => (
         <div
           key={tile.src}
           className="group/card bg-muted relative mb-1 break-inside-avoid overflow-hidden"
@@ -2702,7 +2713,9 @@ function CommunityImageGrid() {
           <img
             src={tile.src}
             alt={tile.alt}
-            loading="eager"
+            width={tile.width}
+            height={tile.height}
+            loading={eagerFirstImage && index === 0 ? 'eager' : 'lazy'}
             decoding="async"
             className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover/card:scale-[1.03]"
           />
@@ -4434,6 +4447,7 @@ export function ImagePlayground({
   autoSubmit = false,
   redirectOnSubmit = false,
   staticCommunity = false,
+  eagerFirstCommunityImage = false,
 }: {
   initialTab?: 'community' | 'mine';
   initialPrompt?: string;
@@ -4446,6 +4460,8 @@ export function ImagePlayground({
   redirectOnSubmit?: boolean;
   /** Render the community waterfall in normal document flow, below the composer. */
   staticCommunity?: boolean;
+  /** Use eager loading for only the first static community image. */
+  eagerFirstCommunityImage?: boolean;
 }) {
   const store = usePlaygroundStore();
   const { activeImageId } = store;
@@ -5226,7 +5242,9 @@ export function ImagePlayground({
                       : 'mx-auto max-w-7xl px-4'
                   )}
                 >
-                  <CommunityImageGrid />
+                  <CommunityImageGrid
+                    eagerFirstImage={eagerFirstCommunityImage}
+                  />
                 </div>
               </div>
             ) : (

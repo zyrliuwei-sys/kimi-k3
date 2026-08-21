@@ -91,6 +91,8 @@ export function ImageWorkflowSteps({
             <WorkflowImage
               src="/imgs/workflow/reference-upload.png"
               alt="Reference image upload interface"
+              width={490}
+              height={330}
             />
           </WorkflowBentoCard>
 
@@ -103,6 +105,8 @@ export function ImageWorkflowSteps({
             <WorkflowImage
               src="/imgs/workflow/aspect-ratio.png"
               alt="Aspect-ratio selection interface"
+              width={438}
+              height={260}
             />
           </WorkflowBentoCard>
 
@@ -115,6 +119,8 @@ export function ImageWorkflowSteps({
             <WorkflowImage
               src="/imgs/workflow/prompt-direction.png"
               alt="Prompt direction interface"
+              width={436}
+              height={256}
             />
           </WorkflowBentoCard>
 
@@ -128,6 +134,8 @@ export function ImageWorkflowSteps({
             <WorkflowImage
               src="/imgs/workflow/output-download.png"
               alt="Generated image download interface"
+              width={434}
+              height={302}
             />
           </WorkflowBentoCard>
         </div>
@@ -190,11 +198,25 @@ function WorkflowBentoCard({
   );
 }
 
-function WorkflowImage({ src, alt }: { src: string; alt: string }) {
+function WorkflowImage({
+  src,
+  alt,
+  width,
+  height,
+}: {
+  src: string;
+  alt: string;
+  width: number;
+  height: number;
+}) {
   return (
     <img
       src={src}
       alt={alt}
+      width={width}
+      height={height}
+      loading="lazy"
+      decoding="async"
       className="block w-full rounded-t-[20px] border border-black/[0.06] dark:border-white/10"
     />
   );

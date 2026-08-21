@@ -84,6 +84,10 @@ function TransformationCard({
       <img
         src={transformation.image}
         alt={transformation.title}
+        width={1122}
+        height={1402}
+        loading="lazy"
+        decoding="async"
         className="absolute inset-0 size-full object-cover transition-transform duration-700 ease-out group-hover:scale-[1.045]"
       />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(2,6,23,0.04)_25%,rgba(2,6,23,0.78)_100%)]" />

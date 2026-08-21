@@ -8,6 +8,7 @@ const STATIC_PATHS = [
   '',
   '/pricing',
   '/image-generator',
+  '/photo-to-anime',
   '/blog',
   '/privacy-policy',
   '/terms-of-service',
@@ -64,7 +65,7 @@ export const Route = createFileRoute('/sitemap.xml')({
         const entries: Entry[] = STATIC_PATHS.map((path) => ({
           path,
           changeFrequency: path === '/blog' ? 'daily' : 'weekly',
-          priority: path === '' ? 1 : 0.8,
+          priority: path === '' ? 1 : path === '/photo-to-anime' ? 0.6 : 0.8,
         }));
 
         // Blog posts: db posts merged with local MDX posts.

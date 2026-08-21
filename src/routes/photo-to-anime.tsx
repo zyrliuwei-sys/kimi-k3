@@ -1,10 +1,8 @@
-import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { Home, Image, MessageSquarePlus, Minus, Plus } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
+import { Home, Image, MessageSquarePlus } from 'lucide-react';
 
+import { Link } from '@/core/i18n/navigation';
 import { usePlaygroundStore } from '@/lib/playground-store';
-import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import {
   ImagePlayground,
@@ -13,47 +11,108 @@ import {
 import { ImageTransformationGallery } from '@/components/image-transformation-gallery';
 import { ImageWorkflowSteps } from '@/components/image-workflow-steps';
 import { PlaygroundShell } from '@/components/playground-shell';
-import { TypewriterEffectSmooth } from '@/components/typewriter-effect-smooth';
 
-const IMAGE_GENERATOR_FAQS = [
+const PHOTO_TO_ANIME_TITLE = 'Photo to Anime Converter | Kimi K3';
+const PHOTO_TO_ANIME_DESCRIPTION =
+  'Turn a photo into anime art with Kimi K3 photo to anime converter. Upload a selfie or portrait for a unique anime-style image in seconds. Free to try—sign in.';
+const PHOTO_TO_ANIME_CANONICAL = 'https://www.kimik3.net/photo-to-anime';
+
+const PHOTO_TO_ANIME_FAQS = [
   {
-    question: 'How do I generate an image from a photo?',
-    answers: [
-      'Attach a reference photo, write what should change and what should stay recognizable, then submit the generation. The most useful prompts combine the subject with visual choices: for example, mention a close-up portrait, soft studio light, a spring color palette, and a gently blurred background. For a photo with several people, state who should be the focus and what each person is wearing. For landscapes, describe the time of day, atmosphere, and level of detail you want. Results are generated interpretations, so they may vary from the original; a short follow-up prompt that fixes one specific issue is more reliable than replacing every instruction at once.',
-      "For the most dependable result, start with a photo you have the right to use and avoid heavy filters that obscure important features. Good light helps the model distinguish hair, eyes, clothing, and the edges of a subject from the background. A group photograph can work well when you state the number of people and their relative positions, while a close crop is often better for an avatar or profile image. If a first attempt feels too generic, add concrete details from the source photo: the color of a jacket, the shape of a pet's ears, an important landmark, or the direction of the light. These details give the generator a clearer visual target without making the prompt unnecessarily long.",
-    ],
+    question: 'Is photo to anime free?',
+    answer:
+      'You need to sign in to generate an image. New accounts receive five credits, but a conversion with a reference photo is priced according to the selected model, output count, and settings. The composer shows the available choices before you submit.',
   },
   {
-    question: 'How does image generation work?',
-    answers: [
-      'The workspace lets you explore image ideas, choose a model, and review the generation settings before you submit. Start with one focused prompt and a single reference image, then use the result to refine the composition, lighting, or style.',
-      'Your image history and generation settings stay together in the workspace, making it easy to compare earlier results and continue refining an idea. The controls displayed beside the prompt are the source of truth for the options available to your account.',
-    ],
+    question: 'What photo formats are supported?',
+    answer:
+      'The reference picker accepts image files, including JPG, JPEG, PNG, WebP, GIF, SVG, AVIF, HEIC, and HEIF when the browser supplies a supported image MIME type. Each reference image can be up to 10 MB, and the workspace accepts up to ten references.',
   },
   {
-    question: 'What image styles are supported?',
-    answers: [
-      'The generator responds best to descriptive visual direction rather than a narrow menu of fixed presets. You can ask for photorealistic portraits, editorial product imagery, painterly landscapes, cinematic city scenes, minimalist 3D objects, cozy interiors, or bold graphic compositions. Pair the style with details about lighting, color, framing, materials, and emotion to make the result more consistent. Avoid asking the model to imitate a living artist exactly; instead describe the techniques you appreciate, such as delicate watercolor texture or crisp geometric shadows. This approach gives you more control while keeping the finished image original to your prompt and reference.',
-      'A useful prompt separates the visual style from the subject. First say what is in the picture, then add the medium and mood: for example, a friendly dog at a rainy station, warm window light, reflective pavement, and a quiet blue evening palette. This structure works for people, objects, interiors, and wide landscapes alike. You can also specify a portrait, square, or landscape composition through the aspect-ratio control to match an intended post, wallpaper, or print. When an output has the right atmosphere but the wrong framing, keep the style wording and adjust only the camera instruction. Small, intentional changes make it easier to learn which creative direction works best for your source image.',
-    ],
+    question: 'Can I use the anime images commercially?',
+    answer:
+      'Kimi K3 does not publish a blanket commercial-use license for every output. Use only photos and assets you have rights to, and review the Terms of Service and the applicable model-provider terms before using an image commercially.',
   },
-];
+] as const;
+
+const PHOTO_TO_ANIME_STRUCTURED_DATA = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: PHOTO_TO_ANIME_FAQS.map((faq) => ({
+      '@type': 'Question',
+      name: faq.question,
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: faq.answer,
+      },
+    })),
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: 'Kimi K3 Photo to Anime',
+    applicationCategory: 'MultimediaApplication',
+    operatingSystem: 'Web',
+    url: PHOTO_TO_ANIME_CANONICAL,
+    description: PHOTO_TO_ANIME_DESCRIPTION,
+  },
+] as const;
+
+const STYLE_IDEAS = [
+  {
+    title: 'Soft cel-shaded portrait',
+    prompt:
+      'Use the uploaded portrait as the character reference. Clean cel shading, warm window light, gentle blush, crisp expressive eyes, soft pastel background, polished modern anime key visual.',
+  },
+  {
+    title: 'Rainy city night',
+    prompt:
+      'Keep the person in the reference photo recognizable. Anime street scene at night, rain-slick pavement, teal and magenta reflections, cinematic three-quarter portrait, detailed linework.',
+  },
+  {
+    title: 'Hand-painted fantasy',
+    prompt:
+      'Transform the reference subject into an adventurous fantasy character. Hand-painted anime background, wildflower meadow, flowing cape, warm late-afternoon light, storybook color palette.',
+  },
+  {
+    title: 'Nineties animation frame',
+    prompt:
+      'Turn the uploaded face into a 1990s-inspired anime animation still. Visible ink lines, limited cel palette, soft grain, dramatic side light, simple dusk-blue background.',
+  },
+  {
+    title: 'Pet companion card',
+    prompt:
+      'Use the uploaded pet as the main character. Charming anime companion portrait, accurate coat markings, oversized expressive eyes, cozy sunlit room, clean character-card composition.',
+  },
+  {
+    title: 'School festival poster',
+    prompt:
+      'Keep the person from the reference photo as the hero. Bright anime school festival scene, paper lanterns, confetti, dynamic smile, clear negative space at the top, vertical poster frame.',
+  },
+] as const;
 
 export const Route = createFileRoute('/photo-to-anime')({
   head: () => ({
     meta: [
-      { title: 'AI Image Generator | Create Images from Text and Photos' },
+      { title: PHOTO_TO_ANIME_TITLE },
+      { name: 'description', content: PHOTO_TO_ANIME_DESCRIPTION },
+      { property: 'og:title', content: PHOTO_TO_ANIME_TITLE },
+      { property: 'og:description', content: PHOTO_TO_ANIME_DESCRIPTION },
+      { property: 'og:url', content: PHOTO_TO_ANIME_CANONICAL },
+    ],
+    links: [{ rel: 'canonical', href: PHOTO_TO_ANIME_CANONICAL }],
+    scripts: [
       {
-        name: 'description',
-        content:
-          'Create portraits, product visuals, pet photos, and landscapes with an AI image generator. Upload a reference, describe your idea, and generate images in a few simple steps.',
+        type: 'application/ld+json',
+        children: JSON.stringify(PHOTO_TO_ANIME_STRUCTURED_DATA),
       },
     ],
   }),
-  component: ImageGeneratorPage,
+  component: PhotoToAnimePage,
 });
 
-function ImageGeneratorPage() {
+function PhotoToAnimePage() {
   const store = usePlaygroundStore();
   if (store.mode !== 'image') store.setMode('image');
 
@@ -61,7 +120,6 @@ function ImageGeneratorPage() {
     <PlaygroundShell
       brand="Kimi K3"
       brandHref="/api-playground"
-      headerCta={undefined}
       upgradeCard={<PlaygroundUpgradeCard />}
       navItems={[
         {
@@ -81,195 +139,302 @@ function ImageGeneratorPage() {
         },
       ]}
     >
-      <ImagePlaygroundPage />
-    </PlaygroundShell>
-  );
-}
+      <div className="h-full min-h-0 overflow-y-auto bg-[#f5f5f7] font-sans text-[#1d1d1f] selection:bg-sky-200/70 dark:bg-[#050505] dark:text-white dark:selection:bg-sky-400/30">
+        <section
+          aria-labelledby="photo-to-anime-title"
+          className="border-b border-black/[0.07] bg-[#f5f5f7] dark:border-white/10 dark:bg-[#050505]"
+        >
+          <div className="mx-auto max-w-4xl px-5 pt-18 pb-10 text-center sm:px-8 sm:pt-28 sm:pb-14">
+            <p className="text-[11px] font-semibold tracking-[0.24em] text-[#0071e3] uppercase dark:text-sky-300">
+              Kimi visual studio
+            </p>
+            <h1
+              id="photo-to-anime-title"
+              className="mx-auto mt-5 max-w-4xl text-[clamp(2.6rem,7vw,5.8rem)] leading-[0.94] font-[750] tracking-[-0.075em] text-balance"
+            >
+              Photo to Anime Converter - Turn Photos into Anime Art
+            </h1>
+            <p className="mx-auto mt-7 max-w-2xl text-[17px] leading-8 text-[#6e6e73] sm:text-[19px] dark:text-white/60">
+              Start with a photo you have permission to use, then guide its
+              color, mood, framing, and character details. This photo to anime
+              workspace is designed for portraits, pets, travel memories, and
+              playful profile-image concepts.
+            </p>
+          </div>
 
-/**
- * Static, crawlable companion content for the image-generation workspace.
- * The interactive `ImagePlayground` remains deliberately untouched: this
- * route only gives search engines and first-time visitors useful context
- * before and after the generator.
- */
-function ImagePlaygroundPage() {
-  return (
-    <div className="h-full min-h-0 overflow-y-auto bg-[#f5f5f7] font-sans text-[#1d1d1f] selection:bg-sky-200/70 dark:bg-[#050505] dark:text-white dark:selection:bg-sky-400/30">
-      <section
-        aria-labelledby="image-generator-title"
-        className="relative isolate overflow-hidden bg-[#f5f5f7] dark:bg-[#050505]"
-      >
-        <div className="relative mx-auto max-w-[1440px] px-5 pt-18 pb-8 sm:px-8 sm:pt-28 sm:pb-8">
-          <p className="mb-5 text-center text-[11px] font-semibold tracking-[0.24em] text-[#515154] uppercase dark:text-white/55">
-            Kimi visual studio
-          </p>
-          <h1
-            id="image-generator-title"
-            className="mx-auto text-center font-sans text-[clamp(2.25rem,10vw,3.7rem)] leading-[0.91] font-[750] tracking-[-0.075em] text-[#1d1d1f] sm:text-[clamp(3rem,6.25vw,5.75rem)] dark:text-white"
-          >
-            <span className="block whitespace-nowrap">AI Image Generator</span>
-            <span className="mt-[0.08em] block">
-              — Turn your{' '}
-              <TypewriterEffectSmooth
-                words={[{ text: 'concepts', className: 'text-[#006fe6]' }]}
-                showCursor
-              />
-            </span>
-            <span className="mt-[0.08em] block">into images</span>
-          </h1>
-          <p className="mx-auto mt-7 max-w-2xl text-center text-[17px] leading-8 text-[#6e6e73] sm:text-[19px] dark:text-white/60">
-            Use this AI image generator to create portraits, pet photos, product
-            visuals, landscapes, and anything else you can describe. Explore
-            examples, plan a prompt, and refine your image direction in the
-            workspace.
-          </p>
-        </div>
-
-        {/* The community wall is the page's visual centerpiece, so it runs
-            flush to the available content edges. Supporting details below
-            retain the measured reading width used by the hero. */}
-        <section className="mt-0 pb-10 sm:mt-0 sm:pb-14">
-          <div className="w-full">
+          <div className="w-full pb-8 sm:pb-12">
             <ImagePlayground
               myImagesPageHref="/image-generator"
               redirectOnSubmit
               staticCommunity
+              eagerFirstCommunityImage
             />
           </div>
         </section>
 
-        <div className="relative mx-auto max-w-[1440px] px-5 pb-14 sm:px-8 sm:pb-20">
-          <div className="mx-auto mt-8 flex w-fit items-center divide-x divide-black/10 overflow-hidden rounded-full border border-black/[0.07] bg-white/55 shadow-[0_1px_1px_rgba(0,0,0,0.03),0_10px_32px_rgba(62,105,133,0.08)] backdrop-blur-xl dark:divide-white/10 dark:border-white/10 dark:bg-white/[0.06]">
-            <span className="px-4 py-2 text-xs font-medium text-[#515154] dark:text-white/70">
-              Reference-aware
-            </span>
-            <span className="px-4 py-2 text-xs font-medium text-[#515154] dark:text-white/70">
-              Prompt-led
-            </span>
-            <span className="px-4 py-2 text-xs font-medium text-[#515154] dark:text-white/70">
-              Private workspace
-            </span>
-          </div>
-
-          <ImageTransformationGallery />
-        </div>
-      </section>
-
-      <article className="mx-auto max-w-[1120px] px-5 pb-20 sm:px-8 sm:pb-28">
-        <ImageWorkflowSteps
-          eyebrow="A simple workflow"
-          title="How to Create an Image — 3 Steps"
-          steps={[
-            {
-              number: '01',
-              title: 'Upload a clear reference photo',
-              description:
-                'Start with a photo where the main subject is easy to see. A face looking toward the camera, a pet with a recognizable outline, or a travel scene with a clear focal point gives the model useful visual guidance. Use the plus button in the composer to attach an image, then add a short note when a detail matters: identify the person, name the object to keep, or point out the mood you want to preserve. A reference is a creative guide rather than a rigid copy, so simple, uncluttered source images usually lead to clearer, more useful results.',
-            },
-            {
-              number: '02',
-              title: 'Pick a style and describe the scene',
-              description:
-                'Choose an aspect ratio that suits the image you have in mind, then write the visual direction in the prompt box. You can ask for soft studio lighting, an editorial product scene, a neon city, a calm film-like palette, or a dramatic wide composition. Describe lighting, wardrobe, background, camera distance, and the feeling of the finished image instead of relying on a style name alone. If you are testing ideas, create one image first; after you find a direction you like, generate a larger batch to compare variations side by side.',
-            },
-            {
-              number: '03',
-              title: 'Generate, review, and download',
-              description:
-                'Send the prompt and let the workspace create the image. New generations appear in My Images, where you can review the result, open it at a larger size, and move between previous attempts without losing your draft. If the face, background, or color treatment is close but not quite right, adjust one clear instruction and generate again. When the image is ready, open its preview and use Download to save a copy. This small iteration loop is often the fastest way to turn a familiar idea into an image that still feels personal.',
-            },
-          ]}
-        />
-
-        <section
-          aria-labelledby="faq-title"
-          className="mt-20 border-t border-black/[0.08] pt-16 sm:mt-28 sm:pt-22 dark:border-white/10"
-        >
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] lg:gap-16">
-            <div className="lg:pt-2">
-              <p className="text-[11px] font-semibold tracking-[0.22em] text-[#6e6e73] uppercase dark:text-white/50">
-                Helpful answers
+        <article className="mx-auto max-w-[1120px] px-5 py-16 sm:px-8 sm:py-24">
+          <section
+            aria-labelledby="what-is-conversion"
+            className="mx-auto max-w-3xl"
+          >
+            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#0071e3] uppercase dark:text-sky-300">
+              Reference-led creation
+            </p>
+            <h2
+              id="what-is-conversion"
+              className="mt-3 text-3xl font-semibold tracking-[-0.055em] sm:text-5xl"
+            >
+              What Is Photo to Anime Conversion?
+            </h2>
+            <div className="mt-7 space-y-5 text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
+              <p>
+                A reference-led conversion uses the visual information in an
+                uploaded photo—such as pose, face shape, clothing, pet markings,
+                and background placement—as a starting point for a newly
+                generated anime-style image. It is not a pixel-for-pixel filter.
+                The result is an interpretation guided by both your source image
+                and the written direction you add in the prompt field.
               </p>
-              <h2
-                id="faq-title"
-                className="mt-3 text-4xl font-semibold tracking-[-0.055em] sm:text-5xl"
-              >
-                Frequently asked questions
-              </h2>
-              <p className="mt-6 max-w-md text-[17px] leading-8 text-[#6e6e73] dark:text-white/55">
-                A few practical answers before you make your first frame. Your
-                prompt stays yours; adjust, compare, and refine at your own
-                pace.
+              <p>
+                This approach is useful when the identity or memory in the
+                source matters more than starting from a blank description. A
+                clear selfie can become an avatar, a pet picture can become a
+                character card, and a travel snapshot can become a cinematic
+                illustration. The best result comes from treating the upload as
+                a visual brief: say what should remain recognizable, then name
+                the light, palette, setting, and emotional tone you want to
+                change.
+              </p>
+              <p>
+                Use only a photo you own or have permission to transform. Avoid
+                sensitive images, private documents, and reference material with
+                important information in the background. A close, well-lit
+                subject with a visible face or outline gives the model clearer
+                cues than a dark, heavily filtered, or distant image.
+              </p>
+              <p>
+                Framing matters before you upload. For an avatar, crop close
+                enough that the eyes, hairline, and shoulders are easy to read.
+                For a pet, include the face and distinctive markings rather than
+                a small animal in a crowded room. For a travel scene, keep the
+                landmark or horizon visible and describe which part should
+                remain the focal point. These choices give the model a clear
+                source while leaving room for the new illustration to feel
+                expressive.
               </p>
             </div>
-            <FAQAccordion />
-          </div>
-        </section>
-      </article>
-    </div>
-  );
-}
+          </section>
 
-function FAQAccordion() {
-  const [openQuestion, setOpenQuestion] = useState<string | null>(null);
+          <ImageWorkflowSteps
+            className="mt-20 sm:mt-28"
+            eyebrow="From reference to illustration"
+            title="How to Convert a Photo to Anime in 3 Steps"
+            steps={[
+              {
+                number: '01',
+                title: 'Upload a clear photo',
+                description:
+                  'Use the plus button in the prompt box to choose a reference image. The picker accepts image files, including JPG, JPEG, PNG, WebP, GIF, SVG, AVIF, HEIC, and HEIF when your browser provides a supported image type. Keep each file under 10 MB; you can attach up to ten references, although one focused portrait or pet photo is the easiest place to start.',
+              },
+              {
+                number: '02',
+                title: 'Describe the anime direction',
+                description:
+                  'After the upload appears beside the prompt, write what should stay recognizable and what should change. Add a style, background, light, palette, camera distance, and aspect ratio. For example, say “keep the jacket and smile, use soft cel shading and a pale blue evening street.” Select one output first when testing a new direction; the image-count control supports up to four outputs for a prompt.',
+              },
+              {
+                number: '03',
+                title: 'Generate, review, and download',
+                description:
+                  'Sign in and send the prompt with the arrow button. The workspace creates the task and updates My Images when the provider finishes, so the actual wait depends on the selected model and current provider workload. Open a result to inspect it at a larger size, then download the version you want. If a detail is close, change one instruction at a time instead of rewriting the whole prompt.',
+              },
+            ]}
+          />
 
-  return (
-    <div className="divide-y divide-black/[0.1] border-y border-black/[0.1] dark:divide-white/10 dark:border-white/10">
-      {IMAGE_GENERATOR_FAQS.map((faq, index) => {
-        const isOpen = openQuestion === faq.question;
-        const answerId = `faq-answer-${index}`;
-
-        return (
-          <article key={faq.question}>
-            <button
-              type="button"
-              aria-expanded={isOpen}
-              aria-controls={answerId}
-              onClick={() => setOpenQuestion(isOpen ? null : faq.question)}
-              className="group flex w-full items-start gap-4 py-6 text-left sm:gap-5 sm:py-7"
-            >
-              <span className="relative mt-0.5 flex size-6 shrink-0 items-center justify-center text-[#0071e3] dark:text-sky-300">
-                <Plus
-                  className={cn(
-                    'absolute size-5 transition-all duration-200 ease-out',
-                    isOpen && 'scale-0 rotate-90 opacity-0'
-                  )}
-                />
-                <Minus
-                  className={cn(
-                    'absolute size-5 scale-0 -rotate-90 opacity-0 transition-all duration-200 ease-out',
-                    isOpen && 'scale-100 rotate-0 opacity-100'
-                  )}
-                />
-              </span>
-              <span className="text-xl font-semibold tracking-[-0.035em] text-[#1d1d1f] transition-colors group-hover:text-[#0071e3] sm:text-2xl dark:text-white dark:group-hover:text-sky-300">
-                {faq.question}
-              </span>
-              <span className="ml-auto pt-1 text-[11px] font-semibold tracking-[0.18em] text-[#0071e3] dark:text-sky-300">
-                {String(index + 1).padStart(2, '0')}
-              </span>
-            </button>
-            <AnimatePresence initial={false}>
-              {isOpen ? (
-                <motion.div
-                  id={answerId}
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ duration: 0.22, ease: 'easeOut' }}
-                  className="overflow-hidden"
+          <section aria-labelledby="style-ideas" className="mt-20 sm:mt-28">
+            <div className="mx-auto max-w-3xl">
+              <p className="text-[11px] font-semibold tracking-[0.22em] text-[#0071e3] uppercase dark:text-sky-300">
+                Prompt starters
+              </p>
+              <h2
+                id="style-ideas"
+                className="mt-3 text-3xl font-semibold tracking-[-0.055em] sm:text-5xl"
+              >
+                6 Photo to Anime Style Ideas
+              </h2>
+              <p className="mt-6 text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
+                The gallery above is useful for choosing a direction, but the
+                prompt is where you decide what makes the result yours. Copy a
+                starter below, attach a photo, and replace the details that are
+                specific to your subject. Descriptive craft terms work better
+                than naming a living artist: describe line quality, cel shading,
+                grain, color, and light instead.
+              </p>
+            </div>
+            <div className="mt-9 grid gap-4 md:grid-cols-2">
+              {STYLE_IDEAS.map((idea, index) => (
+                <section
+                  key={idea.title}
+                  aria-labelledby={`style-idea-${index + 1}`}
+                  className="rounded-[1.5rem] border border-black/[0.08] bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]"
                 >
-                  <div className="space-y-4 pb-7 pl-10 text-[15px] leading-7 text-[#6e6e73] sm:pl-11 dark:text-white/55">
-                    {faq.answers.map((answer) => (
-                      <p key={answer}>{answer}</p>
-                    ))}
-                  </div>
-                </motion.div>
-              ) : null}
-            </AnimatePresence>
-          </article>
-        );
-      })}
-    </div>
+                  <h3
+                    id={`style-idea-${index + 1}`}
+                    className="text-lg font-semibold tracking-[-0.035em]"
+                  >
+                    {index + 1}. {idea.title}
+                  </h3>
+                  <pre className="mt-4 overflow-x-auto rounded-xl bg-[#f5f5f7] p-4 font-sans text-sm leading-6 whitespace-pre-wrap text-[#515154] dark:bg-black/25 dark:text-white/65">
+                    {idea.prompt}
+                  </pre>
+                </section>
+              ))}
+            </div>
+            <p className="mx-auto mt-7 max-w-3xl text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
+              A useful refinement keeps the source details that already worked
+              and changes only one visual variable. Try “closer crop,” “warmer
+              sunset light,” “cleaner background,” or “more expressive eyes” in
+              a follow-up. Small changes make it easier to understand why one
+              result feels closer to your intended character than another.
+            </p>
+            <p className="mx-auto mt-5 max-w-3xl text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
+              Before requesting several outputs, decide whether you are testing
+              identity, mood, or composition. If identity is the priority, keep
+              the reference note simple and name the features to preserve. If
+              mood is the priority, describe the time of day, weather, palette,
+              and level of contrast. If composition is the priority, select the
+              destination ratio first and say where the subject should sit in
+              the frame. A focused brief produces variations you can compare
+              instead of a batch of unrelated images.
+            </p>
+          </section>
+
+          <div className="mt-16">
+            <ImageTransformationGallery />
+          </div>
+
+          <section
+            aria-labelledby="vs-image-generator"
+            className="mx-auto mt-20 max-w-3xl sm:mt-28"
+          >
+            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#0071e3] uppercase dark:text-sky-300">
+              Choose the right workspace
+            </p>
+            <h2
+              id="vs-image-generator"
+              className="mt-3 text-3xl font-semibold tracking-[-0.055em] sm:text-5xl"
+            >
+              Photo to Anime vs. AI Image Generator
+            </h2>
+            <div className="mt-7 space-y-5 text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
+              <p>
+                This page is for a conversion that begins with a specific photo.
+                Its job is to keep meaningful traits from that reference while
+                moving the result into an anime visual language. Start here when
+                the person, pet, place, pose, or composition already exists and
+                you want to reinterpret it rather than invent every element.
+              </p>
+              <p>
+                The broader{' '}
+                <Link
+                  href="/image-generator"
+                  className="font-medium text-[#0071e3] underline underline-offset-4 dark:text-sky-300"
+                >
+                  image generator
+                </Link>{' '}
+                is a better fit for creating a product still life, a poster,
+                architecture, or a scene that does not need a source photo.
+                There, the prompt itself carries most of the creative brief. On
+                this page, the photo and prompt work together: the reference
+                anchors the subject while the prompt gives it a new setting and
+                style.
+              </p>
+              <p>
+                You can move between the two workflows without changing your
+                account. Use the conversion page for a character-like version of
+                a real image; use the broader workspace when you need an image
+                created from a concept, a sketch of a layout, or a fully written
+                art direction.
+              </p>
+              <p>
+                The distinction also makes prompt writing simpler. In a
+                reference-led workflow, spend your words on the visual changes:
+                anime linework, scene, wardrobe treatment, color, and light. In
+                a blank-canvas workflow, spend more of the prompt explaining the
+                subject itself. Choosing the right starting point reduces
+                unnecessary retries and helps you keep the parts of the original
+                image that matter most.
+              </p>
+            </div>
+          </section>
+
+          <section
+            aria-labelledby="free-and-included"
+            className="mx-auto mt-20 max-w-3xl sm:mt-28"
+          >
+            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#0071e3] uppercase dark:text-sky-300">
+              Credits and plans
+            </p>
+            <h2
+              id="free-and-included"
+              className="mt-3 text-3xl font-semibold tracking-[-0.055em] sm:text-5xl"
+            >
+              Is It Free? What&apos;s Included?
+            </h2>
+            <div className="mt-7 space-y-5 text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
+              <p>
+                Creating an account gives new users five credits. Image cost is
+                calculated from the selected model, size, number of requested
+                outputs, and whether a reference image is included. Because this
+                workflow intentionally uses an uploaded reference, check the
+                controls and your credit balance before submitting a larger
+                batch. The first free-image offer applies only to an eligible
+                standard single image without a reference.
+              </p>
+              <p>
+                A paid plan supplies a larger credit balance for recurring
+                creative work. If you are experimenting, begin with one output
+                and a focused prompt, then make variations after you have the
+                right direction. Visit{' '}
+                <Link
+                  href="/pricing"
+                  className="font-medium text-[#0071e3] underline underline-offset-4 dark:text-sky-300"
+                >
+                  pricing
+                </Link>{' '}
+                for the current plans, credit amounts, and subscription details.
+              </p>
+            </div>
+          </section>
+
+          <section
+            aria-labelledby="photo-faq"
+            className="mx-auto mt-20 max-w-3xl sm:mt-28"
+          >
+            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#0071e3] uppercase dark:text-sky-300">
+              Helpful answers
+            </p>
+            <h2
+              id="photo-faq"
+              className="mt-3 text-3xl font-semibold tracking-[-0.055em] sm:text-5xl"
+            >
+              Frequently Asked Questions
+            </h2>
+            <div className="mt-8 divide-y divide-black/[0.1] rounded-[1.5rem] border border-black/[0.1] px-6 dark:divide-white/10 dark:border-white/10">
+              {PHOTO_TO_ANIME_FAQS.map((faq, index) => (
+                <section key={faq.question} className="py-6">
+                  <h3 className="text-xl font-semibold tracking-[-0.035em] sm:text-2xl">
+                    {index === 0 ? 'Is this converter free?' : faq.question}
+                  </h3>
+                  <p className="mt-3 text-[16px] leading-8 text-[#6e6e73] dark:text-white/60">
+                    {faq.answer}
+                  </p>
+                </section>
+              ))}
+            </div>
+          </section>
+        </article>
+      </div>
+    </PlaygroundShell>
   );
 }
