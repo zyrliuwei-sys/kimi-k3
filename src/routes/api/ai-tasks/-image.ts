@@ -181,13 +181,10 @@ export async function postImageTask({
   } catch (e: any) {
     const msg = String(e?.message || '');
     if (msg.includes('Insufficient paid credits')) {
-      return respErr(
-        'Image generation requires a paid plan — please purchase credits first.',
-        { status: 402 }
-      );
+      return respErr('payment_required', { status: 402 });
     }
     if (msg.includes('Insufficient credits')) {
-      return respErr('insufficient_credits', { status: 402 });
+      return respErr('payment_required', { status: 402 });
     }
     throw e;
   }

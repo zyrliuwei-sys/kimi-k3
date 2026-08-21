@@ -27,6 +27,9 @@ interface Props {
   onSelect: (provider: PaymentProvider) => void;
   planName?: string;
   price?: string;
+  /** Copy for contextual paywalls, e.g. a blocked generation request. */
+  title?: string;
+  description?: string;
 }
 
 const providerLabel: Record<PaymentProvider, string> = {
@@ -45,18 +48,23 @@ export function PaymentProviderModal({
   onSelect,
   planName,
   price,
+  title,
+  description,
 }: Props) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{m['common.pricing.choose_payment']()}</DialogTitle>
+          <DialogTitle>
+            {title || m['common.pricing.choose_payment']()}
+          </DialogTitle>
           <DialogDescription>
-            {planName
-              ? price
-                ? m['common.pricing.payment_for']({ plan: planName, price })
-                : m['common.pricing.payment_for_plan']({ plan: planName })
-              : m['common.pricing.choose_payment_desc']()}
+            {description ||
+              (planName
+                ? price
+                  ? m['common.pricing.payment_for']({ plan: planName, price })
+                  : m['common.pricing.payment_for_plan']({ plan: planName })
+                : m['common.pricing.choose_payment_desc']())}
           </DialogDescription>
         </DialogHeader>
 

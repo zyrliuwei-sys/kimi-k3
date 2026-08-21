@@ -22,7 +22,6 @@ import {
   Eraser,
   FileText,
   Film,
-  Gift,
   Image as ImageIcon,
   LayoutGrid,
   Loader2,
@@ -390,8 +389,6 @@ export function ApiPlayground() {
   const [modelId, setModelId] = useState('Kimi K3');
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
-  const [loadingProvider, setLoadingProvider] =
-    useState<PaymentProvider | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -959,34 +956,9 @@ export function ApiPlayground() {
       )}
 
       <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
-      <PaymentProviderModal
+      <PlaygroundPaymentDialog
         open={billingOpen}
-        onOpenChange={(open) => {
-          setBillingOpen(open);
-          setLoadingProvider(null);
-        }}
-        providers={['creem']}
-        loadingProvider={loadingProvider}
-        onSelect={async (provider) => {
-          setLoadingProvider(provider);
-          try {
-            const r = await apiPost<{ checkout_url?: string }>(
-              '/api/payment/checkout',
-              {
-                plan_id: 'starter',
-                payment_provider: provider,
-              }
-            );
-            if (r.checkout_url) {
-              window.location.href = r.checkout_url;
-            }
-          } catch {
-            toast.error('Failed to open checkout');
-          } finally {
-            setLoadingProvider(null);
-            setBillingOpen(false);
-          }
-        }}
+        onOpenChange={setBillingOpen}
       />
     </div>
   );
@@ -1000,9 +972,12 @@ export function ApiPlayground() {
 function AuthPromptDialog({
   open,
   onClose,
+  callbackUrl = '/api-playground',
 }: {
   open: boolean;
   onClose: () => void;
+  /** Return to the active workspace after completing authentication. */
+  callbackUrl?: string;
 }) {
   const { data: configs } = usePublicConfig();
   const googleEnabled = configs?.google_auth_enabled === 'true';
@@ -1012,9 +987,12 @@ function AuthPromptDialog({
   async function handleGoogle() {
     await signIn.social({
       provider: 'google',
-      callbackURL: '/api-playground',
+      callbackURL: callbackUrl,
     });
   }
+
+  const signUpHref = `/sign-up?callbackUrl=${encodeURIComponent(callbackUrl)}`;
+  const signInHref = `/sign-in?callbackUrl=${encodeURIComponent(callbackUrl)}`;
 
   return (
     <AnimatePresence>
@@ -1056,25 +1034,6 @@ function AuthPromptDialog({
                 {m['playground.auth.description']()}
               </p>
 
-              {/* Free-credits gift banner — the conversion hook. Sits right
-                  between the description and the action buttons so the
-                  "Create free account" CTA is preceded by the value prop. */}
-              <div className="mt-1 w-full rounded-xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 via-fuchsia-500/10 to-violet-500/10 p-3 text-left">
-                <div className="flex items-center gap-2.5">
-                  <span className="brand-gradient grid size-8 shrink-0 place-items-center rounded-lg text-white shadow-sm shadow-violet-500/30">
-                    <Gift className="size-4" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-foreground text-[13px] leading-tight font-semibold">
-                      {m['playground.auth.gift_badge']()}
-                    </p>
-                    <p className="text-foreground/60 mt-0.5 text-[11.5px] leading-snug">
-                      {m['playground.auth.gift_description']()}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
               <div className="mt-2 flex w-full flex-col gap-2.5">
                 {googleEnabled && (
                   <>
@@ -1103,14 +1062,14 @@ function AuthPromptDialog({
                   </>
                 )}
                 <Link
-                  href="/sign-up?callbackUrl=/api-playground"
+                  href={signUpHref}
                   onClick={onClose}
                   className="brand-gradient inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl px-6 text-sm font-semibold text-white shadow-[0_18px_44px_-18px_rgba(124,58,237,0.75)] transition-all hover:opacity-95"
                 >
                   {m['playground.auth.sign_up']()}
                 </Link>
                 <Link
-                  href="/sign-in?callbackUrl=/api-playground"
+                  href={signInHref}
                   onClick={onClose}
                   className="border-foreground/15 text-foreground/80 hover:bg-foreground/5 inline-flex h-11 w-full items-center justify-center rounded-xl border px-6 text-sm font-medium transition-colors"
                 >
@@ -1122,6 +1081,57 @@ function AuthPromptDialog({
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+/**
+ * Shared checkout prompt for every paid playground action. Keeping the
+ * checkout configuration here makes the chat and image gates behave exactly
+ * alike instead of leaving one of them as a toast or an inline message.
+ */
+function PlaygroundPaymentDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const [loadingProvider, setLoadingProvider] =
+    useState<PaymentProvider | null>(null);
+
+  return (
+    <PaymentProviderModal
+      open={open}
+      onOpenChange={(nextOpen) => {
+        onOpenChange(nextOpen);
+        if (!nextOpen) setLoadingProvider(null);
+      }}
+      providers={['creem']}
+      loadingProvider={loadingProvider}
+      title={m['playground.payment_required.title']()}
+      description={m['playground.payment_required.description']()}
+      onSelect={async (provider) => {
+        setLoadingProvider(provider);
+        try {
+          const result = await apiPost<{ checkout_url?: string }>(
+            '/api/payment/checkout',
+            {
+              plan_id: 'starter',
+              payment_provider: provider,
+            }
+          );
+          if (result.checkout_url) {
+            window.location.href = result.checkout_url;
+            return;
+          }
+          toast.error('Failed to open checkout');
+        } catch {
+          toast.error('Failed to open checkout');
+        } finally {
+          setLoadingProvider(null);
+        }
+      }}
+    />
   );
 }
 
@@ -1796,7 +1806,7 @@ export function ChatPlayground() {
   const { activeChatId, clearActive } = store;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { data: session } = useSession();
+  const { data: session, isPending: isSessionPending } = useSession();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -1804,6 +1814,7 @@ export function ChatPlayground() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(false);
   const [modelId, setModelId] = useState('Kimi K3');
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1814,6 +1825,9 @@ export function ChatPlayground() {
   const previewUrlsRef = useRef<Set<string>>(new Set());
 
   function requireAuth(): boolean {
+    // Avoid showing the auth dialog during the initial session lookup. A
+    // logged-in visitor who clicks immediately should not get a false gate.
+    if (isSessionPending) return false;
     if (!session?.user) {
       setAuthOpen(true);
       return false;
@@ -2051,12 +2065,10 @@ export function ChatPlayground() {
   });
 
   async function handleSend() {
-    // No client-side auth gate — the server-side `/api/playground/chat`
-    // already returns the right `gate` event for anonymous visitors
-    // (login_required) and signed-in users with no credits
-    // (payment_required). The previous client-side `requireAuth()`
-    // short-circuited to a dialog and confused users who expected the
-    // chat to "just work" with whatever gate the backend surfaces.
+    // Keep the draft in place and open the login dialog before creating a
+    // chat row or submitting a stream. This gives anonymous users a clear
+    // next step instead of briefly rendering a blocked message in the thread.
+    if (!requireAuth()) return;
     const text = input.trim();
     if (!text && attachments.length === 0) return;
     if (isThinking) return;
@@ -2083,11 +2095,14 @@ export function ChatPlayground() {
       }
     }
 
+    const submittedAttachments = attachments;
     const userMsg: Message = {
       id: ++idRef.current,
       role: 'user',
       content: text || m['playground.attachment.default_prompt'](),
-      attachments: attachments.length ? attachments : undefined,
+      attachments: submittedAttachments.length
+        ? submittedAttachments
+        : undefined,
     };
     const turns = [...messages, userMsg];
     setMessages(turns);
@@ -2132,7 +2147,7 @@ export function ChatPlayground() {
             role: msg.role,
             content: msg.content,
           })),
-          attachments: attachments.map((a) => {
+          attachments: submittedAttachments.map((a) => {
             const {
               previewUrl: _p,
               uploadStatus: _s,
@@ -2150,24 +2165,32 @@ export function ChatPlayground() {
           onGate: (status) => {
             setIsThinking(false);
             if (status === 'login_required') {
-              // Pop the sign-in dialog for anonymous visitors so they
-              // don't have to interpret a generic "you've used your
-              // free message" assistant bubble as their next step.
+              // A stale session can expire between the client-side check and
+              // the stream request. Treat that race exactly like the initial
+              // login gate and keep the draft available after authentication.
               setAuthOpen(true);
-              // Drop the assistant bubble — the modal owns the
-              // conversation from here.
-              setMessages((prev) => prev.filter((mm) => mm.id !== assistantId));
+              setMessages((prev) =>
+                prev.filter(
+                  (message) =>
+                    message.id !== userMsg.id && message.id !== assistantId
+                )
+              );
+              setInput(text);
+              setAttachments(submittedAttachments);
               return;
             }
-            const body = m['playground.gate.pay']();
-            setMessages((prev) => [
-              ...prev,
-              {
-                id: assistantId,
-                role: 'assistant',
-                content: body,
-              },
-            ]);
+            // Restore the blocked draft and let the checkout dialog own the
+            // next step. The user can retry the exact same prompt after a
+            // successful purchase instead of having to type it again.
+            setMessages((prev) =>
+              prev.filter(
+                (message) =>
+                  message.id !== userMsg.id && message.id !== assistantId
+              )
+            );
+            setInput(text);
+            setAttachments(submittedAttachments);
+            setBillingOpen(true);
           },
           onError: (msg) => {
             setIsThinking(false);
@@ -2202,6 +2225,7 @@ export function ChatPlayground() {
   function handleGenerateImage() {
     const prompt = input.trim();
     if (!prompt || isThinking) return;
+    if (!requireAuth()) return;
     navigate({ to: '/image-generator', search: { prompt, autoSubmit: '1' } });
   }
 
@@ -2263,6 +2287,10 @@ export function ChatPlayground() {
       )}
 
       <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
+      <PlaygroundPaymentDialog
+        open={billingOpen}
+        onOpenChange={setBillingOpen}
+      />
     </div>
   );
 }
@@ -4465,7 +4493,7 @@ export function ImagePlayground({
 }) {
   const store = usePlaygroundStore();
   const { activeImageId } = store;
-  const { data: session } = useSession();
+  const { data: session, isPending: isSessionPending } = useSession();
 
   const [tab, setTab] = useState<'community' | 'mine'>(initialTab);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -4494,6 +4522,7 @@ export function ImagePlayground({
   // empty during a synchronous provider request.
   const [submittingPrompt, setSubmittingPrompt] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(false);
   const [uploadingReference, setUploadingReference] = useState(false);
   // Track when the current submit started so the LATEST RESULT panel
   // can show a live "Generating... Ns" counter. Reset on success.
@@ -4868,14 +4897,16 @@ export function ImagePlayground({
       setEstimatedTotal(null);
       setSubmittingPrompt(null);
       const msg = e.message || '';
-      const isInsufficient = /insufficient/i.test(msg);
+      const paymentRequired =
+        msg === 'payment_required' ||
+        /insufficient(?: paid)? credits|requires a paid (?:plan|credit)|payment required/i.test(
+          msg
+        );
       const isNoProvider = /not configured/i.test(msg);
-      // New users burn through the signup bonus on their first generation;
-      // on the second attempt the server returns "insufficient credits".
-      // The billing modal IS the user-facing signal — skip the toast so the
-      // user isn't pulled between two notifications, and pop the modal in
-      // one click so they can top up without hunting for the upgrade link.
-      if (isInsufficient) {
+      // Credit failures have a stable `payment_required` API marker. The
+      // billing modal is the user-facing signal, so skip a competing toast
+      // and send the user straight to checkout.
+      if (paymentRequired) {
         setBillingOpen(true);
         return;
       }
@@ -4887,6 +4918,13 @@ export function ImagePlayground({
   function handleImageSubmit() {
     const submittedPrompt = prompt.trim();
     if (!submittedPrompt || submitMutation.isPending || pollingTaskId) return;
+    // Image tasks require a session. Do this before a route change or API call
+    // so the typed prompt remains visible underneath the login dialog.
+    if (isSessionPending) return;
+    if (!session?.user) {
+      setAuthOpen(true);
+      return;
+    }
 
     if (redirectOnSubmit) {
       navigate({
@@ -5450,7 +5488,15 @@ export function ImagePlayground({
           </div>
         </div>
 
-        <AuthPromptDialog open={authOpen} onClose={() => setAuthOpen(false)} />
+        <AuthPromptDialog
+          open={authOpen}
+          onClose={() => setAuthOpen(false)}
+          callbackUrl="/image-generator"
+        />
+        <PlaygroundPaymentDialog
+          open={billingOpen}
+          onOpenChange={setBillingOpen}
+        />
       </div>
       {/* Right-side preview panel — only mounted when there's an active
         preview. Leaving it out for the empty case lets the centre

@@ -15,6 +15,13 @@ import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { MarkdownContent } from '@/components/markdown-content';
 import { buttonVariants } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 /**
  * Hero chat dialog. Streams replies from the public, rate-limited Kimi K3
@@ -116,6 +123,9 @@ export function HeroChat() {
           onDelta: (delta) => appendToLast(delta),
           onGate: (status) => {
             setMessages(prior);
+            // Keep the text available after the user signs in or tops up so
+            // they can retry without rewriting their prompt.
+            setInput(text);
             setGate(status === 'login_required' ? 'login' : 'pay');
           },
           onDone: () => {
@@ -156,7 +166,7 @@ export function HeroChat() {
     <div className="relative">
       {/* Thread — only rendered once the conversation starts. Empty state lives
           above the bar instead, so the bar is the centerpiece on first load. */}
-      {!empty || gate ? (
+      {!empty ? (
         <div
           ref={scrollRef}
           className="mx-auto mb-4 max-h-[min(48vh,360px)] w-full max-w-1/2 overflow-y-auto pr-1"
@@ -166,7 +176,6 @@ export function HeroChat() {
               <Bubble key={i} message={msg} />
             ))}
             {busy && <Thinking />}
-            {gate && <GateCard kind={gate} />}
           </div>
         </div>
       ) : (
@@ -225,6 +234,14 @@ export function HeroChat() {
           </button>
         </div>
       </div>
+      {gate && (
+        <GateDialog
+          kind={gate}
+          onOpenChange={(open) => {
+            if (!open) setGate(null);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -282,41 +299,63 @@ function Thinking() {
   );
 }
 
-function GateCard({ kind }: { kind: 'login' | 'pay' }) {
+function GateDialog({
+  kind,
+  onOpenChange,
+}: {
+  kind: 'login' | 'pay';
+  onOpenChange: (open: boolean) => void;
+}) {
   const isLogin = kind === 'login';
-  const href = isLogin ? '/sign-up' : '/pricing';
   return (
-    <div className="bg-muted/40 border-foreground/10 rounded-2xl border p-5 text-center">
-      <div className="brand-gradient mx-auto mb-3 flex size-11 items-center justify-center rounded-xl">
-        {isLogin ? (
-          <UserPlus className="size-5 text-white" />
-        ) : (
-          <Lock className="size-5 text-white" />
-        )}
-      </div>
-      <p className="text-sm font-semibold tracking-tight">
-        {isLogin
-          ? m['landing.hero_chat.gate_login_title']()
-          : m['landing.hero_chat.gate_pay_title']()}
-      </p>
-      <p className="text-foreground/55 mx-auto mt-1 max-w-sm text-center text-[13px] leading-relaxed">
-        {isLogin
-          ? m['landing.hero_chat.gate_login_desc']()
-          : m['landing.hero_chat.gate_pay_desc']()}
-      </p>
-      <Link
-        href={href}
-        className={cn(
-          buttonVariants(),
-          'mt-4 h-9 gap-1.5 rounded-lg px-4 text-sm'
-        )}
-      >
-        {isLogin
-          ? m['landing.hero_chat.gate_login_btn']()
-          : m['landing.hero_chat.gate_pay_btn']()}
-        <ArrowUpRight className="size-4" />
-      </Link>
-    </div>
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md text-center sm:max-w-md">
+        <DialogHeader className="items-center gap-3 pt-3">
+          <span className="brand-gradient flex size-11 items-center justify-center rounded-xl">
+            {isLogin ? (
+              <UserPlus className="size-5 text-white" />
+            ) : (
+              <Lock className="size-5 text-white" />
+            )}
+          </span>
+          <DialogTitle>
+            {isLogin
+              ? m['landing.hero_chat.gate_login_title']()
+              : m['landing.hero_chat.gate_pay_title']()}
+          </DialogTitle>
+          <DialogDescription className="max-w-sm text-center text-[13px] leading-relaxed">
+            {isLogin
+              ? m['landing.hero_chat.gate_login_desc']()
+              : m['landing.hero_chat.gate_pay_desc']()}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-col gap-2 sm:flex-row sm:justify-center">
+          {isLogin && (
+            <Link
+              href="/sign-in?callbackUrl=/"
+              className={cn(
+                buttonVariants({ variant: 'outline' }),
+                'h-10 gap-1.5 rounded-lg px-4 text-sm'
+              )}
+            >
+              {m['common.sign.sign_in_title']()}
+            </Link>
+          )}
+          <Link
+            href={isLogin ? '/sign-up?callbackUrl=/' : '/pricing'}
+            className={cn(
+              buttonVariants(),
+              'h-10 gap-1.5 rounded-lg px-4 text-sm'
+            )}
+          >
+            {isLogin
+              ? m['landing.hero_chat.gate_login_btn']()
+              : m['landing.hero_chat.gate_pay_btn']()}
+            <ArrowUpRight className="size-4" />
+          </Link>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
