@@ -16,6 +16,7 @@ import {
   Check,
   ChevronDown,
   Circle,
+  Copy,
   CornerDownLeft,
   Crown,
   Download,
@@ -68,6 +69,7 @@ import { m } from '@/paraglide/messages.js';
 import { getLocale } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
 import { ClonePreview } from '@/components/clone-preview';
+import { ImageStreamHero } from '@/components/image-stream-hero';
 import { MarkdownContent } from '@/components/markdown-content';
 import {
   PaymentProviderModal,
@@ -136,6 +138,22 @@ interface Attachment {
   _mtime?: number;
 }
 
+interface UploadResult {
+  url: string;
+  key: string;
+  filename: string;
+  type: 'image' | 'video' | 'document';
+  error?: string;
+}
+
+function isReadyAttachment(attachment: Attachment): boolean {
+  return (
+    attachment.uploadStatus === 'done' &&
+    Boolean(attachment.url) &&
+    !attachment.url.startsWith('blob:')
+  );
+}
+
 interface Message {
   id: number;
   role: 'user' | 'assistant';
@@ -154,7 +172,7 @@ interface Message {
 // up to MAX_FILES per call and returns one `results[]` entry per file; firing
 // them in parallel tripped the endpoint's 1-second per-IP rate limit on the
 // 2nd/3rd/Nth file. Batching also saves a round-trip per extra file.
-async function uploadMediaFiles(files: File[]): Promise<Attachment[]> {
+async function uploadMediaFiles(files: File[]): Promise<UploadResult[]> {
   if (!files.length) return [];
   const formData = new FormData();
   for (const f of files) formData.append('files', f);
@@ -167,22 +185,7 @@ async function uploadMediaFiles(files: File[]): Promise<Attachment[]> {
   if (result?.code !== 0 || !result?.data?.results?.length) {
     throw new Error(result?.message || 'Upload failed');
   }
-  return (
-    result.data.results as Array<{
-      url: string;
-      key: string;
-      filename: string;
-      type: 'image' | 'video' | 'document';
-    }>
-  ).map((r) => ({
-    type: r.type,
-    url: r.url,
-    // Storage key is forwarded so the server can re-download via a signed
-    // request — private R2 buckets return 401 on unauthenticated GET, so
-    // we can't just hand back the public URL and trust it works server-side.
-    key: r.key,
-    filename: r.filename,
-  }));
+  return result.data.results as UploadResult[];
 }
 
 // Client-side pre-flight — mirrors the server allowlist
@@ -216,10 +219,15 @@ const ALLOWED_DOCUMENT_EXTENSIONS = new Set([
   'xlsx',
   'ppt',
   'pptx',
+  'pages',
+  'numbers',
   'md',
   'txt',
   'csv',
 ]);
+
+type FileValidationIssue = 'size' | 'mime';
+
 function hasSupportedDocumentExtension(filename: string): boolean {
   const ext = filename.split('.').pop()?.toLowerCase() ?? '';
   return ALLOWED_DOCUMENT_EXTENSIONS.has(ext);
@@ -229,6 +237,25 @@ function isSupportedMime(mime: string): boolean {
   if (!mime) return false;
   if (ALLOWED_MIME_PREFIXES.some((p) => mime.startsWith(p))) return true;
   return ALLOWED_MIME_EXACT.has(mime);
+}
+
+function getFileValidationIssue(file: File): FileValidationIssue | null {
+  if (file.size > MAX_FILE_BYTES) return 'size';
+  if (
+    !isSupportedMime(file.type) &&
+    !hasSupportedDocumentExtension(file.name)
+  ) {
+    return 'mime';
+  }
+  return null;
+}
+
+function notifyFileValidationIssue(file: File, issue: FileValidationIssue) {
+  if (issue === 'size') {
+    toast.error(m['playground.attachment.err_too_large']({ name: file.name }));
+    return;
+  }
+  toast.error(m['playground.attachment.err_unsupported']({ name: file.name }));
 }
 
 // Best-effort client-side type for the chip before the server tells us the
@@ -379,14 +406,12 @@ async function extractVideoFrames(
 /* ------------------------------------------------------------------ */
 
 export function ApiPlayground() {
-  const navigate = useNavigate();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [uploading, setUploading] = useState(false);
 
-  const [modelId, setModelId] = useState('Kimi K3');
+  const modelId = 'Kimi K3';
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -451,28 +476,19 @@ export function ApiPlayground() {
 
   async function handleFilesSelected(files: FileList | null) {
     if (!files || !files.length) return;
-    let list = Array.from(files);
+    let list: File[] = [];
 
-    // Size / MIME allowlist first — running against the user's original picks
-    // so a single oversized video fails fast with a clear error, without
-    // spending CPU on frame extraction we'll throw away.
-    const offenders: Array<{ file: File; reason: 'size' | 'mime' }> = [];
-    for (const file of list) {
-      if (file.size > MAX_FILE_BYTES) offenders.push({ file, reason: 'size' });
-      else if (
-        !isSupportedMime(file.type) &&
-        !hasSupportedDocumentExtension(file.name)
-      )
-        offenders.push({ file, reason: 'mime' });
-    }
-    if (offenders.length) {
-      for (const o of offenders) {
-        const key =
-          o.reason === 'size'
-            ? 'playground.attachment.err_too_large'
-            : 'playground.attachment.err_unsupported';
-        toast.error(m[key]({ name: o.file.name }));
+    // Validate each item independently. A bad file must never prevent the
+    // other files in the same Finder drop from being added to the composer.
+    for (const file of Array.from(files)) {
+      const issue = getFileValidationIssue(file);
+      if (issue) {
+        notifyFileValidationIssue(file, issue);
+        continue;
       }
+      list.push(file);
+    }
+    if (!list.length) {
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -558,7 +574,6 @@ export function ApiPlayground() {
       };
     });
     setAttachments((prev) => [...prev, ...placeholders]);
-    setUploading(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     // Background upload — does NOT block the picker. The chip is already
@@ -576,7 +591,9 @@ export function ApiPlayground() {
             if (!placeholderIds.has(a.id)) return a;
             const idx = placeholders.findIndex((p) => p.id === a.id);
             const result = uploaded[idx];
-            if (!result) return { ...a, uploadStatus: 'error' };
+            if (!result || result.error || !result.url) {
+              return { ...a, uploadStatus: 'error' };
+            }
             // Server's md5-based dedup may return the same URL for two
             // different placeholders (e.g. the user picked the same file
             // twice from different folders). Collapse duplicates so the
@@ -612,8 +629,6 @@ export function ApiPlayground() {
             placeholderIds.has(a.id) ? { ...a, uploadStatus: 'error' } : a
           )
         );
-      } finally {
-        setUploading(false);
       }
     })();
   }
@@ -637,6 +652,14 @@ export function ApiPlayground() {
     if (!requireAuth()) return;
     const text = (opts?.text ?? input).trim();
     const explicitAttachments = opts?.attachments ?? attachments;
+    if (explicitAttachments.some((a) => a.uploadStatus === 'uploading')) {
+      // The send control is disabled while files upload, but this explicit
+      // guard also covers Enter / IME events that arrive during a state update.
+      // Never send a browser-local blob: URL to the server.
+      return;
+    }
+    const readyExplicitAttachments =
+      explicitAttachments.filter(isReadyAttachment);
 
     // Document attachments need to persist across turns so follow-up messages
     // ("turn this into a PPT", "translate it", etc.) can reference the
@@ -655,13 +678,16 @@ export function ApiPlayground() {
     for (const turn of messages) {
       if (turn.role !== 'user' || !turn.attachments) continue;
       for (const att of turn.attachments) {
-        if (att.type !== 'document') continue;
+        if (att.type !== 'document' || !isReadyAttachment(att)) continue;
         if (!historicalDocs.has(att.url)) historicalDocs.set(att.url, att);
       }
     }
     const merged: Attachment[] = [];
     const seen = new Set<string>();
-    for (const att of [...explicitAttachments, ...historicalDocs.values()]) {
+    for (const att of [
+      ...readyExplicitAttachments,
+      ...historicalDocs.values(),
+    ]) {
       if (seen.has(att.url)) continue;
       seen.add(att.url);
       merged.push(att);
@@ -736,7 +762,9 @@ export function ApiPlayground() {
       // not the merged set we forward to the model. Otherwise the bubble
       // would pile up every historical document above every message, which
       // buries the user's actual input.
-      attachments: explicitAttachments.length ? explicitAttachments : undefined,
+      attachments: readyExplicitAttachments.length
+        ? readyExplicitAttachments
+        : undefined,
     };
     const turns = [...messages, userMsg];
     setMessages(turns);
@@ -868,41 +896,25 @@ export function ApiPlayground() {
     }
   }
 
-  function resetThread() {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setMessages([]);
-    setInput('');
-    setAttachments([]);
-    setIsThinking(false);
-  }
-
-  // ── Document-library mode helpers ────────────────────────────────────────
-  // (removed — Documents mode no longer accessible from this UI)
-
   const hasThread = messages.length > 0 || isThinking;
-  const canSend = !!input.trim() || attachments.length > 0;
-
-  function handleGenerateImage() {
-    const prompt = input.trim();
-    if (!prompt || isThinking) return;
-    navigate({ to: '/image-generator', search: { prompt, autoSubmit: '1' } });
-  }
+  const hasPendingUploads = attachments.some(
+    (attachment) => attachment.uploadStatus === 'uploading'
+  );
+  const canSend =
+    !!input.trim() ||
+    attachments.some((attachment) => isReadyAttachment(attachment));
 
   const composerProps = {
     input,
     setInput,
     onKeyDown: handleKeyDown,
     onSend: handleSend,
-    onGenerateImage: handleGenerateImage,
     canSend,
-    canGenerateImage: !!input.trim(),
-    isThinking: isThinking || uploading,
+    isThinking: isThinking || hasPendingUploads,
     modelId,
-    onSelectModel: setModelId,
     taRef,
     attachments,
-    uploading,
+    uploading: hasPendingUploads,
     onPlusClick: openFilePicker,
     onFilesSelected: handleFilesSelected,
     onRemoveAttachment: removeAttachment,
@@ -929,7 +941,6 @@ export function ApiPlayground() {
             ref={scrollRef}
             className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
           >
-            <ThreadHeader onReset={resetThread} />
             <div className="mx-auto w-full max-w-3xl flex-1 px-4">
               <div className="space-y-6 py-6">
                 {messages.map((msg) => (
@@ -946,9 +957,9 @@ export function ApiPlayground() {
       ) : (
         // Empty state — greeting + composer grouped and vertically centered.
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
-          <div className="flex w-full max-w-3xl flex-col items-center">
+          <div className="flex w-full max-w-3xl translate-y-10 flex-col items-center sm:translate-y-12">
             <WelcomeState />
-            <div className="mt-10 w-full">
+            <div className="mt-14 w-full">
               <Composer {...composerProps} />
             </div>
           </div>
@@ -1144,12 +1155,9 @@ function Composer({
   setInput,
   onKeyDown,
   onSend,
-  onGenerateImage,
   canSend,
-  canGenerateImage,
   isThinking,
   modelId,
-  onSelectModel,
   taRef,
   attachments,
   uploading,
@@ -1162,9 +1170,7 @@ function Composer({
   setInput: (v: string) => void;
   onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
-  onGenerateImage: () => void;
   canSend: boolean;
-  canGenerateImage: boolean;
   isThinking: boolean;
   // The model id the parent currently has selected. Passed straight to
   // `ChatModelPicker` so the trigger reflects the user's last pick
@@ -1173,7 +1179,6 @@ function Composer({
   // so any GPT/Claude/Gemini selection silently fell back to the
   // first legacy entry and the trigger froze on it).
   modelId: string;
-  onSelectModel: (id: string) => void;
   taRef: React.RefObject<HTMLTextAreaElement | null>;
   attachments: Attachment[];
   uploading: boolean;
@@ -1182,10 +1187,62 @@ function Composer({
   onRemoveAttachment: (id: string) => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
 }) {
-  // Always-on attachment hint pill — lives in the bottom toolbar to the
-  // right of the + button. New users need a permanent reminder of which
-  // file types are supported; this is the playground, not a polished app.
-  const [showHint] = useState(true);
+  const [isFileDragging, setIsFileDragging] = useState(false);
+  const dragDepthRef = useRef(0);
+  const sendAfterCompositionRef = useRef(false);
+
+  // A browser navigates to a local file by default when it is dropped outside
+  // of a native file input. Keep that destructive navigation from happening
+  // anywhere while the composer is mounted; the composer itself handles the
+  // useful drop below.
+  useEffect(() => {
+    const preventFileNavigation = (event: DragEvent) => {
+      if (Array.from(event.dataTransfer?.types ?? []).includes('Files')) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener('dragover', preventFileNavigation);
+    window.addEventListener('drop', preventFileNavigation);
+    return () => {
+      window.removeEventListener('dragover', preventFileNavigation);
+      window.removeEventListener('drop', preventFileNavigation);
+    };
+  }, []);
+
+  function isFileDrag(event: React.DragEvent) {
+    return Array.from(event.dataTransfer.types).includes('Files');
+  }
+
+  function handleComposerKeyDown(
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) {
+    if (
+      event.key === 'Enter' &&
+      !event.shiftKey &&
+      event.nativeEvent.isComposing
+    ) {
+      // Chinese/Japanese IMEs use Enter to commit the current candidate. Send
+      // on key-up after that commit, so one Enter still has the expected
+      // "send" result instead of silently doing nothing.
+      sendAfterCompositionRef.current = true;
+      return;
+    }
+    onKeyDown(event);
+  }
+
+  function handleComposerKeyUp(
+    event: React.KeyboardEvent<HTMLTextAreaElement>
+  ) {
+    if (
+      event.key === 'Enter' &&
+      sendAfterCompositionRef.current &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
+      sendAfterCompositionRef.current = false;
+      onSend();
+    }
+  }
 
   return (
     <div className="w-full">
@@ -1193,13 +1250,40 @@ function Composer({
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-        className="border-foreground/20 focus-within:border-foreground/35 dark:bg-foreground/5 rounded-[2rem] border bg-white py-4 pr-7 pl-3 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]"
+        onDragEnter={(event) => {
+          if (!isFileDrag(event)) return;
+          event.preventDefault();
+          dragDepthRef.current += 1;
+          setIsFileDragging(true);
+        }}
+        onDragOver={(event) => {
+          if (!isFileDrag(event)) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragLeave={(event) => {
+          if (!isFileDrag(event)) return;
+          dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+          if (dragDepthRef.current === 0) setIsFileDragging(false);
+        }}
+        onDrop={(event) => {
+          if (!isFileDrag(event)) return;
+          event.preventDefault();
+          dragDepthRef.current = 0;
+          setIsFileDragging(false);
+          onFilesSelected(event.dataTransfer.files);
+        }}
+        className={cn(
+          'border-foreground/20 focus-within:border-foreground/35 dark:bg-foreground/5 rounded-[1.5rem] border bg-white py-4 pr-7 pl-3 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]',
+          isFileDragging &&
+            'border-primary bg-primary/[0.035] ring-primary/15 shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)] ring-4'
+        )}
       >
         {/* Hidden media input — images + videos, multi-select. */}
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.md,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/markdown,text/plain,text/csv"
+          accept="image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.pages,.numbers,.md,.txt,.csv,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/markdown,text/plain,text/csv"
           multiple
           onChange={(e) => onFilesSelected(e.target.files)}
           className="hidden"
@@ -1283,7 +1367,8 @@ function Composer({
           ref={taRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={onKeyDown}
+          onKeyDown={handleComposerKeyDown}
+          onKeyUp={handleComposerKeyUp}
           onPaste={(e) => {
             // Cmd/Ctrl+V with a screenshot on the clipboard → lift the image
             // out and route it through the same attachment pipeline as the
@@ -1308,34 +1393,16 @@ function Composer({
               onClick={onPlusClick}
               aria-label={m['playground.attachment.add']()}
               title={m['playground.attachment.add']()}
-              className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 items-center justify-center rounded-full transition-colors"
+              className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 translate-y-2 items-center justify-center rounded-full transition-colors"
             >
               <Plus className="size-[22px]" />
             </button>
-            {showHint && (
-              <span className="text-foreground/55 flex min-w-0 items-center gap-1.5 text-[11.5px] leading-snug">
-                <FileText className="size-3 shrink-0" />
-                <span className="truncate">
-                  {m['playground.attachment.hint_short']()}
-                </span>
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onGenerateImage}
-              disabled={!canGenerateImage || isThinking}
-              title={m['playground.image.generate_from_prompt']()}
-              className="text-foreground hover:bg-foreground/5 inline-flex h-10 items-center gap-1.5 rounded-full px-3 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ImageIcon className="size-4" />
-              <span className="hidden sm:inline">
-                {m['playground.image.generate_from_prompt']()}
-              </span>
-            </button>
-            <ChatModelPicker selectedId={modelId} onSelect={onSelectModel} />
+            <div className="mr-2">
+              <ChatModelPicker selectedId={modelId} />
+            </div>
             <button
               type="button"
               onClick={onSend}
@@ -1367,15 +1434,9 @@ function WelcomeState({}: { modelId?: string }) {
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className="flex w-full flex-col items-center text-center"
     >
-      {/* Entry point. Document Analysis is an outlined pill. */}
+      {/* Entry point. Kept intentionally quiet so the welcome state leads. */}
       <div className="mb-6 flex flex-wrap items-center justify-center gap-3">
-        <button
-          type="button"
-          className="border-foreground/15 bg-background hover:bg-foreground/5 inline-flex items-center rounded-full border px-5 py-1.5 text-sm font-medium transition-colors"
-        >
-          <span aria-hidden className="mr-1.5">
-            📄
-          </span>
+        <button type="button" className="text-sm font-medium">
           {isZh ? '文档分析' : 'Document Analysis'}
         </button>
       </div>
@@ -1411,30 +1472,6 @@ function CapabilityBadge({
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Thread                                                             */
-/* ------------------------------------------------------------------ */
-
-function ThreadHeader({ onReset }: { onReset: () => void }) {
-  return (
-    <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 pt-5">
-      <span className="text-foreground/45 flex items-center gap-2 font-mono text-[11px] font-medium tracking-[0.18em] uppercase">
-        {m['playground.welcome.eyebrow']()}
-      </span>
-      <div className="flex items-center gap-1.5">
-        <button
-          type="button"
-          onClick={onReset}
-          className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors"
-        >
-          <RefreshCw className="size-3.5" />
-          {m['settings.chat.new_chat']()}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
   const images = message.attachments?.filter((a) => a.type === 'image') ?? [];
@@ -1446,26 +1483,14 @@ function MessageBubble({ message }: { message: Message }) {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-      className={cn('flex gap-3', isUser && 'flex-row-reverse')}
+      className={cn('flex', isUser && 'justify-end')}
     >
-      {isUser && (
-        <div
-          className={cn(
-            'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg',
-            'bg-violet-200 text-violet-950 dark:bg-violet-900/40 dark:text-violet-100'
-          )}
-        >
-          <span className="text-xs font-semibold">
-            {m['settings.chat.you_initial']()}
-          </span>
-        </div>
-      )}
       <div
         className={cn(
           'max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed',
           isUser
-            ? 'rounded-tr-md bg-violet-200 text-violet-950 dark:bg-violet-900/40 dark:text-violet-100'
-            : 'bg-card text-foreground border-foreground/10 rounded-tl-md border shadow-sm'
+            ? 'rounded-tr-md bg-white text-black'
+            : 'border-foreground/10 rounded-tl-md border bg-white text-black shadow-sm'
         )}
       >
         {images.length > 0 && (
@@ -1507,7 +1532,7 @@ function MessageBubble({ message }: { message: Message }) {
           </div>
         )}
         {videos.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className="mb-2 flex w-full flex-wrap justify-start gap-2 text-left">
             {videos.map((v) => (
               // Use a real <video> element for the bubble preview so the
               // user can play/pause inline; clicking the element opens the
@@ -1534,7 +1559,7 @@ function MessageBubble({ message }: { message: Message }) {
           </div>
         )}
         {documents.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className="mb-2 flex w-full flex-wrap justify-start gap-2 text-left">
             {documents.map((d) => (
               <a
                 key={d.url}
@@ -1552,7 +1577,7 @@ function MessageBubble({ message }: { message: Message }) {
 
         {message.content.trim() &&
           (isUser ? (
-            <span className="whitespace-pre-wrap">{message.content}</span>
+            <span className="ml-4 whitespace-pre-wrap">{message.content}</span>
           ) : message.clone && !message.streaming ? (
             <ClonePreview content={message.content} />
           ) : (
@@ -1565,11 +1590,8 @@ function MessageBubble({ message }: { message: Message }) {
 
 function ThinkingBubble() {
   return (
-    <div className="flex gap-3">
-      <div className="brand-gradient mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg">
-        <Sparkles className="size-3.5 text-white" />
-      </div>
-      <div className="bg-card border-foreground/10 flex items-center gap-1.5 rounded-2xl rounded-tl-md border px-4 py-3 shadow-sm">
+    <div className="flex">
+      <div className="border-foreground/10 flex items-center gap-1.5 rounded-2xl rounded-tl-md border bg-white px-4 py-3 shadow-sm">
         {[0, 1, 2].map((i) => (
           <motion.span
             key={i}
@@ -1803,8 +1825,7 @@ interface ImageTaskRow {
  */
 export function ChatPlayground() {
   const store = usePlaygroundStore();
-  const { activeChatId, clearActive } = store;
-  const navigate = useNavigate();
+  const { activeChatId } = store;
   const queryClient = useQueryClient();
   const { data: session, isPending: isSessionPending } = useSession();
 
@@ -1812,10 +1833,9 @@ export function ChatPlayground() {
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [uploading, setUploading] = useState(false);
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
-  const [modelId, setModelId] = useState('Kimi K3');
+  const modelId = 'Kimi K3';
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -1846,20 +1866,26 @@ export function ChatPlayground() {
     enabled: !!activeChatId,
   });
 
-  // When the active chat resolves, hydrate local messages + scroll. We do
-  // NOT keep messages in react-query cache — they're too large to share
-  // across navigation and the sidebar list already has the metadata.
+  // When the active chat resolves, hydrate local messages + scroll. Never let
+  // an initial empty response replace a turn that is currently streaming: a
+  // new chat is created before its first message is persisted, so that race
+  // previously made the just-sent bubble disappear.
   useEffect(() => {
-    if (chatQuery.data?.messages) {
-      setMessages(
-        chatQuery.data.messages.map((m: any, i: number) => ({
-          id: i + 1,
-          role: m.role,
-          content: m.content,
-        }))
-      );
-    }
-  }, [chatQuery.data]);
+    if (!chatQuery.data?.messages || isThinking) return;
+    const hydratedMessages = chatQuery.data.messages.map(
+      (m: any, i: number) => ({
+        id: i + 1,
+        role: m.role,
+        content: m.content,
+      })
+    );
+    idRef.current = hydratedMessages.length;
+    setMessages(hydratedMessages);
+    // Deliberately omit `isThinking` from dependencies. If the initial empty
+    // read arrived while streaming, changing back to idle must not replay that
+    // stale response over the local transcript.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId, chatQuery.data]);
 
   // Auto-grow the textarea to fit its content (capped).
   function syncTextareaHeight() {
@@ -1912,25 +1938,19 @@ export function ChatPlayground() {
 
   async function handleFilesSelected(files: FileList | null) {
     if (!files || !files.length) return;
-    let list = Array.from(files);
+    let list: File[] = [];
 
-    const offenders: Array<{ file: File; reason: 'size' | 'mime' }> = [];
-    for (const file of list) {
-      if (file.size > MAX_FILE_BYTES) offenders.push({ file, reason: 'size' });
-      else if (
-        !isSupportedMime(file.type) &&
-        !hasSupportedDocumentExtension(file.name)
-      )
-        offenders.push({ file, reason: 'mime' });
-    }
-    if (offenders.length) {
-      for (const o of offenders) {
-        const key =
-          o.reason === 'size'
-            ? 'playground.attachment.err_too_large'
-            : 'playground.attachment.err_unsupported';
-        toast.error(m[key]({ name: o.file.name }));
+    // The chat composer and the public playground share this expectation:
+    // valid files in a mixed drag stay attached even when one item is invalid.
+    for (const file of Array.from(files)) {
+      const issue = getFileValidationIssue(file);
+      if (issue) {
+        notifyFileValidationIssue(file, issue);
+        continue;
       }
+      list.push(file);
+    }
+    if (!list.length) {
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
@@ -1991,7 +2011,6 @@ export function ChatPlayground() {
       };
     });
     setAttachments((prev) => [...prev, ...placeholders]);
-    setUploading(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     void (async () => {
@@ -2004,7 +2023,9 @@ export function ChatPlayground() {
             if (!placeholderIds.has(a.id)) return a;
             const idx = placeholders.findIndex((p) => p.id === a.id);
             const result = uploaded[idx];
-            if (!result) return { ...a, uploadStatus: 'error' };
+            if (!result || result.error || !result.url) {
+              return { ...a, uploadStatus: 'error' };
+            }
             if (seen.has(result.url)) return { ...a, uploadStatus: 'error' };
             seen.add(result.url);
             return {
@@ -2034,8 +2055,6 @@ export function ChatPlayground() {
             placeholderIds.has(a.id) ? { ...a, uploadStatus: 'error' } : a
           )
         );
-      } finally {
-        setUploading(false);
       }
     })();
   }
@@ -2070,7 +2089,9 @@ export function ChatPlayground() {
     // next step instead of briefly rendering a blocked message in the thread.
     if (!requireAuth()) return;
     const text = input.trim();
-    if (!text && attachments.length === 0) return;
+    if (attachments.some((a) => a.uploadStatus === 'uploading')) return;
+    const submittedAttachments = attachments.filter(isReadyAttachment);
+    if (!text && submittedAttachments.length === 0) return;
     if (isThinking) return;
 
     let chatId = activeChatId;
@@ -2095,7 +2116,6 @@ export function ChatPlayground() {
       }
     }
 
-    const submittedAttachments = attachments;
     const userMsg: Message = {
       id: ++idRef.current,
       role: 'user',
@@ -2205,6 +2225,13 @@ export function ChatPlayground() {
           },
           onDone: () => {
             setIsThinking(false);
+            // The persistent endpoint saves the canonical pair before its
+            // `done` event. Refresh it now so this transcript survives a
+            // reload and the sidebar receives the updated session title.
+            if (chatId) {
+              queryClient.invalidateQueries({ queryKey: ['chat', chatId] });
+              queryClient.invalidateQueries({ queryKey: ['chats'] });
+            }
           },
         }
       );
@@ -2222,29 +2249,24 @@ export function ChatPlayground() {
     }
   }
 
-  function handleGenerateImage() {
-    const prompt = input.trim();
-    if (!prompt || isThinking) return;
-    if (!requireAuth()) return;
-    navigate({ to: '/image-generator', search: { prompt, autoSubmit: '1' } });
-  }
-
   // Pass-through to the legacy Composer (re-uses the chat-mode file picker,
   // video-frame extraction, attachment chips). Cleaner than re-implementing.
+  const hasPendingUploads = attachments.some(
+    (attachment) => attachment.uploadStatus === 'uploading'
+  );
   const composerProps = {
     input,
     setInput,
     onKeyDown: handleKeyDown,
     onSend: handleSend,
-    onGenerateImage: handleGenerateImage,
-    canSend: !!input.trim() || attachments.length > 0,
-    canGenerateImage: !!input.trim(),
-    isThinking: isThinking || uploading,
+    canSend:
+      !!input.trim() ||
+      attachments.some((attachment) => isReadyAttachment(attachment)),
+    isThinking: isThinking || hasPendingUploads,
     modelId,
-    onSelectModel: setModelId,
     taRef,
     attachments,
-    uploading,
+    uploading: hasPendingUploads,
     onPlusClick: openFilePicker,
     onFilesSelected: handleFilesSelected,
     onRemoveAttachment: removeAttachment,
@@ -2261,7 +2283,6 @@ export function ChatPlayground() {
             ref={scrollRef}
             className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
           >
-            <ThreadHeader onReset={clearActive} />
             <div className="mx-auto w-full max-w-3xl flex-1 px-4">
               <div className="space-y-6 py-6">
                 {messages.map((msg) => (
@@ -2277,9 +2298,9 @@ export function ChatPlayground() {
         </>
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
-          <div className="flex w-full max-w-3xl flex-col items-center">
+          <div className="flex w-full max-w-3xl translate-y-10 flex-col items-center sm:translate-y-12">
             <WelcomeState />
-            <div className="mt-10 w-full">
+            <div className="mt-14 w-full">
               <Composer {...composerProps} />
             </div>
           </div>
@@ -2345,30 +2366,6 @@ type Tile = {
   // attribute and as a static <img> fallback layer.
   poster?: string;
 };
-
-// Aspect-ratio mix measured off the reference wall (32× 2:3, 6× 9:16,
-// 4× 3:2, 2× 16:9, 1× 4:5, 1× 1:1 across 47 tiles). Cycled over the
-// catalog so the packed layout gets the same tall/short rhythm.
-const TILE_RATIOS = [
-  2 / 3,
-  2 / 3,
-  9 / 16,
-  2 / 3,
-  2 / 3,
-  3 / 2,
-  2 / 3,
-  2 / 3,
-  4 / 5,
-  2 / 3,
-  9 / 16,
-  2 / 3,
-  2 / 3,
-  16 / 9,
-  2 / 3,
-  1,
-  2 / 3,
-  3 / 2,
-];
 
 // Catalog of community images served from `/public/image/`. Every entry
 // points at a real file on disk; the img `onError` handler below
@@ -2445,17 +2442,139 @@ const MEIGEN_IMAGE_FILES = [
   'zaizaijia/meigen-community_85e0a391-9f8c-4860-9fac-c5446dc2d39c.png',
 ];
 
+// Source dimensions are deliberately part of the catalog. The surrounding
+// cards inherit each image's native aspect ratio, so full compositions stay
+// intact instead of being cropped into a predefined gallery template.
+const GALLERY_IMAGE_DIMENSIONS: Record<string, readonly [number, number]> = {
+  'meigen-2015866705197580703.jpg': [960, 1200],
+  'meigen-2032013831548125557.jpg': [896, 1200],
+  'meigen-2036806218988315056-1.jpg': [904, 1200],
+  'meigen-2049059204632080436-1.jpg': [1200, 1200],
+  'meigen-2052074741050008057.jpg': [960, 1200],
+  'meigen-2054127368365908220-1.jpg': [554, 1200],
+  'meigen-2063092464592863250-1.jpg': [960, 1200],
+  'meigen-2067745145655804012.jpg': [675, 1199],
+  'meigen-2070794675179405365.jpg': [960, 1200],
+  'meigen-2074182489141293070-1.jpg': [900, 1200],
+  'meigen-2080212481402896518-1.jpg': [904, 1200],
+  'meigen-2082385036268229117-1.jpg': [900, 1200],
+  'meigen-community_298030b1-c8c1-4436-b88f-5ae556af9c6a.png': [1024, 1344],
+  'meigen-community_3b7948d3-2ddf-4d48-827a-45950c8b690a.jpg': [1536, 2752],
+  'meigen-community_5f68dfb7-b6d5-4734-b887-f5fed7c9d1af.jpg': [1696, 2528],
+  'xinjia/meigen-2019001339985133694.jpg': [1024, 1024],
+  'xinjia/meigen-2024104039827578910-1.jpg': [967, 1200],
+  'xinjia/meigen-2032542713170838002-1.jpg': [662, 1186],
+  'xinjia/meigen-2060729668958097717-1.jpg': [675, 1200],
+  'xinjia/meigen-2069018297228575178-2.jpg': [675, 1199],
+  'xinjia/meigen-2069018297228575178-3.jpg': [675, 1199],
+  'xinjia/meigen-community_093ff2f3-b586-4e7f-a23c-63408a76158e.png': [
+    1632, 2048,
+  ],
+  'xinjia/meigen-community_127719af-811c-4e1c-81cb-a26aeba3a263.png': [
+    1344, 1776,
+  ],
+  'xinjia/meigen-community_37f3ab08-800a-456b-b8bb-ff26724222ea.png': [
+    1024, 1344,
+  ],
+  'xinjia/meigen-community_4461cb95-6748-4232-99cc-3d23b67c0b63.png': [
+    1344, 1776,
+  ],
+  'xinjia/meigen-community_892129d5-dae0-4764-b03c-6a11e2e12b26.png': [
+    1360, 2048,
+  ],
+  'xinjia/meigen-community_a2cca04e-085b-444c-95bb-6d6e2ab3b9aa.png': [
+    1008, 1792,
+  ],
+  'xinjia/meigen-community_b827f6c2-5165-428e-9992-61f1de9e8ae3.png': [
+    1008, 1792,
+  ],
+  'xinjia/meigen-community_c18ad1be-f6fb-4e2b-970d-932dff8832b9.png': [
+    1632, 2048,
+  ],
+  'xinjia/meigen-community_dff3afb9-3e67-4f21-a382-786bc9b8c466.png': [
+    1152, 2048,
+  ],
+  'xinjia/meigen-community_e690fd0d-4ea6-488f-8592-c2dd0ac92c7e.png': [
+    1152, 2048,
+  ],
+  'xinjia/meigen-community_fb7a6b33-4d3a-459f-87e5-c67f611dd9a2.png': [
+    1344, 1776,
+  ],
+  'zaixinjia/meigen-2006643289185989070-1.jpg': [1024, 1024],
+  'zaixinjia/meigen-2006643289185989070-4.jpg': [1024, 1024],
+  'zaixinjia/meigen-2008986705962123774-1.jpg': [768, 1376],
+  'zaixinjia/meigen-2010381897730339152-1.jpg': [1374, 2048],
+  'zaixinjia/meigen-2024707382727889320-1.jpg': [670, 1200],
+  'zaixinjia/meigen-2041163046874382357-1.jpg': [670, 1200],
+  'zaixinjia/meigen-2048598185841734064.jpg': [784, 1168],
+  'zaixinjia/meigen-2050472802327900342.jpg': [800, 1200],
+  'zaixinjia/meigen-2050954496474570805.jpg': [800, 1200],
+  'zaixinjia/meigen-2061832450842726614.jpg': [1024, 1024],
+  'zaixinjia/meigen-2066386292217467241-1.jpg': [800, 1200],
+  'zaixinjia/meigen-2082480882695491628-1.jpg': [900, 1200],
+  'zaixinjia/meigen-community_0013511a-1eeb-4279-8490-eb0195f9a4df.png': [
+    1024, 1344,
+  ],
+  'zaixinjia/meigen-community_0ed9e02e-7ad6-4b72-b2eb-2aef0a175cec.png': [
+    1024, 1344,
+  ],
+  'zaixinjia/meigen-community_15849a4b-8001-4c6b-aac2-ceea6b9ff18a.png': [
+    1024, 1280,
+  ],
+  'zaixinjia/meigen-community_24b38e2e-777e-4949-aa12-1747132346db.png': [
+    1008, 1792,
+  ],
+  'zaixinjia/meigen-community_32dd8162-6fc0-4124-ba7d-887bfdda6d72.png': [
+    1152, 2048,
+  ],
+  'zaixinjia/meigen-community_3bab0153-80b1-425a-abfb-96d239fb43cf.png': [
+    1024, 1344,
+  ],
+  'zaixinjia/meigen-community_9786c744-2f71-4f16-abeb-fc5aa1cf7d6b.png': [
+    1344, 1776,
+  ],
+  'zaixinjia/meigen-community_db1519d0-055f-4c18-b4e6-6d62bfba1e7f.png': [
+    1344, 1776,
+  ],
+  'zaizaijia/meigen-2010358364048597154.jpg': [1024, 1536],
+  'zaizaijia/meigen-2019629174374429017-1.jpg': [675, 1200],
+  'zaizaijia/meigen-2020531946108158457-1.jpg': [675, 1200],
+  'zaizaijia/meigen-2049363203998818532.jpg': [800, 1200],
+  'zaizaijia/meigen-2064946524031988094.jpg': [898, 1200],
+  'zaizaijia/meigen-2075143065493229752-2.jpg': [1199, 675],
+  'zaizaijia/meigen-2075575662316749255-1.jpg': [1199, 675],
+  'zaizaijia/meigen-2075575662316749255-2.jpg': [1199, 675],
+  'zaizaijia/meigen-2079908139281809722.jpg': [960, 1200],
+  'zaizaijia/meigen-2080143259557581285-1.jpg': [928, 1152],
+  'zaizaijia/meigen-community_00e1b966-c37c-47ed-99f3-fd891271b517.png': [
+    1008, 1792,
+  ],
+  'zaizaijia/meigen-community_3e031315-9073-47f3-bf6a-93c32cf50da9.png': [
+    1008, 1792,
+  ],
+  'zaizaijia/meigen-community_5fe15de6-ea3c-4bd4-88db-0db201a8b7b4.png': [
+    1152, 2048,
+  ],
+  'zaizaijia/meigen-community_6f65fc5d-7d3a-48d6-908c-2bf947fd1c23.png': [
+    1360, 2048,
+  ],
+  'zaizaijia/meigen-community_85e0a391-9f8c-4860-9fac-c5446dc2d39c.png': [
+    1024, 1024,
+  ],
+};
+
 // Render every community image exactly once. The deterministic source order
 // keeps SSR and CSR output identical without duplicating any scene.
-const GALLERY_ITEMS: Tile[] = MEIGEN_IMAGE_FILES.map((fileName, i) => ({
-  src: `/image/${fileName}`,
-  ratio: TILE_RATIOS[i % TILE_RATIOS.length],
-  alt: 'community image',
-  // The static waterfall uses this same ratio for its fixed frame. These
-  // attributes reserve matching document space before a lazy image arrives.
-  width: Math.round(TILE_RATIOS[i % TILE_RATIOS.length] * 1000),
-  height: 1000,
-}));
+const GALLERY_ITEMS: Tile[] = MEIGEN_IMAGE_FILES.map((fileName) => {
+  const [width, height] = GALLERY_IMAGE_DIMENSIONS[fileName] ?? [1, 1];
+  return {
+    src: `/image/${fileName}`,
+    ratio: width / height,
+    alt: 'community image',
+    width,
+    height,
+  };
+});
 
 /**
  * Pure-video catalog for the video-page background wall. Videos the user
@@ -2705,7 +2824,7 @@ function GalleryWall({ items = GALLERY_ITEMS }: { items?: Tile[] } = {}) {
                   if (wrapper) wrapper.style.display = 'none';
                   else e.currentTarget.style.display = 'none';
                 }}
-                className="absolute inset-0 size-full object-cover"
+                className="absolute inset-0 size-full object-contain"
               />
             )}
             {/* Hover scrim + centered action affordance. */}
@@ -2720,37 +2839,92 @@ function GalleryWall({ items = GALLERY_ITEMS }: { items?: Tile[] } = {}) {
 }
 
 /**
- * Static Community gallery for the image playground. Unlike the full-bleed
- * masonry wall, this is ordinary document content: the prompt composer sits
- * above it and every community image keeps its own aspect ratio in a static
- * waterfall layout below.
+ * Community gallery for the image playground. It begins as a compact visual
+ * corridor, then lets visitors expand into the complete collection on demand.
  */
 function CommunityImageGrid({
   eagerFirstImage = false,
 }: {
   eagerFirstImage?: boolean;
 }) {
+  const [showAll, setShowAll] = useState(false);
+
+  if (GALLERY_ITEMS.length === 0) return null;
+
   return (
-    <div className="columns-2 gap-1 sm:columns-3 lg:columns-4 xl:columns-5">
-      {GALLERY_ITEMS.map((tile, index) => (
-        <div
-          key={tile.src}
-          className="group/card bg-muted relative mb-1 break-inside-avoid overflow-hidden"
-          style={{ aspectRatio: tile.ratio }}
+    <section className="bg-white py-8 sm:py-12 dark:bg-[#050505]">
+      <div className="mx-auto max-w-7xl px-4 sm:px-8">
+        <ImageStreamHero
+          images={GALLERY_ITEMS.slice(0, 18)}
+          eagerFirstImage={eagerFirstImage}
+          className="h-[440px] rounded-[1.75rem] border border-white/12 sm:h-[540px] sm:rounded-[2.25rem]"
         >
-          <img
-            src={tile.src}
-            alt={tile.alt}
-            width={tile.width}
-            height={tile.height}
-            loading={eagerFirstImage && index === 0 ? 'eager' : 'lazy'}
-            decoding="async"
-            className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover/card:scale-[1.03]"
-          />
-          <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors duration-300 group-hover/card:bg-black/15" />
-        </div>
-      ))}
-    </div>
+          <div className="flex h-full flex-col items-center justify-between px-5 py-7 text-center sm:px-10 sm:py-10">
+            <header className="max-w-xl">
+              <p className="text-[10px] font-semibold tracking-[0.24em] text-white/60 uppercase">
+                {m['playground.image.gallery_eyebrow']()}
+              </p>
+              <h2 className="mt-3 text-[clamp(2rem,4vw,3.8rem)] leading-[0.98] font-semibold tracking-[-0.055em] text-balance text-white">
+                {m['playground.image.gallery_title']()}
+              </h2>
+              <p className="mx-auto mt-4 max-w-md text-sm leading-6 text-white/70 sm:text-base sm:leading-7">
+                {m['playground.image.gallery_description']()}
+              </p>
+            </header>
+
+            <button
+              type="button"
+              aria-expanded={showAll}
+              onClick={() => setShowAll((visible) => !visible)}
+              className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/20 bg-white/[0.09] px-4 py-2 text-sm font-medium text-white backdrop-blur-md transition-colors outline-none hover:bg-white/[0.16] focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:ring-offset-2 focus-visible:ring-offset-[#080c14]"
+            >
+              {showAll
+                ? m['playground.image.gallery_show_less']()
+                : m['playground.image.gallery_browse_all']()}
+              <span aria-hidden className="text-base leading-none">
+                {showAll ? '−' : '＋'}
+              </span>
+            </button>
+          </div>
+        </ImageStreamHero>
+
+        <AnimatePresence initial={false}>
+          {showAll && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+              className="overflow-hidden"
+            >
+              <div className="columns-2 gap-3 pt-5 sm:columns-3 sm:gap-4 lg:columns-4">
+                {GALLERY_ITEMS.map((tile) => (
+                  <figure
+                    key={tile.src}
+                    className="mb-3 break-inside-avoid overflow-hidden rounded-2xl bg-[#f5f5f7] p-1.5 sm:mb-4 sm:rounded-3xl sm:p-2 dark:bg-white/[0.06]"
+                  >
+                    <div
+                      className="overflow-hidden rounded-[0.85rem] sm:rounded-[1.15rem]"
+                      style={{ aspectRatio: tile.ratio }}
+                    >
+                      <img
+                        src={tile.src}
+                        alt={tile.alt}
+                        width={tile.width}
+                        height={tile.height}
+                        loading="lazy"
+                        decoding="async"
+                        className="size-full object-contain"
+                      />
+                    </div>
+                  </figure>
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </section>
   );
 }
 
@@ -2990,6 +3164,11 @@ const VENDOR_THEME: Record<ImageVendor, VendorTheme> = {
  */
 const COSMETIC_IMAGE_MODELS = ['gpt-image-2'];
 
+// The server currently exposes one effective image model. Keep the richer
+// picker implementation available for a future multi-provider rollout, but
+// do not surface a selector that cannot change the generation request yet.
+const SHOW_IMAGE_MODEL_PICKER = false;
+
 const IMAGE_MODEL_META: ImageModelMeta[] = [
   // ── OpenAI (GPT image) ─────────────────────────────────────────────────
   {
@@ -3199,11 +3378,15 @@ function AspectRatioMenu({
           className={cn('size-3 transition-transform', open && 'rotate-180')}
         />
       </PopoverTrigger>
-      <PopoverContent align="start" sideOffset={6} className="w-56 p-1">
-        <p className="text-foreground/40 px-2 py-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase">
+      <PopoverContent
+        align="start"
+        sideOffset={6}
+        className="w-96 max-w-[calc(100vw-2rem)] p-2"
+      >
+        <p className="text-foreground/40 px-2.5 pt-1 pb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
           {m['playground.image.aspect_label']()}
         </p>
-        <div className="max-h-72 overflow-y-auto">
+        <div className="grid grid-cols-3 gap-1.5">
           {RATIO_MENU.map((r) => (
             <button
               key={r.value || 'auto'}
@@ -3216,18 +3399,19 @@ function AspectRatioMenu({
                 setOpen(false);
               }}
               className={cn(
-                'flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                'hover:bg-foreground/5'
+                'flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
+                'hover:bg-foreground/5',
+                r.value === value && 'bg-foreground/[0.06]'
               )}
             >
-              {/* Fixed-width column so swatches of different aspect
-                  ratios don't push the label's left edge around. */}
               <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
                 <RatioSwatch value={r.value} size={16} />
               </span>
-              <span className="font-mono text-xs">{r.label}</span>
+              <span className="min-w-0 font-mono text-xs whitespace-nowrap">
+                {r.label}
+              </span>
               {r.value === value ? (
-                <Check className="text-foreground ml-auto size-3.5" />
+                <Check className="text-foreground ml-auto size-3.5 shrink-0" />
               ) : null}
             </button>
           ))}
@@ -3313,10 +3497,8 @@ function ImageModelMenu({
       */}
       <PopoverTrigger
         className={cn(
-          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-3',
-          'bg-foreground/[0.06] text-foreground/80 border-foreground/10 border',
-          'hover:bg-foreground/[0.09] hover:text-foreground transition-colors',
-          open && 'bg-foreground/[0.09] text-foreground'
+          'inline-flex items-center gap-2 px-1 py-2 text-black transition-opacity hover:opacity-70',
+          open && 'opacity-70'
         )}
         aria-label={m['playground.image.model_label']()}
       >
@@ -3724,47 +3906,20 @@ function VideoModelPicker({
   );
 }
 
-/* ================================================================== */
-/*  Chat model picker — many well-known display names, all routed to    */
-/*  the actually-wired provider. The user picks whatever they like;    */
-/*  the chat API always uses the configured `evolink_model` (default   */
-/*  `kimi-k3`). Purely cosmetic — gives users the feeling of many      */
-/*  choices without burning dev time wiring each model.                  */
-/* ================================================================== */
+/* ------------------------------------------------------------------ */
+/*  Chat model label                                                   */
+/* ------------------------------------------------------------------ */
 
 interface ChatModelMeta {
   test: RegExp;
   name: string;
-  // Public path to a brand SVG (served from /public/brand/…). Brand
-  // colour is baked into the SVG so the picker reads as a row of
-  // recognisable logos rather than monochrome glyphs in a coloured chip.
-  logo: string;
-  vendor: ChatVendor;
-  desc: string;
-  weight?: number;
 }
-
-type ChatVendor = 'Kimi';
-
-interface ChatVendorTheme {
-  label: string;
-}
-
-const CHAT_VENDOR_THEME: Record<ChatVendor, ChatVendorTheme> = {
-  // Only Kimi is wired up on this deployment. Section header keeps the
-  // vendor label for parity with the image/video pickers.
-  Kimi: { label: 'Kimi' },
-};
 
 const CHAT_MODEL_META: ChatModelMeta[] = [
   // ── Kimi (powers this chat) ────────────────────────────────────────────
   {
     test: /^kimi-k3/i,
     name: 'Kimi K3',
-    logo: '/brand/kimi.svg',
-    vendor: 'Kimi',
-    desc: 'Powers this chat — long context, fast',
-    weight: 0,
   },
 ];
 
@@ -3774,181 +3929,25 @@ function resolveChatModelMeta(id: string): ChatModelMeta {
     CHAT_MODEL_META.find((m) => m.test.test(lower)) ?? {
       test: /^.*$/,
       name: id,
-      logo: '/brand/kimi.svg',
-      vendor: 'Kimi',
-      desc: 'Custom model',
     }
   );
 }
 
 /**
- * Chat-model picker — same visual language as Image/Video model
- * pickers (search box, sticky section header, vendor grouping, icon
- * chip + name + badge + description + checkmark on selected).
- *
- * Whatever the user picks here is purely cosmetic — the chat API
- * always uses the configured `evolink_model` from the server (default
- * `kimi-k3`). The picker exists so the UI feels like it offers many
- * real choices; the underlying wiring stays single-provider.
+ * The chat deployment currently has one wired model. Keep its label visible
+ * beside the send button, but deliberately avoid exposing a non-functional
+ * model picker until real model switching is available.
  */
-function ChatModelPicker({
-  selectedId,
-  onSelect,
-}: {
-  selectedId: string;
-  onSelect: (id: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-
-  // Treat the registered list as the "models" universe — no `models`
-  // prop here since chat doesn't have a dynamic list. To add a model,
-  // drop its brand SVG into /public/brand/ and append a row to
-  // CHAT_MODEL_META.
-  const rows = CHAT_MODEL_META.map((meta) => ({
-    id: meta.name, // use display name as the "model id" so the picker
-    // selection survives across renders without needing
-    // a real backend round-trip.
-    name: meta.name,
-    logo: meta.logo,
-    vendor: meta.vendor,
-    desc: meta.desc,
-    weight: meta.weight ?? 99,
-  }));
-
-  const q = query.trim().toLowerCase();
-  const filtered = q
-    ? rows.filter(
-        (r) =>
-          r.name.toLowerCase().includes(q) ||
-          r.vendor.toLowerCase().includes(q) ||
-          r.desc.toLowerCase().includes(q)
-      )
-    : rows;
-
-  const grouped = new Map<ChatVendor, typeof rows>();
-  for (const r of filtered) {
-    if (!grouped.has(r.vendor)) grouped.set(r.vendor, []);
-    grouped.get(r.vendor)!.push(r);
-  }
-  for (const list of grouped.values()) {
-    list.sort((a, b) => a.weight - b.weight);
-  }
-
-  // Trigger label — show the selected model's brand logo + name so the
-  // chrome reads as a real model pick.
+function ChatModelPicker({ selectedId }: { selectedId: string }) {
   const selectedMeta = resolveChatModelMeta(selectedId);
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(v) => {
-        setOpen(v);
-        if (!v) setQuery('');
-      }}
+    <span
+      aria-label={m['playground.chat.model_label']()}
+      className="inline-flex items-center px-1 py-2 text-sm font-medium tracking-tight text-black"
     >
-      <PopoverTrigger
-        className={cn(
-          'inline-flex items-center gap-3 rounded-full py-1.5 pr-3 pl-3',
-          'bg-foreground/[0.06] text-foreground/80 border-foreground/10 border',
-          'hover:bg-foreground/[0.09] hover:text-foreground transition-colors',
-          open && 'bg-foreground/[0.09] text-foreground'
-        )}
-        aria-label={m['playground.chat.model_label']()}
-      >
-        <span className="text-sm font-medium tracking-tight">
-          {selectedMeta.name}
-        </span>
-        <ChevronDown
-          className={cn(
-            'size-3.5 opacity-60 transition-transform',
-            open && 'rotate-180'
-          )}
-        />
-      </PopoverTrigger>
-      <PopoverContent align="end" sideOffset={8} className="w-[360px] p-0">
-        <div className="bg-popover sticky top-0 z-10 space-y-2 rounded-t-xl p-2.5 pb-2">
-          <div className="bg-foreground/5 border-foreground/5 flex items-center gap-2 rounded-lg border px-3 py-2">
-            <SearchIcon className="text-muted-foreground size-4 shrink-0" />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder={m['playground.chat.model_search_placeholder']()}
-              className="placeholder:text-muted-foreground/70 text-foreground w-full bg-transparent text-sm outline-none"
-            />
-          </div>
-          <p className="text-foreground/40 px-1 text-[11px] font-semibold tracking-[0.08em] uppercase">
-            {m['playground.chat.model_label']()}
-          </p>
-        </div>
-
-        <div className="max-h-[420px] overflow-y-auto px-1.5 pb-2">
-          {filtered.length === 0 ? (
-            <p className="text-muted-foreground/70 px-2 py-6 text-center text-sm">
-              {m['playground.chat.model_empty']()}
-            </p>
-          ) : (
-            Array.from(grouped.entries()).map(([vendor, list]) => {
-              const theme = CHAT_VENDOR_THEME[vendor];
-              return (
-                <div key={vendor} className="mb-3">
-                  <div className="text-foreground/50 bg-popover/85 sticky top-0 z-[5] flex items-center gap-1.5 px-2 pt-2 pb-1 text-[10px] font-semibold tracking-[0.1em] uppercase backdrop-blur-sm">
-                    {theme.logo}
-                    {theme.label}
-                  </div>
-                  <div className="space-y-0.5">
-                    {list.map((r) => {
-                      const active = r.id === selectedMeta.name;
-                      return (
-                        <button
-                          key={r.name}
-                          type="button"
-                          onClick={() => {
-                            onSelect(r.name);
-                            setOpen(false);
-                          }}
-                          className={cn(
-                            'group relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2 text-left transition-colors',
-                            'hover:bg-foreground/[0.04]',
-                            active && 'bg-foreground/[0.06]'
-                          )}
-                        >
-                          {active ? (
-                            <span className="brand-gradient absolute inset-y-2 left-0 w-0.5 rounded-full" />
-                          ) : null}
-                          {/*
-                            No leading avatar — logo intentionally omitted
-                            across all three pickers; row reads as plain
-                            name + desc + check.
-                          */}
-                          <div className="min-w-0 flex-1">
-                            <span
-                              className={cn(
-                                'block truncate text-sm',
-                                active ? 'font-semibold' : 'font-medium'
-                              )}
-                            >
-                              {r.name}
-                            </span>
-                            <p className="text-foreground/45 mt-0.5 truncate text-xs">
-                              {r.desc}
-                            </p>
-                          </div>
-                          {active ? (
-                            <Check className="text-foreground/70 size-4 shrink-0" />
-                          ) : null}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
+      {selectedMeta.name}
+    </span>
   );
 }
 
@@ -3985,54 +3984,28 @@ const VIDEO_GALLERY_TABS = [
 ];
 
 /**
- * User's own generated images laid out as a packed masonry. Each tile
- * records its own `naturalWidth / naturalHeight` once the image loads;
- * without that we default to a square so the layout settles fast and
- * re-flows as the real aspect comes in.
- *
- * Clicking a tile sets the active image id (same affordance as the
- * sidebar history list), so the existing download bar at the top of
- * the My Images tab continues to work.
- */
-
-/**
- * User's own generated images, grouped into **batch rows**: one row per
- * submission, newest at the top and oldest at the bottom. When the user picks
- * `N=2` the row lays out two
- * tiles side-by-side; `N=4` → four tiles. Multi-image submissions that
- * used to lose every frame past the first now show all of them, and
- * the batch they belong to is immediately readable as a unit.
- *
- * Each tile still uses the image's NATURAL aspect ratio (via
- * `MyImageTile`) so 16:9 / 9:16 / etc. actually look like the ratio the
- * user chose — a fixed 1:1 tile with `object-cover` would crop every
- * non-square image and the user couldn't tell whether their pick took
- * effect. Until the dimensions load we fall back to 1:1 to keep the
- * grid stable, then re-flow once the real aspect comes in.
- *
- * Rows are **left-aligned** with a compact tile size (`w-36`) — not a
- * spread-to-the-edges grid — so the gallery reads as a tidy column of
- * batches instead of a full-width mosaic.
- *
- * Stale in-flight rows that never produce an image (timed-out, failed
- * silently, evicted R2 URLs, etc.) are filtered out so the list doesn't
- * fill up with eternal "Generating…" spinners; only a fresh submit's
- * short-lived processing placeholder survives.
+ * Image-generation history rendered as a chat transcript. Each task is a
+ * right-aligned user prompt followed by its left-aligned generated image(s).
+ * Conversations are chronological so fresh submissions appear at the bottom,
+ * immediately above the composer, and earlier ones move upward naturally.
  */
 
 function MyImageRows({
   rows,
   onSelect,
+  onRegenerate,
+  regenerateDisabled = false,
   highlightId,
   submittingPrompt,
 }: {
   rows: ImageTaskRow[];
   onSelect: (id: string) => void;
+  onRegenerate: (prompt: string) => void;
+  regenerateDisabled?: boolean;
   highlightId?: string | null;
   /** Appears before the submit endpoint returns a real task id. */
   submittingPrompt?: string | null;
 }) {
-  const now = Date.now();
   // Processing tile stays visible AS LONG AS the row is still reported
   // as in-flight by the server. The previous 30s timeout used to drop
   // the spinner mid-generation, which made users think "did I click
@@ -4069,177 +4042,119 @@ function MyImageRows({
     return null;
   }
 
-  // Group rows by the user's local calendar day so the day header only
-  // appears once at the top of that day's cluster. Rows already arrive
-  // newest-first from the server, so the day
-  // headers stack top-down in reverse-chronological order. We key on
-  // `YYYY-MM-DD` in local time — UTC would group late-evening posts
-  // into the "next day" and confuse the user.
-  const isZh = getLocale() === 'zh';
-  const dayKey = (iso: string) => {
-    const d = new Date(iso);
-    return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
-  };
-  const dayLabel = (iso: string) => {
-    const d = new Date(iso);
-    if (isZh) {
-      return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
-    }
-    // 'en-US' is close enough to the English "Aug 1, 2026" shape; we
-    // intentionally avoid 'en-GB' ("1 Aug 2026") to match the locale-
-    // neutral tone of the rest of the playground.
-    return d.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
-  const todayKey = dayKey(new Date().toISOString());
-  const yesterdayKey = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return dayKey(d.toISOString());
-  })();
-  // Group by day in render order so adjacent rows that share a day stay
-  // together; preserves the caller-supplied ordering (newest-first).
-  const groups: Array<{ key: string; label: string; rows: ImageTaskRow[] }> =
-    [];
-  for (const r of visibleRows) {
-    const key = dayKey(r.createdAt);
-    if (groups.length && groups[groups.length - 1].key === key) {
-      groups[groups.length - 1].rows.push(r);
-    } else {
-      const relative = isZh
-        ? key === todayKey
-          ? '今天'
-          : key === yesterdayKey
-            ? '昨天'
-            : null
-        : key === todayKey
-          ? 'Today'
-          : key === yesterdayKey
-            ? 'Yesterday'
-            : null;
-      groups.push({
-        key,
-        label: relative
-          ? `${relative} · ${dayLabel(r.createdAt)}`
-          : dayLabel(r.createdAt),
-        rows: [r],
-      });
-    }
-  }
+  // A chat transcript reads oldest-to-newest: every prompt is followed by
+  // its result, and the newest conversation is appended just above the
+  // composer. This is deliberately the opposite of the API's newest-first
+  // response order.
+  const chronologicalRows = [...visibleRows].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
 
   return (
-    <div className="flex flex-col items-start gap-5">
-      {submittingPrompt ? (
-        <div className="flex w-full flex-col items-start gap-3">
-          <div className="text-muted-foreground flex items-center gap-1.5 px-1 text-xs font-medium">
-            <Sparkles className="size-3.5" />
-            <span>{m['playground.image.generated_label']()}</span>
+    <div className="flex flex-col gap-10">
+      {chronologicalRows.map((r) => {
+        const urls = r.imageUrls ?? (r.thumbnailUrl ? [r.thumbnailUrl] : []);
+        const isInFlight =
+          (r.status === 'processing' || r.status === 'pending') &&
+          urls.length === 0;
+        const highlight = r.id === highlightId;
+
+        return (
+          <div key={r.id} className="flex w-full flex-col gap-5">
+            <div className="flex justify-end">
+              <ImagePromptBubble prompt={r.prompt} />
+            </div>
+            <div className="flex w-full flex-col items-start gap-1">
+              <div
+                data-task-id={r.id}
+                className={cn(
+                  'flex w-full flex-wrap items-start gap-3',
+                  highlight &&
+                    'ring-foreground ring-offset-background rounded-xl ring-4 ring-offset-2'
+                )}
+              >
+                {isInFlight ? (
+                  <ProcessingTile
+                    prompt={r.prompt || 'Generating…'}
+                    highlight={false}
+                    taskId={r.id}
+                  />
+                ) : (
+                  urls.map((url, i) => (
+                    <MyImageTile
+                      key={`${r.id}-${i}`}
+                      url={url}
+                      fallbackUrl={r.imageFallbackUrls?.[i]}
+                      prompt={r.prompt || 'Generated image'}
+                      onSelect={() => onSelect(r.id)}
+                      highlight={highlight && i === 0}
+                      taskId={`${r.id}-${i}`}
+                    />
+                  ))
+                )}
+              </div>
+              {urls.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => onRegenerate(r.prompt ?? '')}
+                  disabled={regenerateDisabled || !r.prompt?.trim()}
+                  aria-label={m['playground.image.regenerate']()}
+                  className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground inline-flex size-7 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <RefreshCw className="size-3.5" />
+                </button>
+              ) : null}
+            </div>
           </div>
-          <div className="bg-card/40 w-full p-2">
+        );
+      })}
+      {submittingPrompt ? (
+        <div className="flex w-full flex-col gap-5">
+          <div className="flex justify-end">
+            <ImagePromptBubble prompt={submittingPrompt} />
+          </div>
+          <div className="flex items-start">
             <ProcessingTile
               prompt={submittingPrompt}
               taskId="submitting-image"
             />
           </div>
-          <p className="text-muted-foreground line-clamp-2 max-w-md px-1 text-xs">
-            <span className="text-foreground/70 mr-1 font-medium">
-              {m['playground.image.batch_prompt_label']()}
-            </span>
-            {submittingPrompt}
-          </p>
         </div>
       ) : null}
-      {groups.map((group) => (
-        // Larger gap between the day header and the first row of that
-        // day's batch — gives the "AUG 1, 2026" label enough breathing
-        // room to read as a section divider rather than a tight caption.
-        <div key={group.key} className="flex w-full flex-col items-start gap-6">
-          {/* Day header — appears once per calendar day at the top of
-              that day's cluster. Today's / Yesterday's gets a relative
-              label so a fresh wall of images still reads as "today". */}
-          <h3 className="text-foreground/80 px-1 text-xs font-semibold tracking-[0.06em] uppercase">
-            {group.label}
-          </h3>
-          {group.rows.map((r) => {
-            const urls =
-              r.imageUrls ?? (r.thumbnailUrl ? [r.thumbnailUrl] : []);
-            const count = urls.length;
-            // In-flight batch (status='processing' with no URLs yet) keeps
-            // a single spinner tile inside the row so the latest submit is
-            // visible at the bottom of the list. Once the polling refetch
-            // brings the real images, the row swaps to the loaded tiles.
-            const isInFlight =
-              (r.status === 'processing' || r.status === 'pending') &&
-              count === 0;
-            // Highlight only the just-landed batch — the effect flips back
-            // to false ~2s after the submit settles.
-            const highlight = r.id === highlightId;
+    </div>
+  );
+}
 
-            return (
-              <div
-                key={r.id}
-                className="flex w-full flex-col items-start gap-3"
-              >
-                {/* Per-batch header — sits ABOVE the image card so the
-                    user can see what kind of content this batch is
-                    without hovering. Matches the reference design
-                    (the "✨ Generated an image" caption above the
-                    picture). */}
-                <div className="text-muted-foreground flex items-center gap-1.5 px-1 text-xs font-medium">
-                  <Sparkles className="size-3.5" />
-                  <span>{m['playground.image.generated_label']()}</span>
-                </div>
-                <div
-                  data-task-id={r.id}
-                  className={cn(
-                    // Image batch wrapper — no border / rounding / card
-                    // background so the tiles sit flush, matching the
-                    // packed-masonry convention used by the Community wall.
-                    'bg-card/40 w-full p-2',
-                    highlight &&
-                      'ring-foreground ring-offset-background ring-4 ring-offset-2'
-                  )}
-                >
-                  <div className="flex flex-wrap items-start gap-2">
-                    {isInFlight ? (
-                      <ProcessingTile
-                        prompt={r.prompt || 'Generating…'}
-                        highlight={false}
-                        taskId={r.id}
-                      />
-                    ) : (
-                      urls.map((url, i) => (
-                        <MyImageTile
-                          key={`${r.id}-${i}`}
-                          url={url}
-                          fallbackUrl={r.imageFallbackUrls?.[i]}
-                          prompt={r.prompt || 'Generated image'}
-                          onSelect={() => onSelect(r.id)}
-                          highlight={highlight && i === 0}
-                          taskId={`${r.id}-${i}`}
-                        />
-                      ))
-                    )}
-                  </div>
-                </div>
-                {/* Per-batch prompt footer — sits BELOW the image card so
-                    the user can see what produced each submission without
-                    hovering. Trims to 2 lines so a chat-log-style prompt
-                    doesn't blow up the row height. */}
-                <p className="text-muted-foreground line-clamp-2 max-w-md px-1 text-xs">
-                  <span className="text-foreground/70 mr-1 font-medium">
-                    {m['playground.image.batch_prompt_label']()}
-                  </span>
-                  {r.prompt?.trim() || '—'}
-                </p>
-              </div>
-            );
-          })}
-        </div>
-      ))}
+function ImagePromptBubble({ prompt }: { prompt?: string | null }) {
+  const copyablePrompt = prompt?.trim() ?? '';
+  const displayedPrompt = copyablePrompt || '—';
+
+  async function handleCopy() {
+    if (!copyablePrompt || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(copyablePrompt);
+      toast.success(m['playground.image.prompt_copied']());
+    } catch {
+      // Clipboard access can be denied in an embedded or non-secure context.
+      // The prompt stays available in its message bubble either way.
+    }
+  }
+
+  return (
+    <div className="group/prompt relative flex max-w-[60%] flex-col items-end">
+      <p className="w-fit max-w-full rounded-3xl rounded-br-md bg-[#f4f4f4] px-3 py-2 text-sm leading-6 break-words whitespace-pre-wrap text-black">
+        {displayedPrompt}
+      </p>
+      {copyablePrompt ? (
+        <button
+          type="button"
+          onClick={handleCopy}
+          aria-label={m['playground.image.copy_prompt']()}
+          className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground pointer-events-none absolute top-full right-0 mt-1 inline-flex size-7 -translate-y-1 items-center justify-center rounded-md opacity-0 transition-[color,background-color,opacity,transform] group-hover/prompt:pointer-events-auto group-hover/prompt:translate-y-0 group-hover/prompt:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-y-0 focus-visible:opacity-100"
+        >
+          <Copy className="size-3.5" />
+        </button>
+      ) : null}
     </div>
   );
 }
@@ -4269,7 +4184,7 @@ function ProcessingTile({
         // result. That keeps the generation progress in the exact spot
         // where the image will appear, instead of making it look like a
         // disconnected thumbnail.
-        'bg-foreground/5 relative aspect-[16/9] w-full max-w-[36rem] shrink-0 overflow-hidden rounded-lg',
+        'bg-foreground/5 relative aspect-[16/9] w-56 shrink-0 overflow-hidden rounded-xl',
         highlight &&
           'ring-foreground ring-offset-background ring-4 ring-offset-2'
       )}
@@ -4347,12 +4262,11 @@ function MyImageTile({
       data-task-id={taskId}
       style={{ aspectRatio: ratio }}
       className={cn(
-        // Compact, fixed-width tile (instead of `w-full` stretching to
-        // fill the grid cell). `w-56` (224px) is large enough that the
-        // picture reads as the actual generation, not a tiny thumbnail;
-        // `rounded-lg` keeps the corners subtle so a row of tiles still
-        // feels like a tight grid rather than a stack of cards.
-        'group bg-foreground/5 hover:ring-foreground/30 relative w-56 shrink-0 overflow-hidden rounded-lg hover:ring-2',
+        // Give every result an explicit reading width. A percentage width
+        // inside this transcript's intrinsic flex row can collapse to the
+        // image's min-content size, turning valid generations into slivers.
+        // The fixed cap still keeps portrait results from taking over.
+        'group bg-foreground/5 hover:ring-foreground/30 relative w-56 shrink-0 overflow-hidden rounded-xl hover:ring-2',
         // Pulse ring on the tile that just landed (sync submit or
         // polling resolution). Fades out via the parent state — the
         // class is removed when `highlight` flips back to false.
@@ -4498,6 +4412,8 @@ export function ImagePlayground({
   const [tab, setTab] = useState<'community' | 'mine'>(initialTab);
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const [prompt, setPrompt] = useState(initialPrompt);
+  const [isReferenceDragging, setIsReferenceDragging] = useState(false);
+  const referenceDragDepthRef = useRef(0);
   // Reference images for img2img. Up to MAX_REFERENCES images; the
   // server picks the first one for the request body. Each chip has its
   // own note input so the user can describe what that specific image
@@ -4517,10 +4433,13 @@ export function ImagePlayground({
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const MAX_REFERENCES = 10;
   const [pollingTaskId, setPollingTaskId] = useState<string | null>(null);
-  // Covers the short handoff from the page navigation / click to the moment
-  // the API returns a durable task id. Without this the My Images feed looks
-  // empty during a synchronous provider request.
-  const [submittingPrompt, setSubmittingPrompt] = useState<string | null>(null);
+  // Covers the short handoff from the public page click to the moment the API
+  // returns a durable task id. Seed it from the URL handoff so the destination
+  // workspace paints the prompt bubble and its left-side preview on its very
+  // first frame — never an empty transcript between the two pages.
+  const [submittingPrompt, setSubmittingPrompt] = useState<string | null>(() =>
+    autoSubmit ? initialPrompt.trim() || null : null
+  );
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [uploadingReference, setUploadingReference] = useState(false);
@@ -4616,13 +4535,16 @@ export function ImagePlayground({
     setPreviewTaskId(latest.id);
   }, [autoPreviewFirst, myImagesQuery.data]);
 
-  // Chat hands its typed prompt to this workspace through the URL. If the
-  // route stays mounted for a new prompt, update the composer in place.
+  // The public composer hands its prompt to this workspace through the URL.
+  // For an automatic handoff, move that text into the transcript immediately
+  // and leave the destination composer clear for the user's next idea. A
+  // direct workspace URL keeps the old, editable-composer behaviour.
   useEffect(() => {
     if (!initialPrompt) return;
-    setPrompt(initialPrompt);
+    setPrompt(autoSubmit ? '' : initialPrompt);
+    if (autoSubmit) setSubmittingPrompt(initialPrompt.trim() || null);
     setTab('mine');
-  }, [initialPrompt]);
+  }, [autoSubmit, initialPrompt]);
 
   const queryClient = useQueryClient();
   const taskQuery = useQuery({
@@ -4749,7 +4671,7 @@ export function ImagePlayground({
   }, [pollingTaskId, myImagesQuery.data]);
 
   const submitMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (submittedPrompt: string) => {
       // Stamp the start time so the LATEST RESULT panel can show a
       // live "Generating... Ns" counter. Reset on success.
       setGeneratingSince(Date.now());
@@ -4772,7 +4694,7 @@ export function ImagePlayground({
       const body: Record<string, any> = {
         mediaType: 'image',
         prompt: (() => {
-          const main = prompt.trim();
+          const main = submittedPrompt;
           if (!refsBlock) return main;
           if (!main) return refsBlock;
           return `${refsBlock}\n\n${main}`;
@@ -4807,14 +4729,13 @@ export function ImagePlayground({
     // surface for an image submit, so the user should land there
     // immediately; otherwise they're stuck staring at the Community
     // wall for a few seconds while the request flies.
-    onMutate: () => {
-      const submittedPrompt = prompt.trim();
+    onMutate: (submittedPrompt) => {
       setTab('mine');
       setSubmittingPrompt(submittedPrompt);
       return { submittedPrompt };
     },
     onSuccess: (data, _variables, context) => {
-      const submittedPrompt = context?.submittedPrompt || prompt;
+      const submittedPrompt = context?.submittedPrompt || _variables;
       setSubmittingPrompt(null);
       // Sync submissions return status='success' with imageUrls inline —
       // cache the task into the query cache so the active-image panel
@@ -4915,13 +4836,16 @@ export function ImagePlayground({
     },
   });
 
-  function handleImageSubmit() {
-    const submittedPrompt = prompt.trim();
+  function submitImagePrompt(submittedPrompt: string) {
     if (!submittedPrompt || submitMutation.isPending || pollingTaskId) return;
     // Image tasks require a session. Do this before a route change or API call
     // so the typed prompt remains visible underneath the login dialog.
     if (isSessionPending) return;
     if (!session?.user) {
+      // A URL handoff can render its optimistic preview before we learn the
+      // visitor is signed out. Remove it before opening the auth dialog so an
+      // unsigned user is never left looking at a fake, permanent generation.
+      if (autoSubmit) setSubmittingPrompt(null);
       setAuthOpen(true);
       return;
     }
@@ -4934,24 +4858,35 @@ export function ImagePlayground({
       return;
     }
 
-    submitMutation.mutate();
+    submitMutation.mutate(submittedPrompt);
+  }
+
+  function handleImageSubmit() {
+    submitImagePrompt(prompt.trim());
+  }
+
+  function handleImageRegenerate(promptToRegenerate: string) {
+    submitImagePrompt(promptToRegenerate.trim());
   }
 
   // A prompt sent from the public gallery should start immediately after the
-  // workspace opens. The ref makes URL-driven submissions one-shot even if a
-  // model-list or task-list query causes a rerender while the request is live.
+  // workspace opens. Wait for the session lookup before consuming the
+  // one-shot flag: on a cold navigation it is briefly pending, and consuming
+  // the flag then would leave the user on the workspace with no generation.
+  // The ref still prevents duplicate API calls after the session resolves.
   useEffect(() => {
     const submittedPrompt = initialPrompt.trim();
     if (
       !autoSubmit ||
       !submittedPrompt ||
+      isSessionPending ||
       didAutoSubmitRef.current === submittedPrompt
     ) {
       return;
     }
     didAutoSubmitRef.current = submittedPrompt;
-    handleImageSubmit();
-  }, [autoSubmit, initialPrompt]);
+    submitImagePrompt(submittedPrompt);
+  }, [autoSubmit, initialPrompt, isSessionPending, session?.user]);
 
   async function handleReferenceUpload(files: FileList | null) {
     if (!files?.length) return;
@@ -5063,6 +4998,10 @@ export function ImagePlayground({
     handleReferenceUpload(dt.files);
   }
 
+  function isReferenceFileDrag(event: React.DragEvent) {
+    return Array.from(event.dataTransfer.types).includes('Files');
+  }
+
   // Resolve the active task's first image URL for the "Active image" panel.
   const activeTask = taskQuery.data?.task;
   const activeResultUrl = (() => {
@@ -5099,6 +5038,20 @@ export function ImagePlayground({
     ? Math.max(0, Math.floor((Date.now() - generatingSince) / 1000))
     : 0;
 
+  // The public → workspace handoff should land on the live preview rather
+  // than leave it below a long image history. This runs for the optimistic
+  // `submitting-image` tile before the task endpoint replies, so the click
+  // flows directly into the exact place where the final image will appear.
+  useEffect(() => {
+    if (!submittingPrompt) return;
+    const id = window.setTimeout(() => {
+      document
+        .querySelector<HTMLElement>('[data-task-id="submitting-image"]')
+        ?.scrollIntoView({ behavior: 'auto', block: 'end' });
+    }, 0);
+    return () => window.clearTimeout(id);
+  }, [submittingPrompt]);
+
   // Scroll the newly-landed tile into view and fade the highlight after
   // ~2 seconds. We wait a tick so the DOM has the new tile mounted
   // (especially for sync results where the row may not be in cache
@@ -5114,7 +5067,7 @@ export function ImagePlayground({
         `[data-task-id="${taskId}"]`
       );
       if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.scrollIntoView({ behavior: 'smooth', block: 'end' });
       }
       // Clear the highlight after the scroll settles. 2.2s gives the
       // CSS transition a touch of breathing room past the scroll
@@ -5185,7 +5138,7 @@ export function ImagePlayground({
   return (
     <div
       className={cn(
-        'w-full',
+        'w-full bg-white dark:bg-[#050505]',
         staticCommunity
           ? 'overflow-visible'
           : 'flex h-full min-h-0 flex-1 overflow-hidden'
@@ -5203,14 +5156,11 @@ export function ImagePlayground({
         )}
       >
         {/* Floating segmented tab bar — sits above the wall, centered.
-          Aceternity-style: a NoiseBackground pill wraps two cut-out
-          buttons that read as "windows" through the slab. The inactive
-          tab is darker because it sits under the coloured gradient;
-          the active tab uses a solid white background so it reads as
-          the pressed state. */}
+          A white segmented control keeps the selector distinct from the
+          image wall while the raised active tab signals the current view. */}
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
           <NoiseBackground
-            containerClassName="pointer-events-auto h-10 w-fit rounded-full p-1.5 select-none bg-sidebar/80"
+            containerClassName="pointer-events-auto h-10 w-fit rounded-full border border-black/[0.06] bg-white p-1.5 shadow-sm select-none dark:border-white/10 dark:bg-card"
             gradientColors={[]}
             noiseOpacity={0}
             className="rounded-full"
@@ -5236,8 +5186,8 @@ export function ImagePlayground({
                     className={cn(
                       'inline-flex h-full cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-all outline-none',
                       active
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
+                        ? 'text-foreground dark:bg-background bg-white shadow-[0_1px_3px_rgb(0_0_0_/_0.12)]'
+                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                     )}
                   >
                     <t.icon className="size-4" />
@@ -5291,7 +5241,7 @@ export function ImagePlayground({
               // instead of replacing the grid in place. The grid therefore
               // stays visible behind the panel so the user can hop between
               // their other generations without a back-and-forth dance.
-              <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pt-16 pb-10">
+              <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-16 pb-10">
                 <section>
                   <MyImageRows
                     // The API is already newest-first. Keeping that order
@@ -5305,6 +5255,10 @@ export function ImagePlayground({
                       // 0-network-roundtrip path keeps the click snappy.
                       setPreviewTaskId(id);
                     }}
+                    onRegenerate={handleImageRegenerate}
+                    regenerateDisabled={
+                      submitMutation.isPending || !!pollingTaskId
+                    }
                     highlightId={recentlyLandedTaskId}
                     submittingPrompt={submittingPrompt}
                   />
@@ -5321,13 +5275,54 @@ export function ImagePlayground({
             'pointer-events-none z-20 flex flex-col items-center justify-center px-4',
             tab === 'community'
               ? 'relative order-1 shrink-0 pt-16 pb-4'
-              : 'border-border/60 bg-background/95 relative order-3 shrink-0 border-t pt-4 pb-4 backdrop-blur-sm'
+              : 'relative order-3 shrink-0 bg-white/95 pt-4 pb-4 backdrop-blur-sm dark:bg-[#050505]/95'
           )}
         >
           <div
             onPaste={handleReferencePaste}
-            className="border-border bg-sidebar/80 pointer-events-auto w-full max-w-3xl rounded-[28px] border p-1.5 shadow-xs backdrop-blur-sm"
+            onDragEnter={(event) => {
+              if (!isReferenceFileDrag(event)) return;
+              event.preventDefault();
+              referenceDragDepthRef.current += 1;
+              setIsReferenceDragging(true);
+            }}
+            onDragOver={(event) => {
+              if (!isReferenceFileDrag(event)) return;
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'copy';
+            }}
+            onDragLeave={(event) => {
+              if (!isReferenceFileDrag(event)) return;
+              referenceDragDepthRef.current = Math.max(
+                0,
+                referenceDragDepthRef.current - 1
+              );
+              if (referenceDragDepthRef.current === 0) {
+                setIsReferenceDragging(false);
+              }
+            }}
+            onDrop={(event) => {
+              if (!isReferenceFileDrag(event)) return;
+              event.preventDefault();
+              referenceDragDepthRef.current = 0;
+              setIsReferenceDragging(false);
+              handleReferenceUpload(event.dataTransfer.files);
+            }}
+            className={cn(
+              'border-border pointer-events-auto relative w-full max-w-3xl rounded-[28px] border bg-white p-1.5 shadow-[0_14px_28px_-20px_rgba(15,23,42,0.42)] transition-[border-color,background-color,box-shadow] duration-200',
+              isReferenceDragging &&
+                'border-[#0071e3] bg-[#f5f9ff] shadow-[0_18px_38px_-20px_rgba(0,113,227,0.42)] ring-4 ring-[#0071e3]/12'
+            )}
           >
+            {isReferenceDragging && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-1 z-20 flex items-center justify-center rounded-[23px] border border-dashed border-[#0071e3]/45 bg-white/78 text-sm font-medium text-[#0071e3] backdrop-blur-[2px]"
+              >
+                <ImageIcon className="mr-2 size-4" />
+                {m['playground.image.drop_images']()}
+              </div>
+            )}
             {references.length > 0 ? (
               // Strip of reference images. Each chip carries a tiny
               // "图N" label (so the user can refer to "图3" in the
@@ -5434,6 +5429,7 @@ export function ImagePlayground({
                 <input
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
                   disabled={references.length >= MAX_REFERENCES}
                   onChange={(e) => handleReferenceUpload(e.target.files)}
@@ -5446,13 +5442,13 @@ export function ImagePlayground({
               <ImageCountMenu value={imageCount} onChange={setImageCount} />
               <AspectRatioMenu value={aspectRatio} onChange={setAspectRatio} />
 
-              <div className="ml-auto flex items-center gap-1">
-                {/* Model menu — always rendered so the user can see what's
+              {SHOW_IMAGE_MODEL_PICKER && activeModel ? (
+                <div className="ml-auto flex items-center gap-1">
+                  {/* Model menu — always rendered so the user can see what's
                   available, even on a deployment that doesn't expose a
                   multi-model gateway (the list falls back to the single
                   default id). "New image" lives in the sidebar CTA
                   (route.tsx), which calls the same clearActive(). */}
-                {activeModel ? (
                   <ImageModelMenu
                     // Cosmetic-only: surface several well-known model
                     // names so the picker feels rich. The actual submit
@@ -5463,8 +5459,8 @@ export function ImagePlayground({
                     selected={activeModel}
                     onSelect={setModel}
                   />
-                ) : null}
-              </div>
+                </div>
+              ) : null}
               <button
                 type="button"
                 // Disable on submit OR while a previous task is still
@@ -5475,7 +5471,7 @@ export function ImagePlayground({
                   !prompt.trim() || submitMutation.isPending || !!pollingTaskId
                 }
                 onClick={handleImageSubmit}
-                className="bg-foreground text-background inline-flex size-9 items-center justify-center rounded-full transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                className="bg-foreground text-background ml-auto inline-flex size-9 items-center justify-center rounded-full transition-all hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 aria-label={m['playground.image.submit']()}
               >
                 {submitMutation.isPending || pollingTaskId ? (
@@ -5713,7 +5709,7 @@ function ImagePreviewPanel({
   }, [taskId]);
 
   return (
-    <aside className="bg-background relative hidden w-[620px] shrink-0 flex-col overflow-hidden border-l md:flex">
+    <aside className="relative hidden w-[620px] shrink-0 flex-col overflow-hidden border-l bg-white md:flex dark:bg-[#050505]">
       {/* Toolbar — mirrors the reference: title left, icon cluster right.
           The "edit" pencil is a placeholder for future in-place editing;
           clicking it just acks the user for now instead of silently
@@ -7448,14 +7444,10 @@ export function VideoPlayground() {
           </div>
         )}
 
-        {/* Floating segmented tab bar — sits above the wall, centered.
-            Identical pattern to ImagePlayground's tab bar (NoiseBackground
-            pill wrapping two cut-out buttons). The inactive tab is darker
-            because it sits under the gradient; the active tab uses a
-            solid `bg-background` so it reads as the pressed state. */}
+        {/* Floating white segmented tab bar — matches ImagePlayground. */}
         <div className="pointer-events-none absolute inset-x-0 top-4 z-20 flex justify-center">
           <NoiseBackground
-            containerClassName="pointer-events-auto h-10 w-fit rounded-full p-1.5 select-none bg-sidebar/80"
+            containerClassName="pointer-events-auto h-10 w-fit rounded-full border border-black/[0.06] bg-white p-1.5 shadow-sm select-none dark:border-white/10 dark:bg-card"
             gradientColors={[]}
             noiseOpacity={0}
             className="rounded-full"
@@ -7471,8 +7463,8 @@ export function VideoPlayground() {
                     className={cn(
                       'inline-flex h-full cursor-pointer items-center gap-1.5 rounded-full px-3.5 text-sm font-medium transition-all outline-none',
                       active
-                        ? 'bg-background text-foreground shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-background/40'
+                        ? 'text-foreground dark:bg-background bg-white shadow-[0_1px_3px_rgb(0_0_0_/_0.12)]'
+                        : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground'
                     )}
                   >
                     <t.icon className="size-4" />

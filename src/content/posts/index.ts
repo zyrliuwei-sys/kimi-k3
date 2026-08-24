@@ -12,6 +12,9 @@ import { baseLocale } from '@/paraglide/runtime.js';
  * local posts via the pure helpers below.
  */
 export const BLOG_POST_SLUGS = [
+  'ai-image-generator-guide',
+  'ai-image-prompt-examples',
+  'choosing-an-ai-image-generator',
   'kimi-k3-architecture-benchmarks',
   'kimi-k3-production-deployment',
   'kimi-k3-tutorial',
@@ -50,6 +53,35 @@ export type BlogPostDetail = BlogPost & {
   content?: string;
 };
 
+/**
+ * Keep the editorial cards visually consistent if a translated MDX file has
+ * not yet supplied its optional image metadata. The individual posts still
+ * own their preferred cover through `meta.image`; these are presentation
+ * fallbacks for the blog index only.
+ */
+const LOCAL_POST_VISUAL_FALLBACKS: Record<
+  string,
+  { image: string; authorImage: string }
+> = {
+  'ai-image-generator-guide': {
+    image: '/imgs/generated/ai-image-generator-guide-cover-1787567297741.png',
+    authorImage: '/logo.svg',
+  },
+  'ai-image-prompt-examples': {
+    image: '/imgs/generated/ai-image-prompt-examples-cover-1787567384376.png',
+    authorImage: '/logo.svg',
+  },
+  'choosing-an-ai-image-generator': {
+    image:
+      '/imgs/generated/choosing-ai-image-generator-cover-1787567465678.png',
+    authorImage: '/logo.svg',
+  },
+  'kimi-k3-tutorial': {
+    image: '/imgs/generated/kimi-k3-tutorial-cover-1787568652503.png',
+    authorImage: '/logo.svg',
+  },
+};
+
 // Eagerly bundle the local MDX posts (small markdown files), mirroring the
 // static-pages pattern. Keys are absolute from the project root.
 const postModules = import.meta.glob<PostModule>('/src/content/posts/*.mdx', {
@@ -68,14 +100,16 @@ export function loadLocalPost(slug: string, locale: string): PostModule | null {
 }
 
 function localPostToItem(slug: string, meta: BlogPostMeta): BlogPost {
+  const visualFallback = LOCAL_POST_VISUAL_FALLBACKS[slug];
+
   return {
     slug,
     title: meta.title,
     description: meta.description,
-    image: meta.image,
+    image: meta.image ?? visualFallback?.image,
     createdAt: new Date(meta.created_at).toISOString(),
     authorName: meta.author_name,
-    authorImage: meta.author_image,
+    authorImage: meta.author_image ?? visualFallback?.authorImage,
     source: 'local',
   };
 }

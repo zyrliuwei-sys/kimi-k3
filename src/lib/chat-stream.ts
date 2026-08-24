@@ -15,11 +15,18 @@
 export interface ChatStreamHandlers {
   onDelta?: (text: string) => void;
   onGate?: (status: 'login_required' | 'payment_required') => void;
-  onDone?: (info: { model?: string; provider?: string }) => void;
+  onDone?: (info: {
+    model?: string;
+    provider?: string;
+    userMessage?: { id: string; role: 'user'; content: string };
+    assistantMessage?: { id: string; role: 'assistant'; content: string };
+  }) => void;
   onError?: (message: string) => void;
 }
 
 export interface ChatStreamBody {
+  /** When set, use the persistent multi-session chat endpoint. */
+  chatId?: string | null;
   messages: { role: 'user' | 'assistant'; content: string }[];
   attachments?: {
     type: 'image' | 'video' | 'document';
@@ -36,6 +43,8 @@ export async function streamChat(
   handlers: ChatStreamHandlers & { signal?: AbortSignal }
 ): Promise<void> {
   const { onDelta, onGate, onDone, onError, signal } = handlers;
+  const isPersistentChat = !!body.chatId;
+  const latestMessage = body.messages.at(-1)?.content ?? '';
 
   // Client-side safety net: if the server takes >120s to send the first
   // byte (DB hang, auth hang, upstream gateway hang without our
@@ -49,12 +58,27 @@ export async function streamChat(
 
   let res: Response;
   try {
-    res = await fetch('/api/playground/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal,
-    });
+    res = await fetch(
+      isPersistentChat
+        ? `/api/chat/${encodeURIComponent(body.chatId!)}`
+        : '/api/playground/chat',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // The session endpoint reconstructs prior turns from its database,
+        // while the public playground endpoint remains stateless and receives
+        // the full browser-side transcript.
+        // Persistent chats keep their message history server-side, but still
+        // need the freshly uploaded attachment pointers so the route can turn
+        // documents into temporary model context for this turn.
+        body: JSON.stringify(
+          isPersistentChat
+            ? { content: latestMessage, attachments: body.attachments ?? [] }
+            : body
+        ),
+        signal,
+      }
+    );
     clearTimeout(firstByteTimer);
   } catch (e: any) {
     clearTimeout(firstByteTimer);
@@ -125,7 +149,7 @@ function dispatchFrame(frame: string, handlers: ChatStreamHandlers): void {
     } catch {
       continue;
     }
-    switch (evt?.t) {
+    switch (evt?.t ?? evt?.type) {
       case 'delta':
         if (typeof evt.text === 'string' && evt.text)
           handlers.onDelta?.(evt.text);
@@ -142,7 +166,12 @@ function dispatchFrame(frame: string, handlers: ChatStreamHandlers): void {
         if (typeof evt.message === 'string') handlers.onError?.(evt.message);
         break;
       case 'done':
-        handlers.onDone?.({ model: evt.model, provider: evt.provider });
+        handlers.onDone?.({
+          model: evt.model,
+          provider: evt.provider,
+          userMessage: evt.userMessage,
+          assistantMessage: evt.assistantMessage,
+        });
         break;
     }
   }

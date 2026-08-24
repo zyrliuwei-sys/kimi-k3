@@ -26,8 +26,9 @@ import { respData, respErr } from '@/lib/resp';
  *   DELETE (body: { ids: [...] }) — bulk delete
  *
  * File upload accepts the same MIME set as /api/storage/upload-media (PDF,
- * Word, Excel, PPTX, plain text, CSV). The endpoint immediately parses
- * uploaded files inline so the user can start asking questions right away.
+ * Word, Excel, PPTX, Apple Pages/Numbers, plain text, CSV). The endpoint
+ * immediately parses uploaded files inline so the user can start asking
+ * questions right away.
  * For very large files (>5MB) parsing runs synchronously in the request;
  * V2 should move this to a background job.
  */
@@ -43,6 +44,8 @@ const ALLOWED_MIME = new Set<string>([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/x-iwork-pages-sffpages',
+  'application/x-iwork-numbers-sffnumbers',
   'text/plain',
   'text/markdown',
   'text/csv',
@@ -56,6 +59,8 @@ const ALLOWED_EXTS = new Set<string>([
   'xlsx',
   'ppt',
   'pptx',
+  'pages',
+  'numbers',
   'txt',
   'md',
   'csv',
@@ -71,6 +76,8 @@ const extFromMime: Record<string, string> = {
   'application/vnd.ms-powerpoint': 'ppt',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation':
     'pptx',
+  'application/x-iwork-pages-sffpages': 'pages',
+  'application/x-iwork-numbers-sffnumbers': 'numbers',
   'text/plain': 'txt',
   'text/markdown': 'md',
   'text/csv': 'csv',

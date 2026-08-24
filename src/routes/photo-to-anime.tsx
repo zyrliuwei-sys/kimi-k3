@@ -11,6 +11,8 @@ import {
 import { ImageTransformationGallery } from '@/components/image-transformation-gallery';
 import { ImageWorkflowSteps } from '@/components/image-workflow-steps';
 import { PlaygroundShell } from '@/components/playground-shell';
+import { StyleIdeaCardStack } from '@/components/style-idea-card-stack';
+import { Timeline } from '@/components/timeline';
 
 const PHOTO_TO_ANIME_TITLE = 'Photo to Anime Converter | Kimi K3';
 const PHOTO_TO_ANIME_DESCRIPTION =
@@ -139,20 +141,21 @@ function PhotoToAnimePage() {
         },
       ]}
     >
-      <div className="h-full min-h-0 overflow-y-auto bg-[#f5f5f7] font-sans text-[#1d1d1f] selection:bg-sky-200/70 dark:bg-[#050505] dark:text-white dark:selection:bg-sky-400/30">
+      <div className="h-full min-h-0 overflow-y-auto bg-white font-sans text-[#1d1d1f] selection:bg-sky-200/70 dark:bg-[#050505] dark:text-white dark:selection:bg-sky-400/30">
         <section
           aria-labelledby="photo-to-anime-title"
-          className="border-b border-black/[0.07] bg-[#f5f5f7] dark:border-white/10 dark:bg-[#050505]"
+          className="bg-white dark:bg-[#050505]"
         >
-          <div className="mx-auto max-w-4xl px-5 pt-18 pb-10 text-center sm:px-8 sm:pt-28 sm:pb-14">
+          <div className="mx-auto max-w-5xl px-5 pt-18 pb-10 text-center sm:px-8 sm:pt-28 sm:pb-14">
             <p className="text-[11px] font-semibold tracking-[0.24em] text-[#0071e3] uppercase dark:text-sky-300">
               Kimi visual studio
             </p>
             <h1
               id="photo-to-anime-title"
-              className="mx-auto mt-5 max-w-4xl text-[clamp(2.6rem,7vw,5.8rem)] leading-[0.94] font-[750] tracking-[-0.075em] text-balance"
+              className="mx-auto mt-5 max-w-5xl text-[clamp(2.35rem,4.5vw,4rem)] leading-[0.98] font-[750] tracking-[-0.065em] text-balance"
             >
-              Photo to Anime Converter - Turn Photos into Anime Art
+              <span className="block">Photo to Anime Converter</span>
+              <span className="block">Turn Photos into Anime Art</span>
             </h1>
             <p className="mx-auto mt-7 max-w-2xl text-[17px] leading-8 text-[#6e6e73] sm:text-[19px] dark:text-white/60">
               Start with a photo you have permission to use, then guide its
@@ -162,7 +165,7 @@ function PhotoToAnimePage() {
             </p>
           </div>
 
-          <div className="w-full pb-8 sm:pb-12">
+          <div className="w-full">
             <ImagePlayground
               myImagesPageHref="/image-generator"
               redirectOnSubmit
@@ -172,7 +175,7 @@ function PhotoToAnimePage() {
           </div>
         </section>
 
-        <article className="mx-auto max-w-[1120px] px-5 py-16 sm:px-8 sm:py-24">
+        <article className="mx-auto max-w-[1120px] bg-white px-5 py-12 sm:px-8 sm:py-16">
           <section
             aria-labelledby="what-is-conversion"
             className="mx-auto max-w-3xl"
@@ -271,25 +274,10 @@ function PhotoToAnimePage() {
                 grain, color, and light instead.
               </p>
             </div>
-            <div className="mt-9 grid gap-4 md:grid-cols-2">
-              {STYLE_IDEAS.map((idea, index) => (
-                <section
-                  key={idea.title}
-                  aria-labelledby={`style-idea-${index + 1}`}
-                  className="rounded-[1.5rem] border border-black/[0.08] bg-white p-5 dark:border-white/10 dark:bg-white/[0.04]"
-                >
-                  <h3
-                    id={`style-idea-${index + 1}`}
-                    className="text-lg font-semibold tracking-[-0.035em]"
-                  >
-                    {index + 1}. {idea.title}
-                  </h3>
-                  <pre className="mt-4 overflow-x-auto rounded-xl bg-[#f5f5f7] p-4 font-sans text-sm leading-6 whitespace-pre-wrap text-[#515154] dark:bg-black/25 dark:text-white/65">
-                    {idea.prompt}
-                  </pre>
-                </section>
-              ))}
-            </div>
+            <StyleIdeaCardStack
+              className="mt-16 sm:mt-20"
+              ideas={STYLE_IDEAS}
+            />
             <p className="mx-auto mt-7 max-w-3xl text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
               A useful refinement keeps the source details that already worked
               and changes only one visual variable. Try “closer crop,” “warmer
@@ -313,126 +301,117 @@ function PhotoToAnimePage() {
             <ImageTransformationGallery />
           </div>
 
-          <section
-            aria-labelledby="vs-image-generator"
-            className="mx-auto mt-20 max-w-3xl sm:mt-28"
-          >
-            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#0071e3] uppercase dark:text-sky-300">
-              Choose the right workspace
-            </p>
-            <h2
-              id="vs-image-generator"
-              className="mt-3 text-3xl font-semibold tracking-[-0.055em] sm:text-5xl"
-            >
-              Photo to Anime vs. AI Image Generator
-            </h2>
-            <div className="mt-7 space-y-5 text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
-              <p>
-                This page is for a conversion that begins with a specific photo.
-                Its job is to keep meaningful traits from that reference while
-                moving the result into an anime visual language. Start here when
-                the person, pet, place, pose, or composition already exists and
-                you want to reinterpret it rather than invent every element.
-              </p>
-              <p>
-                The broader{' '}
-                <Link
-                  href="/image-generator"
-                  className="font-medium text-[#0071e3] underline underline-offset-4 dark:text-sky-300"
-                >
-                  image generator
-                </Link>{' '}
-                is a better fit for creating a product still life, a poster,
-                architecture, or a scene that does not need a source photo.
-                There, the prompt itself carries most of the creative brief. On
-                this page, the photo and prompt work together: the reference
-                anchors the subject while the prompt gives it a new setting and
-                style.
-              </p>
-              <p>
-                You can move between the two workflows without changing your
-                account. Use the conversion page for a character-like version of
-                a real image; use the broader workspace when you need an image
-                created from a concept, a sketch of a layout, or a fully written
-                art direction.
-              </p>
-              <p>
-                The distinction also makes prompt writing simpler. In a
-                reference-led workflow, spend your words on the visual changes:
-                anime linework, scene, wardrobe treatment, color, and light. In
-                a blank-canvas workflow, spend more of the prompt explaining the
-                subject itself. Choosing the right starting point reduces
-                unnecessary retries and helps you keep the parts of the original
-                image that matter most.
-              </p>
-            </div>
-          </section>
-
-          <section
-            aria-labelledby="free-and-included"
-            className="mx-auto mt-20 max-w-3xl sm:mt-28"
-          >
-            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#0071e3] uppercase dark:text-sky-300">
-              Credits and plans
-            </p>
-            <h2
-              id="free-and-included"
-              className="mt-3 text-3xl font-semibold tracking-[-0.055em] sm:text-5xl"
-            >
-              Is It Free? What&apos;s Included?
-            </h2>
-            <div className="mt-7 space-y-5 text-[16px] leading-8 text-[#6e6e73] sm:text-[17px] dark:text-white/60">
-              <p>
-                Creating an account gives new users five credits. Image cost is
-                calculated from the selected model, size, number of requested
-                outputs, and whether a reference image is included. Because this
-                workflow intentionally uses an uploaded reference, check the
-                controls and your credit balance before submitting a larger
-                batch. The first free-image offer applies only to an eligible
-                standard single image without a reference.
-              </p>
-              <p>
-                A paid plan supplies a larger credit balance for recurring
-                creative work. If you are experimenting, begin with one output
-                and a focused prompt, then make variations after you have the
-                right direction. Visit{' '}
-                <Link
-                  href="/pricing"
-                  className="font-medium text-[#0071e3] underline underline-offset-4 dark:text-sky-300"
-                >
-                  pricing
-                </Link>{' '}
-                for the current plans, credit amounts, and subscription details.
-              </p>
-            </div>
-          </section>
-
-          <section
-            aria-labelledby="photo-faq"
-            className="mx-auto mt-20 max-w-3xl sm:mt-28"
-          >
-            <p className="text-[11px] font-semibold tracking-[0.22em] text-[#0071e3] uppercase dark:text-sky-300">
-              Helpful answers
-            </p>
-            <h2
-              id="photo-faq"
-              className="mt-3 text-3xl font-semibold tracking-[-0.055em] sm:text-5xl"
-            >
-              Frequently Asked Questions
-            </h2>
-            <div className="mt-8 divide-y divide-black/[0.1] rounded-[1.5rem] border border-black/[0.1] px-6 dark:divide-white/10 dark:border-white/10">
-              {PHOTO_TO_ANIME_FAQS.map((faq, index) => (
-                <section key={faq.question} className="py-6">
-                  <h3 className="text-xl font-semibold tracking-[-0.035em] sm:text-2xl">
-                    {index === 0 ? 'Is this converter free?' : faq.question}
-                  </h3>
-                  <p className="mt-3 text-[16px] leading-8 text-[#6e6e73] dark:text-white/60">
-                    {faq.answer}
-                  </p>
-                </section>
-              ))}
-            </div>
-          </section>
+          <Timeline
+            aria-label="Photo to anime details"
+            className="mx-auto mt-20 max-w-4xl sm:mt-28"
+            items={[
+              {
+                id: 'vs-image-generator',
+                label: '01 / Compare',
+                eyebrow: 'Choose the right workspace',
+                title: 'Photo to Anime vs. AI Image Generator',
+                content: (
+                  <div className="space-y-5 sm:text-[17px]">
+                    <p>
+                      This page is for a conversion that begins with a specific
+                      photo. Its job is to keep meaningful traits from that
+                      reference while moving the result into an anime visual
+                      language. Start here when the person, pet, place, pose, or
+                      composition already exists and you want to reinterpret it
+                      rather than invent every element.
+                    </p>
+                    <p>
+                      The broader{' '}
+                      <Link
+                        href="/image-generator"
+                        className="font-medium text-[#0071e3] underline underline-offset-4 dark:text-sky-300"
+                      >
+                        image generator
+                      </Link>{' '}
+                      is a better fit for creating a product still life, a
+                      poster, architecture, or a scene that does not need a
+                      source photo. There, the prompt itself carries most of the
+                      creative brief. On this page, the photo and prompt work
+                      together: the reference anchors the subject while the
+                      prompt gives it a new setting and style.
+                    </p>
+                    <p>
+                      You can move between the two workflows without changing
+                      your account. Use the conversion page for a character-like
+                      version of a real image; use the broader workspace when
+                      you need an image created from a concept, a sketch of a
+                      layout, or a fully written art direction.
+                    </p>
+                    <p>
+                      The distinction also makes prompt writing simpler. In a
+                      reference-led workflow, spend your words on the visual
+                      changes: anime linework, scene, wardrobe treatment, color,
+                      and light. In a blank-canvas workflow, spend more of the
+                      prompt explaining the subject itself. Choosing the right
+                      starting point reduces unnecessary retries and helps you
+                      keep the parts of the original image that matter most.
+                    </p>
+                  </div>
+                ),
+              },
+              {
+                id: 'free-and-included',
+                label: '02 / Credits',
+                eyebrow: 'Credits and plans',
+                title: "Is It Free? What's Included?",
+                content: (
+                  <div className="space-y-5 sm:text-[17px]">
+                    <p>
+                      Creating an account gives new users five credits. Image
+                      cost is calculated from the selected model, size, number
+                      of requested outputs, and whether a reference image is
+                      included. Because this workflow intentionally uses an
+                      uploaded reference, check the controls and your credit
+                      balance before submitting a larger batch. The first
+                      free-image offer applies only to an eligible standard
+                      single image without a reference.
+                    </p>
+                    <p>
+                      A paid plan supplies a larger credit balance for recurring
+                      creative work. If you are experimenting, begin with one
+                      output and a focused prompt, then make variations after
+                      you have the right direction. Visit{' '}
+                      <Link
+                        href="/pricing"
+                        className="font-medium text-[#0071e3] underline underline-offset-4 dark:text-sky-300"
+                      >
+                        pricing
+                      </Link>{' '}
+                      for the current plans, credit amounts, and subscription
+                      details.
+                    </p>
+                  </div>
+                ),
+              },
+              {
+                id: 'photo-faq',
+                label: '03 / Answers',
+                eyebrow: 'Helpful answers',
+                title: 'Frequently Asked Questions',
+                content: (
+                  <div className="divide-y divide-black/[0.1] rounded-[1.5rem] border border-black/[0.1] px-6 dark:divide-white/10 dark:border-white/10">
+                    {PHOTO_TO_ANIME_FAQS.map((faq, index) => (
+                      <section key={faq.question} className="py-6">
+                        <h3 className="text-xl leading-tight font-semibold tracking-[-0.035em] text-[#1d1d1f] sm:text-2xl dark:text-white">
+                          {index === 0
+                            ? 'Is this converter free?'
+                            : faq.question}
+                        </h3>
+                        <p className="mt-3 text-[16px] leading-8 text-[#6e6e73] dark:text-white/60">
+                          {faq.answer}
+                        </p>
+                      </section>
+                    ))}
+                  </div>
+                ),
+              },
+            ]}
+          />
         </article>
       </div>
     </PlaygroundShell>

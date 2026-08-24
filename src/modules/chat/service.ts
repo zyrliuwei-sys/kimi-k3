@@ -232,9 +232,11 @@ export async function* streamMessage(params: {
   userId: string;
   chatId: string;
   content: string;
+  /** Extra, non-persisted context (for example parsed document attachments). */
+  attachmentContext?: string | Promise<string>;
   signal?: AbortSignal;
 }): AsyncGenerator<ChatStreamEvent, void, unknown> {
-  const { userId, chatId, content, signal } = params;
+  const { userId, chatId, content, attachmentContext, signal } = params;
   const owned = await getChat({ userId, chatId });
   if (!owned) {
     yield { type: 'error', message: 'Chat not found' };
@@ -248,7 +250,13 @@ export async function* streamMessage(params: {
     const role = msg.role === 'assistant' ? 'assistant' : 'user';
     turns.push({ role, content: textFromParts(msg.parts) });
   }
-  turns.push({ role: 'user', content });
+  const resolvedAttachmentContext = attachmentContext
+    ? await attachmentContext
+    : '';
+  const contentForModel = resolvedAttachmentContext.trim()
+    ? `${content}\n\n${resolvedAttachmentContext}`
+    : content;
+  turns.push({ role: 'user', content: contentForModel });
 
   // 1b. long-context guard — refuse if total tokens exceed the subscription
   //     threshold (32k). Short-circuits BEFORE we call the model so a long
