@@ -7,14 +7,22 @@ import {
   ImagePlayground,
   PlaygroundUpgradeCard,
 } from '@/blocks/api-playground';
-import {
-  IMAGE_GENERATOR_CANONICAL,
-  IMAGE_GENERATOR_DESCRIPTION,
-  IMAGE_GENERATOR_STRUCTURED_DATA,
-  IMAGE_GENERATOR_TITLE,
-  ImageGeneratorSeoContent,
-} from '@/components/image-generator-seo-content';
 import { PlaygroundShell } from '@/components/playground-shell';
+
+const IMAGE_GENERATOR_TITLE =
+  'Free AI Image Generator | Kimi K3 - Create Images Online';
+const IMAGE_GENERATOR_DESCRIPTION =
+  'Generate images free with Kimi K3 AI image generator. Describe your idea and get HD images in seconds. Sign in for your first free image, up to 4 per prompt.';
+const IMAGE_GENERATOR_CANONICAL = 'https://www.kimik3.net/image-generator';
+const IMAGE_GENERATOR_STRUCTURED_DATA = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareApplication',
+  name: 'Kimi K3 Image Generator',
+  applicationCategory: 'MultimediaApplication',
+  operatingSystem: 'Web',
+  url: IMAGE_GENERATOR_CANONICAL,
+  description: IMAGE_GENERATOR_DESCRIPTION,
+};
 
 type ImageGeneratorSearch = {
   prompt?: string;
@@ -82,15 +90,16 @@ function ImageGeneratorWorkspace() {
           },
         ]}
       >
-        <ImagePlayground
-          initialTab="mine"
-          initialPrompt={prompt}
-          communityPageHref="/photo-to-anime"
-          autoPreviewFirst={false}
-          autoSubmit={autoSubmit}
-        />
+        <div className="h-full bg-white dark:bg-[#050505]">
+          <ImagePlayground
+            initialTab="mine"
+            initialPrompt={prompt}
+            communityPageHref="/photo-to-anime"
+            autoPreviewFirst={false}
+            autoSubmit={autoSubmit}
+          />
+        </div>
       </PlaygroundShell>
-      <ImageGeneratorSeoContent />
     </>
   );
 }

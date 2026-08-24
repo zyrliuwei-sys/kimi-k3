@@ -51,8 +51,9 @@ import { respErr } from '@/lib/resp';
  * (`respErr` / 429) — the client treats any non-event-stream response as an
  * error. Image attachments (`attachments[].type === 'image'`) are embedded as
  * `image_url` parts so a vision-capable model can actually see them; document
- * attachments (PDF / DOCX / XLSX / PPTX / MD / TXT / CSV) are fetched, parsed
- * into plain text, and inlined into the user turn so the model can read them;
+ * attachments (PDF / DOCX / XLSX / PPTX / Pages / Numbers / MD / TXT / CSV)
+ * are fetched, parsed into plain text, and inlined into the user turn so the
+ * model can read them;
  * videos are display-only and surfaced to the model as a text note.
  */
 
@@ -67,7 +68,7 @@ const RATE_LIMIT_INTERVAL_MS = 2000;
 // No free tier — 0 subscription quota + 0 credits = paywall.
 
 const SYSTEM_PROMPT =
-  'You are kimik3, a friendly assistant powered by Kimi K3. Be concise, warm, and practical. Use Markdown when it improves clarity. Attached images: respond to what you see. Attached documents (PDF, Word, Excel, PPT, MD, TXT, CSV): their parsed text is inlined in the user message — answer from it directly. Excel tables include a Formula column — use the formulas, not just the values. PPT slides include "Speaker notes:" — read those for intent.';
+  'You are kimik3, a friendly assistant powered by Kimi K3. Be concise, warm, and practical. Use Markdown when it improves clarity. Attached images: respond to what you see. Attached documents (PDF, Word, Excel, PPT, Apple Pages, Apple Numbers, MD, TXT, CSV): their parsed text is inlined in the user message — answer from it directly. Excel tables include a Formula column — use the formulas, not just the values. PPT slides include "Speaker notes:" — read those for intent.';
 
 const NOT_CONFIGURED_REPLY = `👋 I'm kimik3 — but no live model is reachable yet.
 
@@ -175,6 +176,8 @@ const MIME_FROM_EXT_DOC: Record<string, string> = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ppt: 'application/vnd.ms-powerpoint',
   pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  pages: 'application/x-iwork-pages-sffpages',
+  numbers: 'application/x-iwork-numbers-sffnumbers',
   md: 'text/markdown',
   markdown: 'text/markdown',
   txt: 'text/plain',

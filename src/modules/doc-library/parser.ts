@@ -6,6 +6,8 @@
  *   - DOCX: mammoth pulls the main body XML and strips XML markup.
  *   - XLSX / XLS: xlsx reads each sheet as plain text rows.
  *   - PPTX: jszip + a small XML walk of slideN.xml files.
+ *   - Apple Pages / Numbers: reads the embedded Quick Look PDF or legacy XML
+ *     preview bundled by iWork, when present.
  *   - Plain text / Markdown: passthrough after a UTF-8 decode.
  *
  * All parsers return the same ParsedDocument shape so the service layer can
@@ -178,6 +180,13 @@ export async function parseDocument(args: ParseArgs): Promise<ParsedDocument> {
     return parsePptx(buffer);
   if (type === 'application/vnd.ms-powerpoint' || ext === 'ppt')
     return parsePpt(buffer);
+  if (
+    type === 'application/x-iwork-pages-sffpages' ||
+    type === 'application/x-iwork-numbers-sffnumbers' ||
+    ext === 'pages' ||
+    ext === 'numbers'
+  )
+    return parseAppleIWork(buffer, ext === 'numbers' ? 'Numbers' : 'Pages');
   if (
     type === 'text/plain' ||
     ext === 'txt' ||
@@ -429,6 +438,53 @@ async function parsePptx(buffer: Buffer): Promise<ParsedDocument> {
     blocks.push(section.join('\n'));
   }
   return finalize(blocks.join('\n\n'), { pageCount: slideNames.length });
+}
+
+// ─── Apple iWork (Pages / Numbers) ───────────────────────────────────────────
+
+async function parseAppleIWork(
+  buffer: Buffer,
+  appName: 'Pages' | 'Numbers'
+): Promise<ParsedDocument> {
+  // Modern iWork documents are ZIP bundles with a private IWA/protobuf data
+  // format. macOS normally adds a Quick Look PDF for previewing a document;
+  // it preserves visible content and is safe for us to parse. Older documents
+  // contain index.xml, which still has an extractable text representation.
+  const JSZip = (await import('jszip')).default;
+  let zip: InstanceType<typeof JSZip>;
+  try {
+    zip = await JSZip.loadAsync(buffer);
+  } catch {
+    throw new Error(
+      `This Apple ${appName} file could not be opened. Export it as PDF or ${
+        appName === 'Pages' ? 'Word (.docx)' : 'Excel (.xlsx)'
+      } and try again.`
+    );
+  }
+
+  const entries = Object.keys(zip.files);
+  const previewPdfName = entries.find((name) =>
+    /(^|\/)quicklook\/preview\.pdf$/i.test(name)
+  );
+  if (previewPdfName) {
+    return parsePdf(await zip.files[previewPdfName].async('nodebuffer'));
+  }
+
+  const legacyXmlName = entries.find((name) =>
+    /(^|\/)(index\.xml|index\.apxl)$/i.test(name)
+  );
+  if (legacyXmlName) {
+    const xml = await zip.files[legacyXmlName].async('string');
+    return finalize(xmlToPlainText(xml), {});
+  }
+
+  // IWA payloads have no stable public text parser. Do not UTF-8 decode the
+  // binary, since that would produce misleading gibberish for the model.
+  throw new Error(
+    `This Apple ${appName} file has no readable preview. In ${appName}, export it as PDF or ${
+      appName === 'Pages' ? 'Word (.docx)' : 'Excel (.xlsx)'
+    } and upload the exported file.`
+  );
 }
 
 function xmlToPlainText(xml: string): string {

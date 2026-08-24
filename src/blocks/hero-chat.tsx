@@ -267,7 +267,7 @@ function Bubble({ message }: { message: Message }) {
           'max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed',
           isUser
             ? 'bg-foreground text-background rounded-tr-md'
-            : 'bg-background text-foreground border-foreground/10 rounded-tl-md border shadow-sm'
+            : 'text-foreground border-foreground/10 rounded-tl-md border bg-white shadow-sm dark:bg-neutral-900'
         )}
       >
         {isUser ? (
@@ -286,7 +286,7 @@ function Thinking() {
       <div className="brand-gradient mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg">
         <Sparkles className="size-3.5 text-white" />
       </div>
-      <div className="border-foreground/10 bg-background flex items-center gap-1.5 rounded-2xl rounded-tl-md border px-4 py-3 shadow-sm">
+      <div className="border-foreground/10 flex items-center gap-1.5 rounded-2xl rounded-tl-md border bg-white px-4 py-3 shadow-sm dark:bg-neutral-900">
         {[0, 1, 2].map((i) => (
           <span
             key={i}
@@ -387,7 +387,7 @@ function EmptyState({
               type="button"
               disabled={disabled}
               onClick={() => onPick(ex)}
-              className="border-foreground/10 bg-background hover:border-foreground/25 hover:bg-muted/40 text-foreground/75 rounded-full border px-3.5 py-1.5 text-[13px] transition-colors disabled:opacity-50"
+              className="border-foreground/10 text-foreground/75 hover:border-foreground/25 hover:bg-muted/40 rounded-full border bg-white px-3.5 py-1.5 text-[13px] transition-colors disabled:opacity-50 dark:bg-neutral-900"
             >
               {ex}
             </button>

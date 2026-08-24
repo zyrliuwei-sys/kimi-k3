@@ -66,6 +66,8 @@ const extFromMime = (mimeType: string) => {
     'application/vnd.ms-powerpoint': 'ppt',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation':
       'pptx',
+    'application/x-iwork-pages-sffpages': 'pages',
+    'application/x-iwork-numbers-sffnumbers': 'numbers',
     // Plain text / markdown / csv — mirrors what /api/doc-library/document
     // accepts so the playground can ingest long-form text the same way.
     'text/plain': 'txt',
@@ -85,6 +87,8 @@ const DOCUMENT_MIMES = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/x-iwork-pages-sffpages',
+  'application/x-iwork-numbers-sffnumbers',
   'text/plain',
   'text/markdown',
   'text/csv',
@@ -100,6 +104,8 @@ const DOCUMENT_EXTENSIONS = new Set([
   'xlsx',
   'ppt',
   'pptx',
+  'pages',
+  'numbers',
   'md',
   'txt',
   'csv',
@@ -125,6 +131,43 @@ const MAX_UPLOAD_BYTES = 200 * 1024 * 1024; // 200MB per file
 // context window, not the file count.
 const MAX_FILES = 50; // per request
 const ANON_UPLOAD_LIMIT = 1; // free anonymous uploads per IP
+// Uploading every file in a 50-file batch at once needlessly spikes memory and
+// can overwhelm an object store. A small worker pool still lets a normal
+// Finder drop (such as several spreadsheets) finish together instead of one
+// file waiting for the previous file's hash + write to complete.
+const UPLOAD_CONCURRENCY = 3;
+
+interface UploadResult {
+  url: string;
+  key: string;
+  filename: string;
+  type: 'image' | 'video' | 'document';
+  deduped: boolean;
+  // A batch may succeed partially. Failed slots retain their input order so
+  // the client can mark only the matching optimistic chip as failed.
+  error?: string;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  mapper: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function worker() {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index]);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker())
+  );
+  return results;
+}
 
 async function POST({ request }: { request: Request }) {
   const limited = enforceMinIntervalRateLimit(request, {
@@ -160,21 +203,7 @@ async function POST({ request }: { request: Request }) {
     }
 
     const storage = await getStorage();
-    const uploadResults: Array<{
-      url: string;
-      key: string;
-      filename: string;
-      type: 'image' | 'video' | 'document';
-      deduped: boolean;
-      // Per-file error string. When set, `url`/`key` are empty and the
-      // client should mark this slot as `uploadStatus: 'error'`. The
-      // overall request still returns 200 with mixed results so the
-      // surviving 4 of a 5-file batch don't get nuked when 1 file is
-      // unsupported / oversized / transient-failure.
-      error?: string;
-    }> = [];
-
-    for (const file of files) {
+    const uploadOne = async (file: File): Promise<UploadResult> => {
       try {
         if (
           !isImage(file.type) &&
@@ -182,15 +211,14 @@ async function POST({ request }: { request: Request }) {
           !isDocument(file.type) &&
           !hasDocumentExtension(file.name)
         ) {
-          uploadResults.push({
+          return {
             url: '',
             key: '',
             filename: file.name,
             type: 'document',
             deduped: false,
             error: `Unsupported file type (${file.type || 'unknown'})`,
-          });
-          continue;
+          };
         }
 
         const fileKind: 'image' | 'video' | 'document' = isImage(file.type)
@@ -203,7 +231,7 @@ async function POST({ request }: { request: Request }) {
         const body = new Uint8Array(arrayBuffer);
 
         if (body.length > MAX_UPLOAD_BYTES) {
-          uploadResults.push({
+          return {
             url: '',
             key: '',
             filename: file.name,
@@ -212,8 +240,7 @@ async function POST({ request }: { request: Request }) {
             error: `File too large (max ${Math.round(
               MAX_UPLOAD_BYTES / 1024 / 1024
             )}MB)`,
-          });
-          continue;
+          };
         }
 
         const digest = md5(body);
@@ -230,7 +257,7 @@ async function POST({ request }: { request: Request }) {
         // R2 (admin → Storage) for production.
         if (!storage) {
           if (!isLocalFallbackAvailable()) {
-            uploadResults.push({
+            return {
               url: '',
               key: '',
               filename: file.name,
@@ -238,12 +265,11 @@ async function POST({ request }: { request: Request }) {
               deduped: false,
               error:
                 'File upload is disabled in this environment. Configure storage (Admin → Storage) before uploading.',
-            });
-            continue;
+            };
           }
           if (body.length > INLINE_MAX_BYTES) {
             const limitKb = Math.round(INLINE_MAX_BYTES / 1024);
-            uploadResults.push({
+            return {
               url: '',
               key: '',
               filename: file.name,
@@ -252,34 +278,31 @@ async function POST({ request }: { request: Request }) {
               error: `File too large (${(body.length / 1024).toFixed(
                 0
               )}KB > ${limitKb}KB). Configure storage or use a smaller file.`,
-            });
-            continue;
+            };
           }
           const dir = path.join(process.cwd(), 'public', 'uploads');
           await mkdir(dir, { recursive: true });
           await writeFile(path.join(dir, objectKey), body);
-          uploadResults.push({
+          return {
             url: `/uploads/${objectKey}`,
             key: `uploads/${objectKey}`,
             filename: file.name,
             type: fileKind,
             deduped: false,
-          });
-          continue;
+          };
         }
 
         const exists = await storage.exists({ key: objectKey });
         if (exists) {
           const publicUrl = storage.getPublicUrl({ key: objectKey });
           if (publicUrl) {
-            uploadResults.push({
+            return {
               url: publicUrl,
               key: objectKey,
               filename: file.name,
               type: fileKind,
               deduped: true,
-            });
-            continue;
+            };
           }
         }
 
@@ -291,40 +314,48 @@ async function POST({ request }: { request: Request }) {
         });
 
         if (!result.success || !result.url) {
-          uploadResults.push({
+          return {
             url: '',
             key: '',
             filename: file.name,
             type: fileKind,
             deduped: false,
             error: result.error || 'Upload failed',
-          });
-          continue;
+          };
         }
 
-        uploadResults.push({
+        return {
           url: result.url,
           key: result.key || objectKey,
           filename: file.name,
           type: fileKind,
           deduped: false,
-        });
+        };
       } catch (fileErr: any) {
         // Per-file catch so one bad apple doesn't abort the batch. The
         // exception is logged so storage-side regressions still surface
         // in server logs, but the user gets to keep their 4 working
         // attachments.
         console.error('upload media per-file failed:', fileErr);
-        uploadResults.push({
+        return {
           url: '',
           key: '',
           filename: file.name,
           type: 'document',
           deduped: false,
           error: fileErr?.message || 'Upload failed',
-        });
+        };
       }
-    }
+    };
+
+    // Keep response ordering identical to the incoming FormData order. The
+    // browser associates each result index with its optimistic attachment
+    // chip, while the worker pool removes the unnecessary serial wait.
+    const uploadResults = await mapWithConcurrency(
+      files,
+      UPLOAD_CONCURRENCY,
+      uploadOne
+    );
 
     return respData({
       urls: uploadResults.map((r) => r.url),

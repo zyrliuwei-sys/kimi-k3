@@ -22,7 +22,7 @@ import { SupportWidget } from '@/blocks/support-widget';
 function HomePage() {
   const jsonLd = buildHomeJsonLd();
   return (
-    <div className="bg-background text-foreground flex min-h-screen flex-col">
+    <div className="text-foreground flex min-h-screen flex-col bg-white dark:bg-neutral-950">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

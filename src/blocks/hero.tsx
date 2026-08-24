@@ -14,7 +14,7 @@ import { motion } from 'motion/react';
 import { Link } from '@/core/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
-import { buttonVariants } from '@/components/ui/button';
+import { HoverBorderGradient } from '@/components/ui/hover-border-gradient';
 
 export function Hero() {
   return (
@@ -46,16 +46,20 @@ export function Hero() {
             transition={{ duration: 0.6, delay: 0.6 }}
             className="mt-7 flex flex-wrap items-center justify-center gap-3"
           >
-            <Link
-              href="/api-playground"
-              className={cn(
-                buttonVariants({ size: 'lg' }),
-                'h-11 gap-2 rounded-full px-6 text-sm'
-              )}
+            <HoverBorderGradient
+              as="div"
+              duration={1.25}
+              containerClassName="group h-14 w-auto min-w-[15.5rem] rounded-full p-[2px] shadow-[0_12px_28px_rgba(20,18,15,0.13)] transition-transform duration-300 hover:-translate-y-0.5 sm:min-w-[17.5rem]"
+              className="h-full rounded-full bg-[#1b1917] px-0 py-0 text-white dark:bg-[#f5f3ef] dark:text-[#1b1917]"
             >
-              {m['landing.hero.cta_api']()}
-              <ArrowRight className="size-4" />
-            </Link>
+              <Link
+                href="/api-playground"
+                className="flex h-full w-full items-center justify-center gap-3 rounded-full px-6 text-base font-medium tracking-[-0.025em] transition-colors outline-none focus-visible:ring-2 focus-visible:ring-[#5b7cfa] focus-visible:ring-offset-3 focus-visible:ring-offset-[#f5f3ef] sm:text-lg dark:focus-visible:ring-sky-300 dark:focus-visible:ring-offset-[#1b1917]"
+              >
+                {m['landing.hero.cta_api']()}
+                <ArrowRight className="size-[1.15rem] transition-transform duration-300 group-hover:translate-x-1" />
+              </Link>
+            </HoverBorderGradient>
           </motion.div>
         </div>
       </div>
@@ -461,7 +465,7 @@ export function InfiniteScrollCanvas({
     <div
       ref={containerRef}
       className={cn(
-        'relative isolate min-h-[560px] w-full overflow-hidden bg-[#f5f3f0] py-24 sm:py-28 dark:bg-neutral-950',
+        'relative isolate min-h-[560px] w-full overflow-hidden bg-white py-24 sm:py-28 dark:bg-neutral-950',
         isDragging ? 'cursor-grabbing' : 'cursor-grab',
         className
       )}

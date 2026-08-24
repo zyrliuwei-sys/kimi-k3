@@ -5,6 +5,7 @@ import {
   Home,
   Key,
   LayoutDashboard,
+  LibraryBig,
   LifeBuoy,
   MessageSquare,
   Receipt,
@@ -27,6 +28,12 @@ function SettingsLayout() {
       href: '/settings/chat',
       label: m['settings.nav.chat'](),
       icon: MessageSquare,
+      group,
+    },
+    {
+      href: '/settings/documents',
+      label: m['settings.nav.documents'](),
+      icon: LibraryBig,
       group,
     },
     {

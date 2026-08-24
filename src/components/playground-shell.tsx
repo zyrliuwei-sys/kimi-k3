@@ -61,7 +61,7 @@ export function PlaygroundShell({
     // h-svh + overflow-hidden locks the shell to the viewport so each
     // playground page scrolls inside its OWN track (the image wall, the
     // chat thread) instead of growing the window scrollbar.
-    <div className="flex h-svh w-full overflow-hidden">
+    <div className="flex h-svh w-full overflow-hidden bg-white">
       <AceternitySidebar open={open} setOpen={setOpen}>
         <AceternitySidebarBody className="justify-between gap-6">
           {/* Top: brand + nav + session list. min-h-0 lets this column
@@ -110,7 +110,9 @@ export function PlaygroundShell({
       </AceternitySidebar>
       {/* Main content area. min-w-0 lets it shrink below its content's
           min-content width; min-h-0 lets its scroll track work. */}
-      <main className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</main>
+      <main className="min-h-0 min-w-0 flex-1 overflow-hidden bg-white">
+        {children}
+      </main>
     </div>
   );
 }
