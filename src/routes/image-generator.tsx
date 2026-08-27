@@ -12,7 +12,7 @@ import { PlaygroundShell } from '@/components/playground-shell';
 const IMAGE_GENERATOR_TITLE =
   'Free AI Image Generator | Kimi K3 - Create Images Online';
 const IMAGE_GENERATOR_DESCRIPTION =
-  'Generate images free with Kimi K3 AI image generator. Describe your idea and get HD images in seconds. Sign in for your first free image, up to 4 per prompt.';
+  'Generate images free with Kimi K3 AI image generator. Describe your idea and get HD images in seconds. Sign in for 2 free image generations.';
 const IMAGE_GENERATOR_CANONICAL = 'https://www.kimik3.net/image-generator';
 const IMAGE_GENERATOR_STRUCTURED_DATA = {
   '@context': 'https://schema.org',
@@ -35,7 +35,12 @@ export const Route = createFileRoute('/image-generator')({
     // Returning false here serializes it as `?autoSubmit=false`, creating a
     // needless redirect/canonical duplicate for the bare route. Keep the
     // parameter only for the one URL-driven submit state we support.
-    autoSubmit: search.autoSubmit === '1' ? true : undefined,
+    autoSubmit:
+      search.autoSubmit === '1' ||
+      search.autoSubmit === 'true' ||
+      search.autoSubmit === true
+        ? true
+        : undefined,
   }),
   head: () => ({
     meta: [

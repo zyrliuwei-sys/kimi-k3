@@ -343,12 +343,6 @@ interface FooterLink {
 }
 
 export function Footer() {
-  const product: FooterLink[] = [
-    { label: m['landing.footer.product_features'](), href: '/#showcase' },
-    { label: m['landing.footer.product_pricing'](), href: '/pricing' },
-    { label: m['landing.footer.product_teams'](), href: '/settings' },
-    { label: m['landing.footer.product_apikeys'](), href: '/settings/apikeys' },
-  ];
   // Contact is a `mailto:` so the user's mail client opens with a
   // pre-filled subject — gives them a one-click way to reach a human
   // without leaving the page (or setting up a /tickets inbox).
@@ -365,12 +359,6 @@ export function Footer() {
     },
     { label: m['landing.footer.company_privacy'](), href: '/privacy-policy' },
     { label: m['landing.footer.company_terms'](), href: '/terms-of-service' },
-  ];
-  const resources: FooterLink[] = [
-    { label: m['landing.footer.resources_docs'](), href: '/#showcase' },
-    { label: m['landing.footer.resources_changelog'](), href: '/blog' },
-    { label: m['landing.footer.resources_status'](), href: '/' },
-    { label: m['landing.footer.resources_signin'](), href: '/sign-in' },
   ];
   return (
     <footer className="relative overflow-hidden bg-neutral-950 px-4 py-10 text-neutral-300 md:px-8">
@@ -396,26 +384,7 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-6">
-          {/* Product */}
-          <div className="col-span-1">
-            <h3 className="text-sm font-semibold text-neutral-100">
-              {m['landing.footer.col_product']()}
-            </h3>
-            <ul className="mt-4 space-y-2">
-              {product.map((link) => (
-                <li key={link.label}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
-                  >
-                    {link.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
+        <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
           {/* Company */}
           <div className="col-span-1">
             <h3 className="text-sm font-semibold text-neutral-100">
@@ -448,27 +417,8 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Resources */}
-          <div className="col-span-1">
-            <h3 className="text-sm font-semibold text-neutral-100">
-              {m['landing.footer.col_resources']()}
-            </h3>
-            <ul className="mt-4 space-y-2">
-              {resources.map((link) => (
-                <li key={link.label}>
-                  <Link
-                    href={link.href}
-                    className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
-                  >
-                    {link.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
           {/* Brand + locale */}
-          <div className="col-span-2 mt-8 md:col-span-3 lg:col-span-3 lg:mt-0">
+          <div className="col-span-1 mt-8 md:col-span-1 lg:col-span-3 lg:mt-0">
             <div className="flex items-center gap-2">
               <Link href="/" className="flex items-center gap-2">
                 <img

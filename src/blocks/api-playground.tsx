@@ -71,14 +71,18 @@ import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { getLocale } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
+import { Pricing } from '@/blocks/pricing';
 import { ClonePreview } from '@/components/clone-preview';
 import { ImageStreamHero } from '@/components/image-stream-hero';
 import { MarkdownContent } from '@/components/markdown-content';
-import {
-  PaymentProviderModal,
-  type PaymentProvider,
-} from '@/components/payment-provider-modal';
 import { Button, buttonVariants } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   InputGroup,
   InputGroupAddon,
@@ -846,7 +850,10 @@ export function ApiPlayground() {
           onDelta: (delta) => pushOrAppend(delta),
           onGate: (status) => {
             setIsThinking(false);
-            if (status === 'pay' && needsAuth === false) {
+            if (status === 'payment_required' && needsAuth === false) {
+              // Credit exhaustion is a billing gate, not an assistant reply.
+              // Open the pricing selector so the user can choose a pack or
+              // subscription and keep the draft available for retry.
               setBillingOpen(true);
               return;
             }
@@ -867,6 +874,25 @@ export function ApiPlayground() {
           },
           onError: (msg) => {
             setIsThinking(false);
+            // Persistent chat reports exhausted credits as an error frame
+            // (the stateless playground uses a dedicated gate frame). Treat
+            // both paths identically: restore the draft and open checkout
+            // instead of rendering `payment_required` as assistant text.
+            if (
+              msg === 'payment_required' ||
+              /insufficient(?: paid)? credits|payment required/i.test(msg)
+            ) {
+              setMessages((prev) =>
+                prev.filter(
+                  (message) =>
+                    message.id !== userMsg.id && message.id !== assistantId
+                )
+              );
+              setInput(text);
+              setAttachments(submittedAttachments);
+              setBillingOpen(true);
+              return;
+            }
             setMessages((prev) => [
               ...prev,
               {
@@ -945,7 +971,7 @@ export function ApiPlayground() {
             className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
           >
             <div className="mx-auto w-full max-w-3xl flex-1 px-4">
-              <div className="space-y-6 py-6">
+              <div className="space-y-6 pt-16 pb-6">
                 {messages.map((msg) => (
                   <MessageBubble key={msg.id} message={msg} />
                 ))}
@@ -1099,9 +1125,10 @@ function AuthPromptDialog({
 }
 
 /**
- * Shared checkout prompt for every paid playground action. Keeping the
- * checkout configuration here makes the chat and image gates behave exactly
- * alike instead of leaving one of them as a toast or an inline message.
+ * Shared pricing selector for every paid playground action. It renders the
+ * same complete plan chooser as the marketing homepage, so users can select
+ * a credit pack or subscription before checkout instead of being funnelled
+ * into a single provider-specific purchase.
  */
 function PlaygroundPaymentDialog({
   open,
@@ -1110,42 +1137,22 @@ function PlaygroundPaymentDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const [loadingProvider, setLoadingProvider] =
-    useState<PaymentProvider | null>(null);
-
   return (
-    <PaymentProviderModal
-      open={open}
-      onOpenChange={(nextOpen) => {
-        onOpenChange(nextOpen);
-        if (!nextOpen) setLoadingProvider(null);
-      }}
-      providers={['creem']}
-      loadingProvider={loadingProvider}
-      title={m['playground.payment_required.title']()}
-      description={m['playground.payment_required.description']()}
-      onSelect={async (provider) => {
-        setLoadingProvider(provider);
-        try {
-          const result = await apiPost<{ checkout_url?: string }>(
-            '/api/payment/checkout',
-            {
-              plan_id: 'starter',
-              payment_provider: provider,
-            }
-          );
-          if (result.checkout_url) {
-            window.location.href = result.checkout_url;
-            return;
-          }
-          toast.error('Failed to open checkout');
-        } catch {
-          toast.error('Failed to open checkout');
-        } finally {
-          setLoadingProvider(null);
-        }
-      }}
-    />
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] w-[calc(100vw-1rem)] !max-w-[640px] overflow-x-hidden overflow-y-auto p-0 sm:w-[calc(100vw-2rem)]">
+        <DialogHeader className="sr-only">
+          <DialogTitle>{m['playground.payment_required.title']()}</DialogTitle>
+          <DialogDescription>
+            {m['playground.payment_required.description']()}
+          </DialogDescription>
+        </DialogHeader>
+        <Pricing
+          embedded
+          title={m['playground.payment_required.title']()}
+          description={m['playground.payment_required.description']()}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1872,6 +1879,17 @@ export function ChatPlayground() {
     enabled: !!activeChatId,
   });
 
+  // Refresh access before sending so an exhausted trial opens checkout on
+  // the click itself, instead of first painting a user message and then
+  // waiting for the streaming endpoint to reject it.
+  const chatCreditsQuery = useQuery({
+    queryKey: ['credits', 'chat-access'],
+    queryFn: () =>
+      apiGet<{ balance: number; chatAccess: boolean }>('/api/credits'),
+    enabled: !!session?.user,
+    staleTime: 0,
+  });
+
   // When the active chat resolves, hydrate local messages + scroll. Never let
   // an initial empty response replace a turn that is currently streaming: a
   // new chat is created before its first message is persisted, so that race
@@ -2100,6 +2118,18 @@ export function ChatPlayground() {
     if (!text && submittedAttachments.length === 0) return;
     if (isThinking) return;
 
+    // Use the last known access result synchronously so Enter/click feels
+    // immediate. A confirmed exhausted account opens checkout now; otherwise
+    // the stream starts without waiting for a balance round-trip. The server
+    // remains the authoritative gate, while this refresh runs in background.
+    if (chatCreditsQuery.data && !chatCreditsQuery.data.chatAccess) {
+      setBillingOpen(true);
+      return;
+    }
+    void chatCreditsQuery.refetch().catch(() => {
+      // The streaming endpoint remains the authoritative fallback.
+    });
+
     let chatId = activeChatId;
     // Skip the lazy-create for anonymous visitors — `/api/chat` POST
     // requires auth (returns `{code:-1, message:"Unauthorized"}`), which
@@ -2216,10 +2246,47 @@ export function ChatPlayground() {
             );
             setInput(text);
             setAttachments(submittedAttachments);
+            queryClient.setQueryData(
+              ['credits', 'chat-access'],
+              (
+                current: { balance: number; chatAccess: boolean } | undefined
+              ) =>
+                current
+                  ? { ...current, balance: 0, chatAccess: false }
+                  : current
+            );
             setBillingOpen(true);
           },
           onError: (msg) => {
             setIsThinking(false);
+            // A persistent chat can surface exhausted trial/paid credits as
+            // an SSE error frame (rather than a gate frame). Do not append
+            // that internal marker to the transcript; restore the draft and
+            // open the same pricing panel used by the gate path.
+            if (
+              msg === 'payment_required' ||
+              /insufficient(?: paid)? credits|payment required/i.test(msg)
+            ) {
+              setMessages((prev) =>
+                prev.filter(
+                  (message) =>
+                    message.id !== userMsg.id && message.id !== assistantId
+                )
+              );
+              setInput(text);
+              setAttachments(submittedAttachments);
+              queryClient.setQueryData(
+                ['credits', 'chat-access'],
+                (
+                  current: { balance: number; chatAccess: boolean } | undefined
+                ) =>
+                  current
+                    ? { ...current, balance: 0, chatAccess: false }
+                    : current
+              );
+              setBillingOpen(true);
+              return;
+            }
             setMessages((prev) => [
               ...prev,
               {
@@ -2238,6 +2305,9 @@ export function ChatPlayground() {
               queryClient.invalidateQueries({ queryKey: ['chat', chatId] });
               queryClient.invalidateQueries({ queryKey: ['chats'] });
             }
+            queryClient.invalidateQueries({
+              queryKey: ['credits', 'chat-access'],
+            });
           },
         }
       );
@@ -2290,7 +2360,7 @@ export function ChatPlayground() {
             className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
           >
             <div className="mx-auto w-full max-w-3xl flex-1 px-4">
-              <div className="space-y-6 py-6">
+              <div className="space-y-6 pt-16 pb-6">
                 {messages.map((msg) => (
                   <MessageBubble key={msg.id} message={msg} />
                 ))}
@@ -3307,10 +3377,7 @@ function ImageModelSelect({
         className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors"
         aria-label={m['playground.image.model_label']()}
       >
-        <span>
-          {active.label}
-          {active.value === 'gpt-image-2' ? ' · Low' : null}
-        </span>
+        <span>{active.label}</span>
         <ChevronDown
           className={cn('size-3 transition-transform', open && 'rotate-180')}
         />
@@ -4509,9 +4576,9 @@ export function ImagePlayground({
   const [prompt, setPrompt] = useState(initialPrompt);
   const [isReferenceDragging, setIsReferenceDragging] = useState(false);
   const referenceDragDepthRef = useRef(0);
-  // Reference images for img2img. Up to MAX_REFERENCES images; the
-  // server picks the first one for the request body. Each chip has its
-  // own note input so the user can describe what that specific image
+  // Reference images for img2img. Up to MAX_REFERENCES images are sent with
+  // the request. Each chip has its own note input so the user can describe
+  // what that specific image
   // represents ("图1 是海", "图3 是山").
   const [references, setReferences] = useState<
     Array<{
@@ -4527,6 +4594,9 @@ export function ImagePlayground({
   // request. `null` means closed.
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const MAX_REFERENCES = 10;
+  // Update immediately after each free request so a third click can open
+  // billing without waiting for the balance query to refetch.
+  const [freeTrialGenerationsUsed, setFreeTrialGenerationsUsed] = useState(0);
   const [pollingTaskId, setPollingTaskId] = useState<string | null>(null);
   // Covers the short handoff from the public page click to the moment the API
   // returns a durable task id. Seed it from the URL handoff so the destination
@@ -4607,6 +4677,20 @@ export function ImagePlayground({
     // Only fetch when the user actually opens the My Images tab.
     enabled: tab === 'mine',
     staleTime: 30_000,
+  });
+
+  // Keep the balance fresh so an exhausted account is sent to checkout on
+  // the generate click, instead of first painting a fake processing tile and
+  // waiting for the API to reject the request.
+  const creditsQuery = useQuery({
+    queryKey: ['credits', 'balance'],
+    queryFn: () =>
+      apiGet<{
+        balance: number;
+        imageFirstFreeAvailable?: boolean;
+      }>('/api/credits'),
+    enabled: !!session?.user,
+    staleTime: 2_000,
   });
 
   // The task list is newest-first at the API boundary but is rendered oldest
@@ -4826,9 +4910,15 @@ export function ImagePlayground({
         })(),
       };
       if (references[0]?.url) body.referenceUrl = references[0].url;
-      // Every image request produces a single result. Variations are made
-      // through the per-result regenerate action, rather than a batch-size
-      // control that obscures the price and can exceed the user's balance.
+      if (references.length) {
+        body.referenceUrls = references
+          .map((reference) => reference.url)
+          .filter(Boolean)
+          .slice(0, MAX_REFERENCES);
+      }
+      // Paid requests produce one result. The server expands an eligible
+      // first-free request to two 1K images; keeping this client value at 1
+      // prevents callers from turning paid generation into an unpriced batch.
       body.n = 1;
       body.size = aspectRatio;
       return apiPost<{
@@ -4840,6 +4930,7 @@ export function ImagePlayground({
         // gateway supplied an ETA. The LATEST RESULT panel uses this
         // to show a "Generating… Ns / ~Ms" countdown.
         estimatedSeconds?: number;
+        reason?: 'first_free' | 'standard';
         task?: any;
       }>('/api/ai-tasks', body);
     },
@@ -4850,6 +4941,9 @@ export function ImagePlayground({
       return submission;
     },
     onSuccess: (data, _variables, context) => {
+      if (data.reason === 'first_free') {
+        setFreeTrialGenerationsUsed((used) => Math.min(1, used + 1));
+      }
       const submittedPrompt = context?.prompt || _variables.prompt;
       setSubmittingImage((current) =>
         current?.id === context?.id ? null : current
@@ -4914,6 +5008,7 @@ export function ImagePlayground({
       // time this refetch resolves, so the user perceives no delay.
       queryClient.invalidateQueries({ queryKey: ['image-tasks'] });
       queryClient.invalidateQueries({ queryKey: ['image-tasks', 'mine'] });
+      queryClient.invalidateQueries({ queryKey: ['credits', 'balance'] });
       if (data.status === 'success') {
         toast.success(m['playground.image.generated']());
       }
@@ -4971,6 +5066,20 @@ export function ImagePlayground({
       // unsigned user is never left looking at a fake, permanent generation.
       if (autoSubmit) setSubmittingImage(null);
       setAuthOpen(true);
+      return;
+    }
+
+    const canUseFirstFreeImage =
+      creditsQuery.data?.imageFirstFreeAvailable === true &&
+      freeTrialGenerationsUsed < 1 &&
+      imageResolution === '1K' &&
+      references.length === 0;
+    if (
+      creditsQuery.data &&
+      Number(creditsQuery.data.balance) <= 0 &&
+      !canUseFirstFreeImage
+    ) {
+      setBillingOpen(true);
       return;
     }
 
@@ -5565,13 +5674,13 @@ export function ImagePlayground({
 
             <div className="flex items-center gap-1 px-1 pb-1">
               <label
-                // Hide only while a previous paste/upload is in flight.
-                // The + stays visible (disabled-looking) when the cap is
-                // hit so the user can still see the affordance.
+                // Keep the + visible while an upload is in flight so users
+                // can see that more reference images can be added. The
+                // interaction is paused until the current batch completes.
                 className={cn(
                   'inline-flex size-9 items-center justify-center rounded-full transition-colors',
                   uploadingReference
-                    ? 'pointer-events-none hidden'
+                    ? 'text-muted-foreground/40 pointer-events-none cursor-wait'
                     : references.length >= MAX_REFERENCES
                       ? 'text-muted-foreground/40 pointer-events-none cursor-not-allowed'
                       : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground cursor-pointer'

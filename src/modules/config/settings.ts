@@ -296,7 +296,7 @@ export function getSettings(): Setting[] {
     // the product work, tight enough to nudge toward the paywall.
     //
     // Image generation is priced above the bonus on purpose (~10 cr for a
-    // 1024×1024 render), so the first image is handed out as a separate
+    // 1024×1024 render), so the first two images are handed out as a separate
     // one-shot trial instead — see `image_first_free` on the AI tab. Net
     // first-run allowance: 5 credits + 1 image; the second image is paid.
     //
@@ -1015,7 +1015,7 @@ export function getSettings(): Setting[] {
       title: 'First image free per user',
       type: 'switch',
       defaultValue: 'true',
-      tip: "Skip the credit deduction for a user's first image generation (acquisition funnel). Only applies to 1 image at base resolution with no reference image; the second generation is charged normally. Failed attempts don't burn the trial.",
+      tip: "Skip the credit deduction for a user's first 2 eligible image generations (acquisition funnel). Each request returns 1 free 1K image with no reference image; later generations are charged normally. Failed attempts don't burn the trial.",
       group: 'evolink',
       tab: 'ai',
     },

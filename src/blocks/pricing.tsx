@@ -18,8 +18,6 @@ import {
 
 type BillingMode = 'packs' | 'monthly' | 'yearly';
 
-const PAYPAL_PROVIDER = 'paypal';
-
 const FEATURE_CHECK = { icon: Check, label: '' };
 
 function feat(iconComponent: any, label: string) {
@@ -184,7 +182,16 @@ function buildBoostPackFeatures(
   ];
 }
 
-export function Pricing({ title }: { title?: string } = {}) {
+export function Pricing({
+  title,
+  description,
+  embedded = false,
+}: {
+  title?: string;
+  description?: string;
+  /** Render the full pricing selector inside another surface, such as a paywall dialog. */
+  embedded?: boolean;
+} = {}) {
   const router = useRouter();
   const { data: session } = useSession();
   // Three tabs: left = one-time packs, middle = monthly, right = yearly.
@@ -428,7 +435,6 @@ export function Pricing({ title }: { title?: string } = {}) {
         // Server reads the catalog and decides type itself.
         description: plan.name,
         credits: plan.credits,
-        payment_provider: PAYPAL_PROVIDER,
       }),
     onSuccess: (data) => {
       if (!data?.checkout_url) {
@@ -455,10 +461,98 @@ export function Pricing({ title }: { title?: string } = {}) {
     checkoutMutation.mutate(plan);
   }
 
+  if (embedded) {
+    const activePlans = groups[0]?.plans ?? [];
+    return (
+      <div className="w-full bg-white px-4 pt-4 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
+        <div className="relative top-2 mb-4 flex items-start justify-between gap-4">
+          <div className="w-full">
+            <p className="text-muted-foreground text-center text-sm leading-normal whitespace-nowrap">
+              {description ?? m['landing.pricing.description']()}
+            </p>
+          </div>
+        </div>
+
+        <div className="relative top-2">
+          <BillingModeToggle value={mode} onChange={setMode} compact />
+        </div>
+
+        <div className="grid gap-2.5">
+          {activePlans.map((plan) => {
+            const isYearly = mode === 'yearly';
+            return (
+              <div
+                key={plan.id}
+                className={cn(
+                  'group relative rounded-2xl border p-3.5 transition-colors',
+                  plan.featured
+                    ? 'border-foreground bg-foreground text-background'
+                    : 'border-border bg-card hover:border-foreground/30'
+                )}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-semibold">{plan.name}</h3>
+                      {plan.badge ? (
+                        <span
+                          className={cn(
+                            'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                            plan.featured
+                              ? 'bg-background/15 text-background/80'
+                              : 'bg-foreground/8 text-muted-foreground'
+                          )}
+                        >
+                          {plan.badge}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p
+                      className={cn(
+                        'mt-0.5 text-xs',
+                        plan.featured
+                          ? 'text-background/60'
+                          : 'text-muted-foreground'
+                      )}
+                    >
+                      {plan.credits.toLocaleString()} Credits
+                      {isYearly ? ' / year' : ''}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-lg font-semibold tracking-tight">
+                      {plan.price}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCheckout(plan)}
+                    disabled={checkoutMutation.isPending}
+                    className={cn(
+                      'shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold transition-transform active:scale-95 disabled:opacity-50',
+                      plan.featured
+                        ? 'bg-background text-foreground hover:bg-background/90'
+                        : 'bg-foreground text-background hover:bg-foreground/90'
+                    )}
+                  >
+                    {plan.buttonText}
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <section
-      id="pricing"
-      className="border-border border-t px-4 py-24 sm:py-32"
+      id={embedded ? undefined : 'pricing'}
+      className={cn(
+        !embedded && 'border-border border-t px-4 py-24 sm:py-32',
+        embedded && 'px-4 py-8 sm:px-8 sm:py-10'
+      )}
     >
       <div className="mx-auto max-w-5xl">
         <div className="mb-10 text-center">
@@ -466,7 +560,7 @@ export function Pricing({ title }: { title?: string } = {}) {
             {title ?? m['landing.pricing.title']()}
           </h2>
           <p className="text-muted-foreground mt-5 text-left">
-            {m['landing.pricing.description']()}
+            {description ?? m['landing.pricing.description']()}
           </p>
         </div>
 
@@ -484,9 +578,11 @@ export function Pricing({ title }: { title?: string } = {}) {
 function BillingModeToggle({
   value,
   onChange,
+  compact = false,
 }: {
   value: BillingMode;
   onChange: (v: BillingMode) => void;
+  compact?: boolean;
 }) {
   const options: { key: BillingMode; label: () => string }[] = [
     { key: 'packs', label: () => m['landing.pricing.group.onetime']() },
@@ -495,8 +591,13 @@ function BillingModeToggle({
   ];
 
   return (
-    <div className="mb-10 flex justify-center">
-      <div className="border-border bg-muted/40 inline-flex items-center rounded-full border p-1 text-sm">
+    <div className={cn('flex justify-center', compact ? 'mb-8' : 'mb-10')}>
+      <div
+        className={cn(
+          'border-border bg-muted/40 inline-flex items-center rounded-full border p-1',
+          compact ? 'text-xs' : 'text-sm'
+        )}
+      >
         {options.map((opt) => {
           const active = value === opt.key;
           const isYearly = opt.key === 'yearly';
@@ -506,7 +607,8 @@ function BillingModeToggle({
               type="button"
               onClick={() => onChange(opt.key)}
               className={cn(
-                'rounded-full px-5 py-1.5 font-medium transition-colors',
+                'rounded-full font-medium transition-colors',
+                compact ? 'px-4 py-1' : 'px-5 py-1.5',
                 isYearly && 'inline-flex items-center gap-2',
                 active
                   ? 'bg-background text-foreground shadow-sm'
@@ -515,7 +617,14 @@ function BillingModeToggle({
             >
               {opt.label()}
               {isYearly && (
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs text-emerald-700 dark:text-emerald-300">
+                <span
+                  className={cn(
+                    'rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+                    compact
+                      ? 'px-1.5 py-0.5 text-[10px]'
+                      : 'px-2 py-0.5 text-xs'
+                  )}
+                >
                   {m['landing.pricing.period.save_badge']()}
                 </span>
               )}

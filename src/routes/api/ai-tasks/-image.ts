@@ -47,8 +47,8 @@ type ImageModelChoice = (typeof IMAGE_MODELS)[number];
  *           polling id. We mark the task PROCESSING and return; the
  *           caller polls `/api/ai-tasks/$id` every 2s.
  *
- * Reference image (img2img): the UI accepts multiple references, but one
- * request currently sends the first URL to keep the pricing predictable.
+ * Reference images (img2img): up to ten image URLs may be sent in one
+ * request. The provider decides how many it can use for the selected model.
  */
 export async function postImageTask({
   request: _request,
@@ -69,9 +69,18 @@ export async function postImageTask({
     typeof body?.referenceUrl === 'string' && body.referenceUrl
       ? body.referenceUrl
       : undefined;
-  // One request always creates one image. Users can regenerate a prompt for
-  // another variation, but cannot turn a single request into a multi-image
-  // batch (which made pricing and first-run failures confusing).
+  const referenceUrls = Array.isArray(body?.referenceUrls)
+    ? body.referenceUrls
+        .filter(
+          (url: unknown): url is string =>
+            typeof url === 'string' && url.length > 0
+        )
+        .slice(0, 10)
+    : referenceUrl
+      ? [referenceUrl]
+      : [];
+  // Every request produces exactly one image. The server owns this value so
+  // callers cannot turn a paid request into an unpriced batch.
   const n = 1;
   const requestedModel = String(body?.model ?? 'gpt-image-2');
   if (!IMAGE_MODELS.includes(requestedModel as ImageModelChoice)) {
@@ -120,21 +129,25 @@ export async function postImageTask({
   // First-image-free trial (`image_first_free`, default on). The signup
   // bonus is 5 credits and one image costs ~10, so without this a brand-new
   // account would hit the paywall on its very first click. Free only for the
-  // cheap shape (1 image, any aspect ratio, no reference — see
-  // `isFreeTrialShape`) and only until the user's first non-failed image
-  // task exists. The free trial always uses 1K upstream, even when the
-  // client selected 2K or 4K. Every later request requires paid credits.
+  // cheap shape (no reference; see `isFreeTrialShape`) and only until the
+  // the user's first non-failed image task exists. The free trial produces
+  // one image at 1K, even when the client selected 2K or 4K. Every later
+  // request remains a paid, single-image generation.
   //
   // Race note: two concurrent submits can both read zero prior tasks and
   // both go free. The window is one request round-trip and the blast radius
   // is a single extra image (~$0.03), so this isn't worth a lock.
   let costCredits = standardCost;
   let pricingReason: 'first_free' | 'standard' = 'standard';
-  if (
+  const isFirstFreeTrial =
     readImageFirstFree(configs) &&
-    isFreeTrialShape({ n, size: rawSize, hasReference: !!referenceUrl }) &&
-    (await countUserActiveTasks(session.user.id, AIMediaType.IMAGE)) === 0
-  ) {
+    isFreeTrialShape({
+      n,
+      size: rawSize,
+      hasReference: !!referenceUrl,
+    }) &&
+    (await countUserActiveTasks(session.user.id, AIMediaType.IMAGE)) === 0;
+  if (isFirstFreeTrial) {
     costCredits = 0;
     pricingReason = 'first_free';
     resolution = '1K';
@@ -152,6 +165,7 @@ export async function postImageTask({
       prompt,
       options: {
         model,
+        n,
         resolution,
         aspectRatio: rawSize,
         pricing: {
@@ -161,7 +175,7 @@ export async function postImageTask({
         ...(referenceUrl ? { image: referenceUrl } : {}),
       },
       costCredits,
-      // The signup bonus is only for the single trial image. Subsequent
+      // The signup bonus is separate from the two-generation image trial. Subsequent
       // generations must use paid credits, which causes the client to open
       // the checkout/pricing dialog when none are available.
       paidOnly: pricingReason !== 'first_free',
@@ -209,7 +223,7 @@ export async function postImageTask({
       // editing; older models take a single `image` string. The
       // provider picks the right shape per model — see evolink-image
       // submit() body construction.
-      referenceUrls: referenceUrl ? [referenceUrl] : undefined,
+      referenceUrls: referenceUrls.length ? referenceUrls : undefined,
     });
 
     // ── Sync path ────────────────────────────────────────────────────
@@ -223,11 +237,15 @@ export async function postImageTask({
     // the permanent URLs and bust the cache, so any later refresh
     // sees the durable link instead of the (24h-TTL) provider URL.
     if (result.mode === 'sync') {
-      const providerUrls = result.imageUrls;
+      // Enforce the requested output count even if a gateway response
+      // contains extra URLs despite `n=1`.
+      const providerUrls = result.imageUrls.slice(0, n);
       const taskResult = {
         remoteTaskId: result.taskId,
         imageUrls: providerUrls,
         provider: pick.name,
+        model,
+        n,
         resolution,
       };
       await updateTask({
@@ -282,6 +300,8 @@ export async function postImageTask({
         costCredits,
         standardCost,
         reason: pricingReason,
+        model,
+        n,
         resolution,
         // Pass the task row we already have (model, prompt, etc.) so
         // the client can render the active image without a follow-up
@@ -305,6 +325,7 @@ export async function postImageTask({
         provider: pick.name,
         referenceUrl,
         model,
+        n,
         resolution,
         // Persist the gateway estimate alongside the remote id so the
         // polling endpoint can re-surface it on every poll and the UI
@@ -323,6 +344,8 @@ export async function postImageTask({
       costCredits,
       standardCost,
       reason: pricingReason,
+      model,
+      n,
       resolution,
       // Surface the estimate to the client immediately so the UI can
       // show a real countdown from the very first frame after submit.

@@ -140,9 +140,8 @@ export function readImageFirstFree(configs: Record<string, string>): boolean {
 }
 
 /**
- * Shape gate for the free trial: one image and no reference image. Aspect
- * ratio is intentionally not restricted; the server forces the output
- * resolution to 1K for the one free request, while preserving the user's
+ * Shape gate for the free trial: a normal single-image request with no
+ * reference image. The server forces 1K output while preserving the user's
  * chosen composition.
  *
  */

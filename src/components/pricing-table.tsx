@@ -158,7 +158,7 @@ function PricingCard({
   return (
     <div
       className={cn(
-        'flex w-full flex-col rounded-3xl p-2',
+        'flex w-full min-w-0 flex-col overflow-hidden rounded-3xl p-2',
         isFeatured
           ? 'bg-neutral-900 dark:bg-neutral-100'
           : 'bg-neutral-50 dark:bg-neutral-800'
@@ -200,7 +200,7 @@ function PricingCard({
         {plan.description && (
           <p
             className={cn(
-              'mt-2 text-sm text-balance lg:text-base',
+              'mt-2 min-w-0 text-sm text-balance break-words lg:text-base',
               isFeatured
                 ? 'text-neutral-400 dark:text-neutral-600'
                 : 'text-neutral-500 dark:text-neutral-400'
@@ -227,7 +227,7 @@ function PricingCard({
           </span>
         )}
 
-        <div className="flex items-baseline-last gap-2">
+        <div className="flex min-w-0 flex-wrap items-baseline-last gap-2">
           <span
             className={cn(
               'text-2xl font-medium tracking-tight md:text-3xl lg:text-6xl',
