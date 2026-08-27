@@ -1,3 +1,5 @@
+import { Facebook, Github, Instagram, Linkedin, Twitter } from 'lucide-react';
+
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
@@ -360,101 +362,77 @@ export function Footer() {
     { label: m['landing.footer.company_privacy'](), href: '/privacy-policy' },
     { label: m['landing.footer.company_terms'](), href: '/terms-of-service' },
   ];
+  const nav = [
+    { label: m['landing.footer.product_pricing'](), href: '/pricing' },
+    { label: m['landing.footer.company_blog'](), href: '/blog' },
+    { label: m['landing.footer.company_privacy'](), href: '/privacy-policy' },
+    { label: m['landing.footer.company_terms'](), href: '/terms-of-service' },
+  ];
+  const socials = [
+    { label: 'Twitter', icon: Twitter, href: 'https://twitter.com' },
+    { label: 'LinkedIn', icon: Linkedin, href: 'https://linkedin.com' },
+    { label: 'GitHub', icon: Github, href: 'https://github.com' },
+    { label: 'Facebook', icon: Facebook, href: 'https://facebook.com' },
+    { label: 'Instagram', icon: Instagram, href: 'https://instagram.com' },
+  ];
+
   return (
-    <footer className="relative overflow-hidden bg-neutral-950 px-4 py-10 text-neutral-300 md:px-8">
-      <div className="mx-auto max-w-7xl">
-        {/* Duplicate the row for a gapless marquee. The leading copy is
-            decorative; the canonical links remain available exactly once to
-            keyboard and assistive-technology users. */}
-        <div className="footer-badge-marquee -mx-4 mb-12 overflow-hidden px-4 md:-mx-8 md:px-8">
-          <div className="animate-footer-badges flex w-max items-center">
-            <div
-              aria-hidden="true"
-              className="flex shrink-0 items-center gap-6 pr-6"
+    <footer className="relative w-full overflow-hidden border-t border-neutral-800 bg-neutral-950 px-6 pt-14 text-neutral-400 sm:px-10 sm:pt-16">
+      <div className="mx-auto flex max-w-7xl flex-col items-center text-center">
+        <Link href="/" className="mb-5 inline-flex items-center gap-2">
+          <img
+            src={envConfigs.app_logo}
+            alt="kimik3"
+            width={30}
+            height={30}
+            className="size-7 rounded-lg"
+          />
+          <span className="text-base font-semibold tracking-tight text-white">
+            kimik3
+          </span>
+        </Link>
+        <p className="max-w-xl text-sm leading-6 text-neutral-400">
+          {m['landing.footer.tagline']()}
+        </p>
+
+        <nav className="mt-7 flex flex-wrap justify-center gap-x-7 gap-y-3 text-sm text-neutral-300">
+          {nav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="transition-colors hover:text-white"
             >
-              {FOOTER_BADGES.map((b, i) => (
-                <Badge key={`duplicate-${b.href}-${i}`} b={b} decorative />
-              ))}
-            </div>
-            <div className="flex shrink-0 items-center gap-6 pr-6">
-              {FOOTER_BADGES.map((b, i) => (
-                <Badge key={`${b.href}-${i}`} b={b} />
-              ))}
-            </div>
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+
+        <div className="mt-8 h-px w-full bg-white/10" />
+
+        <div className="mt-7 flex w-full flex-col items-center justify-between gap-5 text-base sm:flex-row">
+          <p className="text-neutral-400">
+            © {new Date().getFullYear()} kimik3 Team.{' '}
+            {m['landing.footer.rights']()}
+          </p>
+          <div className="flex items-center gap-4">
+            {socials.map(({ label, icon: Icon, href }) => (
+              <a
+                key={label}
+                href={href}
+                aria-label={label}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-neutral-500 transition-colors hover:text-neutral-950 dark:text-neutral-400 dark:hover:text-white"
+              >
+                <Icon className="size-5" />
+              </a>
+            ))}
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-2 lg:grid-cols-4">
-          {/* Company */}
-          <div className="col-span-1">
-            <h3 className="text-sm font-semibold text-neutral-100">
-              {m['landing.footer.col_company']()}
-            </h3>
-            <ul className="mt-4 space-y-2">
-              {company.map((link) => (
-                <li key={link.label}>
-                  {link.external ? (
-                    // Raw anchor for `mailto:` / external schemes —
-                    // the locale-aware Link would mangle them by
-                    // trying to prepend a locale prefix.
-                    <a
-                      href={link.href}
-                      className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
-                      {...link.externalProps}
-                    >
-                      {link.label}
-                    </a>
-                  ) : (
-                    <Link
-                      href={link.href}
-                      className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
-                    >
-                      {link.label}
-                    </Link>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Brand + locale */}
-          <div className="col-span-1 mt-8 md:col-span-1 lg:col-span-3 lg:mt-0">
-            <div className="flex items-center gap-2">
-              <Link href="/" className="flex items-center gap-2">
-                <img
-                  src={envConfigs.app_logo}
-                  alt="kimik3"
-                  width={32}
-                  height={32}
-                  className="size-8 rounded-lg"
-                />
-                <span className="text-lg font-bold text-neutral-100">
-                  kimik3
-                </span>
-              </Link>
-            </div>
-            <p className="mt-4 max-w-md text-left text-sm text-neutral-400">
-              {m['landing.footer.tagline']()}
-            </p>
-          </div>
+        <div className="pointer-events-none mt-12 w-full overflow-hidden text-center text-[clamp(4rem,16vw,13rem)] leading-[0.78] font-semibold tracking-[-0.08em] text-white/[0.08] select-none">
+          KIMIK3
         </div>
-
-        <div className="mt-12 flex flex-col gap-4 border-t border-neutral-800 pt-8 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
-            <p className="text-sm text-neutral-500">
-              © {new Date().getFullYear()} kimik3 Team.{' '}
-              {m['landing.footer.rights']()}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Big brand text — decorative, fades at the bottom */}
-      <div className="pointer-events-none relative mx-auto -mb-[11%] flex max-w-[1080px] items-center justify-center gap-2 px-4 pb-2 text-center text-[6rem] leading-none font-bold text-neutral-900 duration-200 ease-in-out sm:-mb-[7%] sm:text-[14rem] md:text-[11rem] lg:text-[14rem] xl:text-[20rem]">
-        <div className="animate-[pulse_4s_infinite] text-neutral-900 drop-shadow-xl drop-shadow-black/10">
-          kimik3 Team
-        </div>
-        <div className="absolute bottom-0 left-0 z-20 h-[20%] w-full bg-linear-to-b from-transparent via-neutral-950 to-neutral-950"></div>
       </div>
     </footer>
   );
