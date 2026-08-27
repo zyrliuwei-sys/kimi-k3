@@ -3229,28 +3229,29 @@ function BananaIcon({ className }: { className?: string }) {
   );
 }
 
-// Number of images to generate per submit. 1-4 — mirrors OpenAI's
-// `n` parameter and most provider implementations. Each image costs
-// the same number of credits, so the cost label multiplies by this.
-const IMAGE_COUNTS = [1, 2, 3, 4] as const;
-type ImageCount = (typeof IMAGE_COUNTS)[number];
+// Aspect ratio palette — derived from the shared `ASPECT_RATIOS` module so
+// client and server only ever submit upstream-supported ratio tokens.
+const RATIO_MENU = ASPECT_RATIOS;
 
-// Aspect ratio palette — derived from the shared `ASPECT_RATIOS`
-// module so the client and the server use the same pixel-size mapping.
-// A leading "" entry represents the "auto / let the model decide" state.
-type AspectRatio = {
-  value: string; // value sent to the provider (or '' for auto)
-  label: string; // label shown in the menu (with spaces, e.g. "1 : 1")
-  preview: string; // CSS width % for the inline swatch
-};
-const RATIO_MENU: AspectRatio[] = [
-  { value: '', label: 'auto', preview: '50%' },
-  ...ASPECT_RATIOS.map((r) => ({
-    value: r.value,
-    // Spaced label form ("1 : 1") matches the rest of the UI.
-    label: r.value.replace(/(\d+):(\d+)/, '$1 : $2'),
-    preview: `${r.preview}%`,
-  })),
+type ImageResolution = '1K' | '2K' | '4K';
+
+type ImageModelChoice = 'gpt-image-2' | 'nano-banana-2-beta';
+
+const IMAGE_MODEL_OPTIONS: Array<{
+  value: ImageModelChoice;
+  label: string;
+}> = [
+  { value: 'gpt-image-2', label: 'GPT Image 2' },
+  { value: 'nano-banana-2-beta', label: 'Nano Banana 2' },
+];
+
+const IMAGE_RESOLUTION_OPTIONS: Array<{
+  value: ImageResolution;
+  cost: number;
+}> = [
+  { value: '1K', cost: 3 },
+  { value: '2K', cost: 6 },
+  { value: '4K', cost: 9 },
 ];
 
 // Inline mini-swatch that mirrors the chosen ratio so the trigger
@@ -3290,76 +3291,71 @@ function RatioSwatch({ value, size = 16 }: { value: string; size?: number }) {
   );
 }
 
-/**
- * Image count picker — 1 to 4 images per submit. Each image costs
- * the same number of credits, so the toolbar cost label multiplies
- * by this value.
- */
-function ImageCountMenu({
+/** Compact model switcher — separate from, and immediately left of, size. */
+function ImageModelSelect({
   value,
   onChange,
 }: {
-  value: ImageCount;
-  onChange: (n: ImageCount) => void;
+  value: ImageModelChoice;
+  onChange: (model: ImageModelChoice) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const active = IMAGE_MODEL_OPTIONS.find((option) => option.value === value)!;
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors"
-        aria-label={m['playground.image.count_label']()}
+        className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors"
+        aria-label={m['playground.image.model_label']()}
       >
-        ×{value}
+        <span>{active.label}</span>
         <ChevronDown
           className={cn('size-3 transition-transform', open && 'rotate-180')}
         />
       </PopoverTrigger>
       <PopoverContent align="start" sideOffset={6} className="w-44 p-1">
-        <p className="text-foreground/40 px-2 py-1.5 text-[11px] font-semibold tracking-[0.08em] uppercase">
-          {m['playground.image.count_label']()}
-        </p>
-        {IMAGE_COUNTS.map((n) => (
-          <button
-            key={n}
-            type="button"
-            // Pick → close the popover so the toolbar returns to its
-            // resting state (matches ImageModelMenu below).
-            onClick={() => {
-              onChange(n);
-              setOpen(false);
-            }}
-            className={cn(
-              'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-              'hover:bg-foreground/5'
-            )}
-          >
-            <span className="font-mono text-xs">×{n}</span>
-            <span className="text-muted-foreground text-xs">
-              {n === 1
-                ? m['playground.image.count_one']()
-                : m['playground.image.count_many']({ count: n })}
-            </span>
-            {n === value ? (
-              <Check className="text-foreground ml-auto size-3.5" />
-            ) : null}
-          </button>
-        ))}
+        {IMAGE_MODEL_OPTIONS.map((option) => {
+          const selected = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              aria-pressed={selected}
+              onClick={() => {
+                onChange(option.value);
+                setOpen(false);
+              }}
+              className={cn(
+                'hover:bg-foreground/5 flex w-full items-center rounded-md px-2.5 py-2 text-left text-xs font-medium transition-colors',
+                selected && 'bg-foreground/[0.06]'
+              )}
+            >
+              {option.label}
+              {selected ? (
+                <Check className="text-foreground ml-auto size-3.5" />
+              ) : null}
+            </button>
+          );
+        })}
       </PopoverContent>
     </Popover>
   );
 }
 
 /**
- * Aspect ratio picker — 12 options including "Smart" (let the model
- * decide). The chosen ratio is sent to the provider via `size` so the
- * output dimensions match the user's intent.
+ * Aspect ratio picker. The selected frame is retained with the task and is
+ * passed to either automatic model route in its native ratio form.
  */
 function AspectRatioMenu({
   value,
   onChange,
+  resolution,
+  onResolutionChange,
 }: {
-  value: string; // '' = Smart
+  value: string;
   onChange: (ratio: string) => void;
+  resolution: ImageResolution;
+  onResolutionChange: (resolution: ImageResolution) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -3370,9 +3366,7 @@ function AspectRatioMenu({
       >
         <RatioSwatch value={value} size={14} />
         <span className="font-mono">
-          {value
-            ? value.replace(':', ' : ')
-            : m['playground.image.aspect_smart']()}
+          {value} / {resolution}
         </span>
         <ChevronDown
           className={cn('size-3 transition-transform', open && 'rotate-180')}
@@ -3381,40 +3375,55 @@ function AspectRatioMenu({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-96 max-w-[calc(100vw-2rem)] p-2"
+        className="w-[min(28rem,calc(100vw-2rem))] p-3"
       >
-        <p className="text-foreground/40 px-2.5 pt-1 pb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
+        <p className="text-foreground/45 px-1 pb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
           {m['playground.image.aspect_label']()}
         </p>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="grid grid-cols-6 gap-1.5 max-[420px]:grid-cols-5">
           {RATIO_MENU.map((r) => (
             <button
-              key={r.value || 'auto'}
+              key={r.value}
               type="button"
-              // Pick → close so the menu doesn't linger after the choice.
-              // The trigger chevron also flips on `open`, giving the user
-              // a visual cue the popover has actually dismissed.
               onClick={() => {
                 onChange(r.value);
-                setOpen(false);
               }}
+              aria-pressed={r.value === value}
               className={cn(
-                'flex min-h-11 items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
+                'flex min-h-14 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 font-mono text-xs transition-colors',
                 'hover:bg-foreground/5',
-                r.value === value && 'bg-foreground/[0.06]'
+                r.value === value && 'bg-foreground/[0.08] text-foreground'
               )}
             >
-              <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
-                <RatioSwatch value={r.value} size={16} />
-              </span>
-              <span className="min-w-0 font-mono text-xs whitespace-nowrap">
-                {r.label}
-              </span>
-              {r.value === value ? (
-                <Check className="text-foreground ml-auto size-3.5 shrink-0" />
-              ) : null}
+              <RatioSwatch value={r.value} size={18} />
+              <span className="whitespace-nowrap">{r.value}</span>
             </button>
           ))}
+        </div>
+        <div className="border-border/70 mt-3 border-t pt-3">
+          <p className="text-foreground/45 px-1 pb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
+            {m['playground.image.resolution_label']()}
+          </p>
+          <div className="bg-foreground/[0.045] grid grid-cols-3 gap-1 rounded-xl p-1">
+            {IMAGE_RESOLUTION_OPTIONS.map((option) => {
+              const selected = resolution === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onResolutionChange(option.value)}
+                  className={cn(
+                    'text-muted-foreground rounded-lg px-2 py-2 text-center text-xs font-medium transition-colors',
+                    'hover:text-foreground',
+                    selected && 'bg-background text-foreground shadow-sm'
+                  )}
+                >
+                  {option.value}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </PopoverContent>
     </Popover>
@@ -3994,17 +4003,19 @@ function MyImageRows({
   rows,
   onSelect,
   onRegenerate,
+  onEditPrompt,
   regenerateDisabled = false,
   highlightId,
-  submittingPrompt,
+  submitting,
 }: {
   rows: ImageTaskRow[];
   onSelect: (id: string) => void;
   onRegenerate: (prompt: string) => void;
+  onEditPrompt: (prompt: string) => void;
   regenerateDisabled?: boolean;
   highlightId?: string | null;
   /** Appears before the submit endpoint returns a real task id. */
-  submittingPrompt?: string | null;
+  submitting?: { id: string; prompt: string } | null;
 }) {
   // Processing tile stays visible AS LONG AS the row is still reported
   // as in-flight by the server. The previous 30s timeout used to drop
@@ -4033,7 +4044,7 @@ function MyImageRows({
     return false;
   });
 
-  if (visibleRows.length === 0 && !submittingPrompt) {
+  if (visibleRows.length === 0 && !submitting) {
     // The section header above still names "Your generated images" and
     // the right-aligned "← Community" link is the way out, so the list
     // area is deliberately left blank — no sparkles placeholder, no
@@ -4062,7 +4073,7 @@ function MyImageRows({
         return (
           <div key={r.id} className="flex w-full flex-col gap-5">
             <div className="flex justify-end">
-              <ImagePromptBubble prompt={r.prompt} />
+              <ImagePromptBubble prompt={r.prompt} onEdit={onEditPrompt} />
             </div>
             <div className="flex w-full flex-col items-start gap-1">
               <div
@@ -4083,6 +4094,7 @@ function MyImageRows({
                   urls.map((url, i) => (
                     <MyImageTile
                       key={`${r.id}-${i}`}
+                      aspectRatio={r.options?.aspectRatio}
                       url={url}
                       fallbackUrl={r.imageFallbackUrls?.[i]}
                       prompt={r.prompt || 'Generated image'}
@@ -4099,25 +4111,26 @@ function MyImageRows({
                   onClick={() => onRegenerate(r.prompt ?? '')}
                   disabled={regenerateDisabled || !r.prompt?.trim()}
                   aria-label={m['playground.image.regenerate']()}
-                  className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground inline-flex size-7 items-center justify-center rounded-md transition-colors disabled:pointer-events-none disabled:opacity-40"
+                  className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium transition-colors disabled:pointer-events-none disabled:opacity-40"
                 >
                   <RefreshCw className="size-3.5" />
+                  <span>{m['playground.image.regenerate']()}</span>
                 </button>
               ) : null}
             </div>
           </div>
         );
       })}
-      {submittingPrompt ? (
+      {submitting ? (
         <div className="flex w-full flex-col gap-5">
           <div className="flex justify-end">
-            <ImagePromptBubble prompt={submittingPrompt} />
-          </div>
-          <div className="flex items-start">
-            <ProcessingTile
-              prompt={submittingPrompt}
-              taskId="submitting-image"
+            <ImagePromptBubble
+              prompt={submitting.prompt}
+              onEdit={onEditPrompt}
             />
+          </div>
+          <div className="flex w-full items-start">
+            <ProcessingTile prompt={submitting.prompt} taskId={submitting.id} />
           </div>
         </div>
       ) : null}
@@ -4125,7 +4138,14 @@ function MyImageRows({
   );
 }
 
-function ImagePromptBubble({ prompt }: { prompt?: string | null }) {
+function ImagePromptBubble({
+  prompt,
+  onEdit,
+}: {
+  prompt?: string | null;
+  /** Places the prompt back into the composer so it can be revised. */
+  onEdit: (prompt: string) => void;
+}) {
   const copyablePrompt = prompt?.trim() ?? '';
   const displayedPrompt = copyablePrompt || '—';
 
@@ -4141,21 +4161,59 @@ function ImagePromptBubble({ prompt }: { prompt?: string | null }) {
   }
 
   return (
-    <div className="group/prompt relative flex max-w-[60%] flex-col items-end">
-      <p className="w-fit max-w-full rounded-3xl rounded-br-md bg-[#f4f4f4] px-3 py-2 text-sm leading-6 break-words whitespace-pre-wrap text-black">
-        {displayedPrompt}
-      </p>
-      {copyablePrompt ? (
-        <button
-          type="button"
-          onClick={handleCopy}
-          aria-label={m['playground.image.copy_prompt']()}
-          className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground pointer-events-none absolute top-full right-0 mt-1 inline-flex size-7 -translate-y-1 items-center justify-center rounded-md opacity-0 transition-[color,background-color,opacity,transform] group-hover/prompt:pointer-events-auto group-hover/prompt:translate-y-0 group-hover/prompt:opacity-100 focus-visible:pointer-events-auto focus-visible:translate-y-0 focus-visible:opacity-100"
-        >
-          <Copy className="size-3.5" />
-        </button>
-      ) : null}
-    </div>
+    <TooltipProvider delay={200}>
+      <div className="group/prompt relative flex max-w-[60%] flex-col items-end after:pointer-events-auto after:absolute after:top-full after:right-0 after:h-3 after:w-20 after:content-['']">
+        <p className="w-fit max-w-full rounded-3xl rounded-br-md bg-[#f4f4f4] px-3 py-2 text-sm leading-6 break-words whitespace-pre-wrap text-black">
+          {displayedPrompt}
+        </p>
+        {copyablePrompt ? (
+          <div className="pointer-events-none absolute top-full right-0 z-10 mt-2 inline-flex -translate-y-1 items-center gap-1 p-0.5 text-black/55 opacity-0 transition-[opacity,transform] duration-150 group-hover/prompt:pointer-events-auto group-hover/prompt:translate-y-0 group-hover/prompt:opacity-100 focus-within:pointer-events-auto focus-within:translate-y-0 focus-within:opacity-100">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    aria-label={m['playground.image.copy_prompt']()}
+                    className="inline-flex size-8 items-center justify-center rounded-md transition-colors hover:bg-black/[0.06] hover:text-black focus-visible:bg-black/[0.06] focus-visible:text-black focus-visible:outline-none"
+                  >
+                    <Copy className="size-4" />
+                  </button>
+                }
+              />
+              <TooltipContent
+                side="bottom"
+                sideOffset={8}
+                className="border border-black/5 bg-white font-medium text-black shadow-lg"
+              >
+                {m['playground.image.copy_prompt']()}
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    type="button"
+                    onClick={() => onEdit(copyablePrompt)}
+                    aria-label={m['playground.image.task_edit']()}
+                    className="inline-flex size-8 items-center justify-center rounded-md transition-colors hover:bg-black/[0.06] hover:text-black focus-visible:bg-black/[0.06] focus-visible:text-black focus-visible:outline-none"
+                  >
+                    <Pencil className="size-4" />
+                  </button>
+                }
+              />
+              <TooltipContent
+                side="bottom"
+                sideOffset={8}
+                className="border border-black/5 bg-white font-medium text-black shadow-lg"
+              >
+                {m['playground.image.task_edit']()}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        ) : null}
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -4217,6 +4275,7 @@ function ProcessingTile({
 }
 
 function MyImageTile({
+  aspectRatio,
   url,
   fallbackUrl,
   prompt,
@@ -4224,6 +4283,7 @@ function MyImageTile({
   highlight,
   taskId,
 }: {
+  aspectRatio?: string;
   url: string;
   fallbackUrl?: string | null;
   prompt: string;
@@ -4231,10 +4291,10 @@ function MyImageTile({
   highlight?: boolean;
   taskId: string;
 }) {
-  // Each image gets its own aspect ratio so 16:9 / 9:16 / etc. reads as
-  // the ratio the user picked. Default to 1:1 while the image loads to
-  // keep the grid from jumping, then re-flow to the real ratio on load.
-  const [ratio, setRatio] = useState(1);
+  // New tasks retain the frame selected in the composer. Legacy tasks have
+  // no saved selection, so they keep their intrinsic dimensions on load.
+  const requestedRatio = parseAspectRatio(aspectRatio);
+  const [ratio, setRatio] = useState(requestedRatio ?? 1);
   // Track whether the image is fully painted so the loading overlay
   // (spinner + progress bar) can stay visible all the way from submit
   // click through the in-flight spinner swap, through the polling
@@ -4244,6 +4304,9 @@ function MyImageTile({
   const [isLoaded, setIsLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
   const { activeSrc, useFallback } = useImageFallback(url, fallbackUrl);
+  useEffect(() => {
+    setRatio(requestedRatio ?? 1);
+  }, [requestedRatio]);
   // If the image is already cached (browsers can resolve it
   // synchronously from the HTTP cache), `onLoad` may have already fired
   // before this effect ran — `imgRef.current.complete` is the only
@@ -4278,11 +4341,16 @@ function MyImageTile({
         ref={imgRef}
         src={activeSrc}
         alt={prompt}
-        loading="lazy"
-        decoding="async"
+        // A fresh result is already in view after the submit scroll. Do not
+        // make it wait behind the browser's lazy-image queue: requesting and
+        // decoding it eagerly removes the last visible beat between the
+        // gateway returning a URL and the image appearing in the reply.
+        loading={highlight ? 'eager' : 'lazy'}
+        decoding={highlight ? 'sync' : 'async'}
+        fetchPriority={highlight ? 'high' : 'auto'}
         onLoad={(e) => {
           const img = e.currentTarget;
-          if (img.naturalWidth && img.naturalHeight) {
+          if (!requestedRatio && img.naturalWidth && img.naturalHeight) {
             setRatio(img.naturalWidth / img.naturalHeight);
           }
           setIsLoaded(true);
@@ -4332,6 +4400,21 @@ function MyImageTile({
       ) : null}
     </button>
   );
+}
+
+/** Convert a persisted selection such as `"16:9"` into a CSS ratio. */
+function parseAspectRatio(value: unknown): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const [width, height] = value.split(':').map(Number);
+  if (
+    !Number.isFinite(width) ||
+    !Number.isFinite(height) ||
+    width <= 0 ||
+    height <= 0
+  ) {
+    return undefined;
+  }
+  return width / height;
 }
 
 /**
@@ -4437,8 +4520,17 @@ export function ImagePlayground({
   // returns a durable task id. Seed it from the URL handoff so the destination
   // workspace paints the prompt bubble and its left-side preview on its very
   // first frame — never an empty transcript between the two pages.
-  const [submittingPrompt, setSubmittingPrompt] = useState<string | null>(() =>
-    autoSubmit ? initialPrompt.trim() || null : null
+  // This local reply is deliberately independent of the server task list.
+  // It is created in the click handler, before React Query starts the POST,
+  // which guarantees that the left-aligned processing frame paints on the
+  // very next render even on a cold connection.
+  const [submittingImage, setSubmittingImage] = useState<{
+    id: string;
+    prompt: string;
+  } | null>(() =>
+    autoSubmit && initialPrompt.trim()
+      ? { id: 'submitting-image', prompt: initialPrompt.trim() }
+      : null
   );
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
@@ -4457,23 +4549,21 @@ export function ImagePlayground({
   const [previewTaskId, setPreviewTaskId] = useState<string | null>(null);
   const didAutoPreviewRef = useRef(false);
   const didAutoSubmitRef = useRef<string | null>(null);
+  // The image history reads as a conversation: its newest turn belongs above
+  // the composer. Start there on entry, but only once per workspace mount so
+  // a user scrolling through older work is never pulled back unexpectedly.
+  const imageHistoryScrollRef = useRef<HTMLDivElement | null>(null);
+  const imageHistoryContentRef = useRef<HTMLDivElement | null>(null);
+  const didScrollImageHistoryRef = useRef(false);
   // Task id of the most recently landed image. Used to (a) scroll the
   // matching tile into view and (b) ring-highlight it for 2s so the
   // user knows which tile in the grid is their new one.
   const [recentlyLandedTaskId, setRecentlyLandedTaskId] = useState<
     string | null
   >(null);
-  // null = "use whatever the server default is". Only set once the user
-  // explicitly picks a model, so the composer works before the model
-  // list resolves (or when Evolink isn't configured at all).
-  const [model, setModel] = useState<string | null>(null);
-  // 1-4 images per submit. Default 1 — most callers want a single
-  // generation. Multi-image batches cost N credits.
-  const [imageCount, setImageCount] = useState<ImageCount>(1);
-  // Aspect ratio ('' = Smart — let the model decide). Default Smart
-  // because every provider we've wired supports a default size and
-  // most users don't know they need to pick a ratio up front.
-  const [aspectRatio, setAspectRatio] = useState<string>('');
+  const [aspectRatio, setAspectRatio] = useState<string>('1:1');
+  const [imageResolution, setImageResolution] = useState<ImageResolution>('1K');
+  const [imageModel, setImageModel] = useState<ImageModelChoice>('gpt-image-2');
   // My Images tab — clicking a tile routes to the dedicated preview
   // page at /api-playground/image/$id rather than opening an overlay,
   // so the URL is shareable and back-navigation works.
@@ -4493,19 +4583,6 @@ export function ImagePlayground({
       textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
   }, [prompt]);
 
-  // Models this deployment's Evolink key actually serves. Cached an hour
-  // server-side, so this is cheap; `staleTime` keeps it out of refetches.
-  const modelsQuery = useQuery({
-    queryKey: ['image-models'],
-    queryFn: () =>
-      apiGet<{ models: string[]; defaultModel: string }>(
-        '/api/ai-tasks/image-models'
-      ),
-    staleTime: 60 * 60 * 1000,
-  });
-  const availableModels = modelsQuery.data?.models ?? [];
-  const activeModel = model ?? modelsQuery.data?.defaultModel ?? null;
-
   // The user's own generated images, newest first. Same endpoint the
   // sidebar list uses; we just consume it here for the My Images tab
   // waterfall.
@@ -4519,6 +4596,39 @@ export function ImagePlayground({
     enabled: tab === 'mine',
     staleTime: 30_000,
   });
+
+  // The task list is newest-first at the API boundary but is rendered oldest
+  // to newest as a transcript. Once it has mounted, put the viewport at its
+  // visual end. The observer accounts for image decoding changing the height
+  // after the initial paint; it is short-lived and then releases control to
+  // the user.
+  useEffect(() => {
+    if (
+      tab !== 'mine' ||
+      !myImagesQuery.isFetched ||
+      didScrollImageHistoryRef.current
+    ) {
+      return;
+    }
+
+    const scrollToLatest = () => {
+      const container = imageHistoryScrollRef.current;
+      if (container) container.scrollTop = container.scrollHeight;
+    };
+    const frame = window.requestAnimationFrame(scrollToLatest);
+    const observer = new ResizeObserver(scrollToLatest);
+    if (imageHistoryContentRef.current) {
+      observer.observe(imageHistoryContentRef.current);
+    }
+    const settleTimer = window.setTimeout(() => observer.disconnect(), 1_000);
+    didScrollImageHistoryRef.current = true;
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(settleTimer);
+      observer.disconnect();
+    };
+  }, [myImagesQuery.isFetched, tab]);
 
   // The dedicated image workspace opens with the latest completed image in
   // focus, making its right-hand preview useful from the first paint. Once a
@@ -4542,7 +4652,12 @@ export function ImagePlayground({
   useEffect(() => {
     if (!initialPrompt) return;
     setPrompt(autoSubmit ? '' : initialPrompt);
-    if (autoSubmit) setSubmittingPrompt(initialPrompt.trim() || null);
+    if (autoSubmit && initialPrompt.trim()) {
+      setSubmittingImage({
+        id: 'submitting-image',
+        prompt: initialPrompt.trim(),
+      });
+    }
     setTab('mine');
   }, [autoSubmit, initialPrompt]);
 
@@ -4558,28 +4673,24 @@ export function ImagePlayground({
   // missed poll is 1-2s of perceived latency the user stares at the
   // spinner. Eases into a 3s tail for slower models.
   //
-  // Capped at 120 attempts. Worst-case wall time:
-  //   12 × 500ms + 20 × 1000ms + 30 × 2000ms + 58 × 3000ms
-  // ≈ ~5.5 min — covers worst-case generation with 30s headroom. The My
-  // Images tab keeps the task visible if it does time out, so the user
-  // can re-open it later.
+  // Capped at 160 attempts. The fast phase covers normal image jobs with a
+  // sub-second completion check; the 1.5s tail still leaves ample room for
+  // a slow provider without making a finished image feel stuck.
   useEffect(() => {
     if (!pollingTaskId) return;
     let cancelled = false;
     let attempts = 0;
-    const MAX_ATTEMPTS = 120;
+    const MAX_ATTEMPTS = 160;
 
     const nextDelay = (n: number) => {
-      // First 20 polls: 100ms — catches sync-style models (gpt-image-2
-      // returns inline in 5-15s) and the moment an async task flips to
-      // success on its first poll. Cuts the worst-case "submit → first
-      // byte" by ~400ms with no real cost (server round-trip is the
-      // dominant term anyway).
-      // Next 20: 500ms. Then 1.5s up to attempt 62. Tail: 3s.
+      // First 20 polls: 100ms. The next phase stays brisk enough that an
+      // async task is normally surfaced within 250ms of completion; this is
+      // the largest controllable part of image-generation latency after the
+      // provider itself has finished rendering.
       if (n <= 20) return 100;
-      if (n <= 40) return 500;
-      if (n <= 62) return 1500;
-      return 3000;
+      if (n <= 44) return 250;
+      if (n <= 80) return 750;
+      return 1500;
     };
 
     const tick = async () => {
@@ -4671,7 +4782,7 @@ export function ImagePlayground({
   }, [pollingTaskId, myImagesQuery.data]);
 
   const submitMutation = useMutation({
-    mutationFn: async (submittedPrompt: string) => {
+    mutationFn: async ({ prompt: submittedPrompt }: { prompt: string }) => {
       // Stamp the start time so the LATEST RESULT panel can show a
       // live "Generating... Ns" counter. Reset on success.
       setGeneratingSince(Date.now());
@@ -4693,6 +4804,8 @@ export function ImagePlayground({
         : '';
       const body: Record<string, any> = {
         mediaType: 'image',
+        model: imageModel,
+        resolution: imageResolution,
         prompt: (() => {
           const main = submittedPrompt;
           if (!refsBlock) return main;
@@ -4701,17 +4814,11 @@ export function ImagePlayground({
         })(),
       };
       if (references[0]?.url) body.referenceUrl = references[0].url;
-      // Note: `body.model` is intentionally NOT sent. The picker exposes
-      // a handful of cosmetic model names (see COSMETIC_IMAGE_MODELS)
-      // but only one provider is wired up, so we let the server fall
-      // back to `evolink_image_model` for every submit. If a real
-      // multi-provider setup is added later, re-introduce the explicit
-      // pick (and the corresponding allowlist on the server).
-      // Image count + ratio. The server maps "16:9" → "1792x1024"
-      // via the shared `aspect-ratios.ts` module — sending the ratio
-      // token directly here is intentional.
-      body.n = imageCount;
-      if (aspectRatio) body.size = aspectRatio;
+      // Every image request produces a single result. Variations are made
+      // through the per-result regenerate action, rather than a batch-size
+      // control that obscures the price and can exceed the user's balance.
+      body.n = 1;
+      body.size = aspectRatio;
       return apiPost<{
         taskId: string;
         status: string;
@@ -4724,19 +4831,17 @@ export function ImagePlayground({
         task?: any;
       }>('/api/ai-tasks', body);
     },
-    // Switch to the My Images tab the moment the user clicks generate
-    // — before the API responds. The gallery is the default "result"
-    // surface for an image submit, so the user should land there
-    // immediately; otherwise they're stuck staring at the Community
-    // wall for a few seconds while the request flies.
-    onMutate: (submittedPrompt) => {
-      setTab('mine');
-      setSubmittingPrompt(submittedPrompt);
-      return { submittedPrompt };
+    // `submitImagePrompt` has already put the optimistic reply on screen.
+    // Keep its id in the mutation context so a late success/error from an
+    // older request can never clear a newer processing frame.
+    onMutate: (submission) => {
+      return submission;
     },
     onSuccess: (data, _variables, context) => {
-      const submittedPrompt = context?.submittedPrompt || _variables;
-      setSubmittingPrompt(null);
+      const submittedPrompt = context?.prompt || _variables.prompt;
+      setSubmittingImage((current) =>
+        current?.id === context?.id ? null : current
+      );
       // Sync submissions return status='success' with imageUrls inline —
       // cache the task into the query cache so the active-image panel
       // can render immediately, without waiting for a poll.
@@ -4761,7 +4866,7 @@ export function ImagePlayground({
           id: data.taskId,
           prompt: submittedPrompt,
           status: isImmediate ? 'success' : 'processing',
-          model: data.task?.model ?? model ?? null,
+          model: data.task?.model ?? null,
           createdAt: data.task?.createdAt ?? new Date().toISOString(),
           // Sync returns taskResult.imageUrls populated. Async returns
           // [] so the row renders as a ProcessingTile in MyImageRows.
@@ -4771,6 +4876,11 @@ export function ImagePlayground({
           thumbnailUrl: isImmediate
             ? (data.task?.taskResult?.imageUrls?.[0] ?? data.imageUrl ?? null)
             : null,
+          options: {
+            model: imageModel,
+            resolution: imageResolution,
+            aspectRatio,
+          },
         };
         if (old?.tasks?.some((t: any) => t.id === data.taskId)) return old;
         return { tasks: [syntheticRow, ...(old?.tasks ?? [])] };
@@ -4811,12 +4921,14 @@ export function ImagePlayground({
         );
       }
     },
-    onError: (e: Error) => {
+    onError: (e: Error, _variables, context) => {
       // Always clear the timer on error so the panel doesn't stay stuck
       // on "Generating... Ns" forever when the request fails.
       setGeneratingSince(null);
       setEstimatedTotal(null);
-      setSubmittingPrompt(null);
+      setSubmittingImage((current) =>
+        current?.id === context?.id ? null : current
+      );
       const msg = e.message || '';
       const paymentRequired =
         msg === 'payment_required' ||
@@ -4845,7 +4957,7 @@ export function ImagePlayground({
       // A URL handoff can render its optimistic preview before we learn the
       // visitor is signed out. Remove it before opening the auth dialog so an
       // unsigned user is never left looking at a fake, permanent generation.
-      if (autoSubmit) setSubmittingPrompt(null);
+      if (autoSubmit) setSubmittingImage(null);
       setAuthOpen(true);
       return;
     }
@@ -4858,7 +4970,17 @@ export function ImagePlayground({
       return;
     }
 
-    submitMutation.mutate(submittedPrompt);
+    // Paint the pending assistant response *before* the mutation is queued.
+    // The composer stays pinned at the bottom, so later prompts naturally
+    // push completed replies upward while every new processing frame starts
+    // at the left edge of its own conversation turn.
+    const submission = {
+      id: `submitting-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      prompt: submittedPrompt,
+    };
+    setTab('mine');
+    setSubmittingImage(submission);
+    submitMutation.mutate(submission);
   }
 
   function handleImageSubmit() {
@@ -4867,6 +4989,19 @@ export function ImagePlayground({
 
   function handleImageRegenerate(promptToRegenerate: string) {
     submitImagePrompt(promptToRegenerate.trim());
+  }
+
+  function handleEditImagePrompt(promptToEdit: string) {
+    setPrompt(promptToEdit);
+    // Returning the text to the composer is intentionally non-destructive:
+    // the original generation stays in the transcript, while the user can
+    // refine its wording and submit a new variation from the focused input.
+    requestAnimationFrame(() => {
+      const textarea = promptRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+    });
   }
 
   // A prompt sent from the public gallery should start immediately after the
@@ -5043,14 +5178,14 @@ export function ImagePlayground({
   // `submitting-image` tile before the task endpoint replies, so the click
   // flows directly into the exact place where the final image will appear.
   useEffect(() => {
-    if (!submittingPrompt) return;
+    if (!submittingImage) return;
     const id = window.setTimeout(() => {
       document
-        .querySelector<HTMLElement>('[data-task-id="submitting-image"]')
+        .querySelector<HTMLElement>(`[data-task-id="${submittingImage.id}"]`)
         ?.scrollIntoView({ behavior: 'auto', block: 'end' });
     }, 0);
     return () => window.clearTimeout(id);
-  }, [submittingPrompt]);
+  }, [submittingImage]);
 
   // Scroll the newly-landed tile into view and fade the highlight after
   // ~2 seconds. We wait a tick so the DOM has the new tile mounted
@@ -5209,6 +5344,7 @@ export function ImagePlayground({
           )}
         >
           <div
+            ref={imageHistoryScrollRef}
             className={cn(
               'no-scrollbar',
               staticCommunity
@@ -5241,7 +5377,10 @@ export function ImagePlayground({
               // instead of replacing the grid in place. The grid therefore
               // stays visible behind the panel so the user can hop between
               // their other generations without a back-and-forth dance.
-              <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-16 pb-10">
+              <div
+                ref={imageHistoryContentRef}
+                className="mx-auto flex min-h-full w-full max-w-3xl flex-col justify-end px-4 pt-16 pb-10"
+              >
                 <section>
                   <MyImageRows
                     // The API is already newest-first. Keeping that order
@@ -5256,11 +5395,12 @@ export function ImagePlayground({
                       setPreviewTaskId(id);
                     }}
                     onRegenerate={handleImageRegenerate}
+                    onEditPrompt={handleEditImagePrompt}
                     regenerateDisabled={
                       submitMutation.isPending || !!pollingTaskId
                     }
                     highlightId={recentlyLandedTaskId}
-                    submittingPrompt={submittingPrompt}
+                    submitting={submittingImage}
                   />
                 </section>
               </div>
@@ -5436,31 +5576,13 @@ export function ImagePlayground({
                 />
                 <Plus className="size-4" />
               </label>
-              {/* Image count + aspect ratio — two small popovers that
-                feed into the submit body. The model menu stays at the
-                far right of the toolbar so it doesn't shift around. */}
-              <ImageCountMenu value={imageCount} onChange={setImageCount} />
-              <AspectRatioMenu value={aspectRatio} onChange={setAspectRatio} />
-
-              {SHOW_IMAGE_MODEL_PICKER && activeModel ? (
-                <div className="ml-auto flex items-center gap-1">
-                  {/* Model menu — always rendered so the user can see what's
-                  available, even on a deployment that doesn't expose a
-                  multi-model gateway (the list falls back to the single
-                  default id). "New image" lives in the sidebar CTA
-                  (route.tsx), which calls the same clearActive(). */}
-                  <ImageModelMenu
-                    // Cosmetic-only: surface several well-known model
-                    // names so the picker feels rich. The actual submit
-                    // doesn't send `body.model`, so every choice routes
-                    // to the same backend provider (see the
-                    // COSMETIC_IMAGE_MODELS doc above).
-                    models={COSMETIC_IMAGE_MODELS}
-                    selected={activeModel}
-                    onSelect={setModel}
-                  />
-                </div>
-              ) : null}
+              <ImageModelSelect value={imageModel} onChange={setImageModel} />
+              <AspectRatioMenu
+                value={aspectRatio}
+                onChange={setAspectRatio}
+                resolution={imageResolution}
+                onResolutionChange={setImageResolution}
+              />
               <button
                 type="button"
                 // Disable on submit OR while a previous task is still
@@ -5660,6 +5782,7 @@ function ImagePreviewPanel({
   })();
   const previewUrl = previewUrls[0] || row?.thumbnailUrl;
   const previewFallbackUrl = previewFallbackUrls[0];
+  const previewAspectRatio = parseAspectRatio(row?.options?.aspectRatio);
 
   /**
    * Save-as download — proxy through `/api/ai-tasks/$id/image?download=1`
@@ -5761,7 +5884,23 @@ function ImagePreviewPanel({
             viewport width rather than artificially resizing. */}
         <div className="min-h-0 flex-1 overflow-auto p-6">
           <div className="flex min-h-full items-center justify-center">
-            {previewUrl ? (
+            {previewUrl && previewAspectRatio ? (
+              <div
+                className="w-full max-w-full overflow-hidden rounded-lg border shadow-sm"
+                style={{ aspectRatio: previewAspectRatio }}
+              >
+                <ImageWithFallback
+                  src={previewUrl}
+                  fallbackSrc={previewFallbackUrl}
+                  alt={
+                    row?.prompt || m['playground.image.preview_default_label']()
+                  }
+                  className="size-full object-cover"
+                  decoding="async"
+                  loading="eager"
+                />
+              </div>
+            ) : previewUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <ImageWithFallback
                 src={previewUrl}

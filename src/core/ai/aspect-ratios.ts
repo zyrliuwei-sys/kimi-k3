@@ -1,6 +1,6 @@
 /**
- * Map a UX-friendly aspect ratio (`"16:9"`) to the pixel size the
- * provider actually accepts (`"1792x1024"`).
+ * Map a UX-friendly aspect ratio (`"16:9"`) to the closest landscape or
+ * portrait canvas the active provider actually accepts (`"1536x1024"`).
  *
  * The previous design only allowed an explicit allowlist of pixel sizes
  * (`1024x1024`, `1792x1024`, …). Client code sent ratios through
@@ -9,10 +9,18 @@
  * got back the provider default, which felt like "unstable generation".
  *
  * This module is the single source of truth on both sides:
- *   - client: `ratioToSize("16:9")` → `"1792x1024"`
- *   - server: same lookup, rejects unmapped ratios outright
+ *   - client: `ratioToSize("16:9")` → `"1536x1024"`
+ *   - server: the same lookup selects a compatible source canvas
  */
 
+/**
+ * The product still offers all requested output frames. gpt-image-2 accepts
+ * only three source canvases, so every landscape choice starts with the
+ * supported landscape canvas and every portrait choice with its portrait
+ * counterpart. The client records and crops to the chosen frame when it
+ * renders the result; keeping a compatible source canvas prevents the
+ * gateway from silently falling back to 1:1.
+ */
 export const ASPECT_RATIOS = [
   { value: '1:1', label: '1:1', preview: 100 },
   { value: '16:9', label: '16:9', preview: 56 },
@@ -23,39 +31,34 @@ export const ASPECT_RATIOS = [
   { value: '2:3', label: '2:3', preview: 150 },
   { value: '2:1', label: '2:1', preview: 50 },
   { value: '1:2', label: '1:2', preview: 200 },
-  { value: '20:9', label: '20:9', preview: 45 },
-  { value: '9:20', label: '9:20', preview: 222 },
+  { value: '5:4', label: '5:4', preview: 80 },
+  { value: '4:5', label: '4:5', preview: 125 },
 ] as const;
 
 export type AspectRatioValue = (typeof ASPECT_RATIOS)[number]['value'];
 
 /**
- * Pixel dimensions per ratio. Pixel counts chosen to balance quality
- * against generation speed — most providers scale roughly linearly with
- * pixel count for diffusion-style models, so halving the megapixels
- * roughly halves the render time. We land near the shorter side ≈ 768
- * (down from the previous 1024 baseline) which shaves ~30-40% off the
- * per-image latency on the larger presets. Users who need bigger output
- * can still ask via custom size or pick a different model.
- * Tweak here, not in client code.
+ * Source dimensions per output frame. gpt-image-2 only supports the three
+ * values used below. A wider/taller supported source means the final UI crop
+ * never needs to upscale the model output.
  */
 const RATIO_TO_PIXELS: Record<AspectRatioValue, string> = {
-  '1:1': '768x768',
-  '16:9': '1280x720',
-  '9:16': '720x1280',
-  '4:3': '1024x768',
-  '3:4': '768x1024',
-  '3:2': '1152x768',
-  '2:3': '768x1152',
-  '2:1': '1536x768',
-  '1:2': '768x1536',
-  '20:9': '1280x576',
-  '9:20': '576x1280',
+  '1:1': '1024x1024',
+  '16:9': '1536x1024',
+  '9:16': '1024x1536',
+  '4:3': '1536x1024',
+  '3:4': '1024x1536',
+  '3:2': '1536x1024',
+  '2:3': '1024x1536',
+  '2:1': '1536x1024',
+  '1:2': '1024x1536',
+  '5:4': '1536x1024',
+  '4:5': '1024x1536',
 };
 
 /**
  * Convert an aspect ratio token (`"16:9"`, `"4:3"`, …) to the pixel
- * string the provider expects (`"1792x1024"`). Returns `undefined` when
+ * string the provider expects (`"1536x1024"`). Returns `undefined` when
  * the ratio isn't in the map — callers should treat undefined as
  * "let the provider pick".
  */

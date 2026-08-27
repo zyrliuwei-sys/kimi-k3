@@ -1,0 +1,11 @@
+{
+  "name": "image-generator-kit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Copy-ready React and Tailwind image generation workspace",
+  "peerDependencies": {
+    "lucide-react": "^0.511.0",
+    "motion": "^12.38.0",
+    "react": "^19.0.0"
+  }
+}

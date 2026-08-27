@@ -1,10 +1,9 @@
 import {
   AIMediaType,
   EvolinkImageProvider,
-  listEvolinkImageModels,
   pickImageProvider,
 } from '@/core/ai';
-import { normalizeRatioToSize } from '@/core/ai/aspect-ratios';
+import { ASPECT_RATIOS } from '@/core/ai/aspect-ratios';
 import {
   AITaskStatus,
   countUserActiveTasks,
@@ -12,23 +11,37 @@ import {
   updateTask,
 } from '@/modules/ai-tasks/service';
 import { getAllConfigs } from '@/modules/config/service';
-import {
-  computeImageCost,
-  isFreeTrialShape,
-  readImageFirstFree,
-} from '@/lib/image-billing';
+import { isFreeTrialShape, readImageFirstFree } from '@/lib/image-billing';
 import { respData, respErr } from '@/lib/resp';
 
 import { buildRehostSaveFiles } from './-shared';
 
 /**
- * Default per-image credit cost. Admins can override via
- * `image_credit_cost` in the `config` table; falls back to this.
+ * Product pricing is intentionally resolved on the server. The client can
+ * select a resolution tier, but it cannot submit arbitrary upstream values.
  *
- * Mirrors the gpt-image-2 / SDXL / Flux range — tune in `config` once
- * provider economics settle.
+ * EvoLink wholesale basis (August 2026): GPT Image 2 1K/medium ≈ $0.048;
+ * Nano Banana 2 1K ≈ $0.063. At $99 / 1180 app credits, 3 / 4 credits
+ * keeps the public price at roughly 5.2–5.3× wholesale.
  */
-export const DEFAULT_IMAGE_CREDIT_COST = 5;
+const IMAGE_MODEL_PRESETS = {
+  'gpt-image-2': {
+    quality: 'medium',
+  },
+  'nano-banana-2-beta': {
+    quality: '1K',
+  },
+} as const;
+
+const IMAGE_RESOLUTION_PRESETS = {
+  '1K': { credits: 3 },
+  '2K': { credits: 6 },
+  '4K': { credits: 9 },
+} as const;
+
+type ImageResolution = keyof typeof IMAGE_RESOLUTION_PRESETS;
+
+type ImageModelChoice = keyof typeof IMAGE_MODEL_PRESETS;
 
 /**
  * Image generation branch of `POST /api/ai-tasks`.
@@ -46,10 +59,8 @@ export const DEFAULT_IMAGE_CREDIT_COST = 5;
  *           polling id. We mark the task PROCESSING and return; the
  *           caller polls `/api/ai-tasks/$id` every 2s.
  *
- * Reference image (img2img): img2img is intentionally not wired — the
- * OpenAI-style `/images/generations` endpoint doesn't accept reference
- * inputs. The UI still lets users attach up to 10 reference images with
- * inline notes, but the server only consumes the first one's URL.
+ * Reference image (img2img): the UI accepts multiple references, but one
+ * request currently sends the first URL to keep the pricing predictable.
  */
 export async function postImageTask({
   request: _request,
@@ -70,21 +81,42 @@ export async function postImageTask({
     typeof body?.referenceUrl === 'string' && body.referenceUrl
       ? body.referenceUrl
       : undefined;
-  const requestedModel =
-    typeof body?.model === 'string' && body.model ? body.model : undefined;
-  // `n` is the image count (1-4). Clamp to [1, 4] so a hostile client
-  // can't drive up the credit cost with `n: 999`.
-  const nRaw = Number(body?.n);
-  const n = Number.isFinite(nRaw)
-    ? Math.min(4, Math.max(1, Math.floor(nRaw)))
-    : 1;
-  // Client now sends the raw aspect ratio token (`"16:9"`, `"3:4"`, …).
-  // Some upstream models want the ratio as-is (Nano Banana 2 / gemini),
-  // others want pixel dimensions (`"1792x1024"`). We defer the
-  // conversion to the model-aware submit call below — keep the raw
-  // ratio here so we can decide later.
+  // One request always creates one image. Users can regenerate a prompt for
+  // another variation, but cannot turn a single request into a multi-image
+  // batch (which made pricing and first-run failures confusing).
+  const n = 1;
+  const requestedModel = String(body?.model ?? 'gpt-image-2');
+  if (!Object.hasOwn(IMAGE_MODEL_PRESETS, requestedModel)) {
+    return respErr('Unsupported image model.', {
+      status: 400,
+    });
+  }
+  const model = requestedModel as ImageModelChoice;
+  const preset = IMAGE_MODEL_PRESETS[model];
+  const requestedResolution = String(body?.resolution ?? '1K');
+  if (!Object.hasOwn(IMAGE_RESOLUTION_PRESETS, requestedResolution)) {
+    return respErr('Unsupported image resolution.', { status: 400 });
+  }
+  const resolution = requestedResolution as ImageResolution;
+  const quality =
+    model === 'nano-banana-2-beta'
+      ? resolution
+      : resolution === '1K'
+        ? 'medium'
+        : 'high';
+  const resolutionCost = IMAGE_RESOLUTION_PRESETS[resolution].credits;
+
+  // Both selected upstream routes accept aspect-ratio strings. Falling back
+  // to 1:1 instead of an upstream "auto" default makes the fixed model
+  // presets deterministic even for callers outside the composer.
   const rawSize =
-    typeof body?.size === 'string' && body.size ? body.size : undefined;
+    typeof body?.size === 'string' && body.size ? body.size : '1:1';
+  if (!ASPECT_RATIOS.some((ratio) => ratio.value === rawSize)) {
+    return respErr(
+      'Unsupported aspect ratio. Choose a ratio from the image generator menu.',
+      { status: 400 }
+    );
+  }
 
   const configs = await getAllConfigs();
   const pick = await pickImageProvider(configs);
@@ -95,53 +127,7 @@ export async function postImageTask({
     );
   }
 
-  // Allowlist a client-supplied model against what this key actually
-  // serves. Without this, any caller could bill an arbitrary model id
-  // (including an expensive non-image one) through this endpoint. The
-  // listing is cached for an hour, so this costs nothing per request.
-  //
-  // Exposed in the composer menu are:
-  //   - gpt-image-2 (OpenAI flagship, ~15-25s) — DEFAULT
-  //   - gpt-image-1.5-lite (if the gateway serves it)
-  // Keep this in sync with the menu in image-models.ts so a client can't
-  // bill an unlisted model id through the image endpoint. Nano Banana 2
-  // is parked — see image-models.ts.
-  const ALLOWED_MODELS = ['gpt-image-2', 'gpt-image-1.5-lite'];
-  const allowlist = ALLOWED_MODELS;
-  let model = pick.defaultModel;
-  if (requestedModel && requestedModel !== pick.defaultModel) {
-    const allowed = await listEvolinkImageModels(
-      new EvolinkImageProvider({
-        apiKey: configs.evolink_api_key,
-        baseUrl: configs.evolink_base_url,
-      }),
-      `${configs.evolink_api_key}|${configs.evolink_base_url || ''}`,
-      allowlist
-    );
-    // Empty list = the gateway listing failed. Fall back to the default
-    // rather than trusting the client or hard-failing the request.
-    if (allowed.includes(requestedModel)) model = requestedModel;
-  }
-  const lowerModel = model.toLowerCase();
-  const isNanoBanana =
-    lowerModel.includes('gemini') || lowerModel.includes('nano-banana');
-  // Nano Banana 2 wants the ratio string as-is (`"16:9"`); other
-  // models (gpt-image-2) want pixel dimensions (`"1792x1024"`).
-  const size = isNanoBanana
-    ? rawSize
-    : rawSize
-      ? normalizeRatioToSize(rawSize)
-      : undefined;
-  // Credit cost = wholesale × markup × n, with img2img surcharge. See
-  // `src/lib/image-billing.ts` for the formula and config keys. The
-  // legacy `image_credit_cost` flat config is honored when
-  // `image_credit_markup` is unset — see the helper's "legacy fallback".
-  const standardCost = computeImageCost({
-    n,
-    size,
-    hasReference: !!referenceUrl,
-    configs,
-  });
+  const standardCost = resolutionCost;
 
   // First-image-free trial (`image_first_free`, default on). The signup
   // bonus is 5 credits and one image costs ~10, so without this a brand-new
@@ -158,7 +144,9 @@ export async function postImageTask({
   let pricingReason: 'first_free' | 'standard' = 'standard';
   if (
     readImageFirstFree(configs) &&
-    isFreeTrialShape({ n, size, hasReference: !!referenceUrl }) &&
+    model === 'gpt-image-2' &&
+    resolution === '1K' &&
+    isFreeTrialShape({ n, size: rawSize, hasReference: !!referenceUrl }) &&
     (await countUserActiveTasks(session.user.id, AIMediaType.IMAGE)) === 0
   ) {
     costCredits = 0;
@@ -174,7 +162,12 @@ export async function postImageTask({
       provider: pick.name, // 'evolink-image'
       model,
       prompt,
-      options: referenceUrl ? { image: referenceUrl } : undefined,
+      options: {
+        model,
+        resolution,
+        aspectRatio: rawSize,
+        ...(referenceUrl ? { image: referenceUrl } : {}),
+      },
       costCredits,
       paidOnly: false, // signup bonus may be spent on images
     });
@@ -206,10 +199,17 @@ export async function postImageTask({
     // "pick.provider.generate is not a function" runtime error.
     const evolinkInstance = pick.provider as unknown as EvolinkImageProvider;
     const result = await evolinkInstance.submit({
-      prompt,
+      // The model renders a compatible 3:2 / 2:3 source canvas first. Tell
+      // it about the user's eventual frame so key content stays safe when
+      // the client renders that exact crop.
+      prompt: rawSize
+        ? `${prompt}\n\nFinal frame: ${rawSize}. Keep the important subject and details inside the central safe area for this composition.`
+        : prompt,
       model,
       n,
-      size,
+      size: rawSize,
+      resolution,
+      quality,
       // Nano Banana 2 supports `image_urls` (array) for img2img +
       // editing; older models take a single `image` string. The
       // provider picks the right shape per model — see evolink-image
@@ -233,6 +233,7 @@ export async function postImageTask({
         remoteTaskId: result.taskId,
         imageUrls: providerUrls,
         provider: pick.name,
+        resolution,
       };
       await updateTask({
         taskId: task.id,
@@ -242,10 +243,11 @@ export async function postImageTask({
 
       // Fire-and-forget R2 rehost. The user already has the image in
       // their browser; this just upgrades the URL behind the scenes.
-      const saveFiles = await buildRehostSaveFiles();
-      if (saveFiles && providerUrls.length) {
+      if (providerUrls.length) {
         void (async () => {
           try {
+            const saveFiles = await buildRehostSaveFiles();
+            if (!saveFiles) return;
             const saved = await saveFiles(
               providerUrls.map((url, i) => ({
                 url,
@@ -285,6 +287,7 @@ export async function postImageTask({
         costCredits,
         standardCost,
         reason: pricingReason,
+        resolution,
         // Pass the task row we already have (model, prompt, etc.) so
         // the client can render the active image without a follow-up
         // GET — saves a DB round-trip on every sync generation.
@@ -307,6 +310,7 @@ export async function postImageTask({
         provider: pick.name,
         referenceUrl,
         model,
+        resolution,
         // Persist the gateway estimate alongside the remote id so the
         // polling endpoint can re-surface it on every poll and the UI
         // shows a real "Generating… ~12s" countdown instead of just
@@ -324,6 +328,7 @@ export async function postImageTask({
       costCredits,
       standardCost,
       reason: pricingReason,
+      resolution,
       // Surface the estimate to the client immediately so the UI can
       // show a real countdown from the very first frame after submit.
       ...(result.mode === 'async' && result.estimatedSeconds
@@ -361,7 +366,7 @@ export async function postImageTask({
       )
     ) {
       return await fail(
-        `Upstream rejected the model id (${model}). Check the configured default and allowlist.`,
+        `Upstream rejected the selected model (${model}). Check EvoLink model access.`,
         { status: 400 }
       );
     }

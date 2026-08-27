@@ -123,6 +123,13 @@ export class EvolinkImageProvider {
   async submit(args: {
     prompt: string;
     model: string;
+    /** GPT Image 2 render resolution. Nano Banana uses `quality` instead. */
+    resolution?: '1K' | '2K' | '4K';
+    /**
+     * GPT Image 2 accepts low/medium/high; Nano Banana 2 uses 1K/2K/4K.
+     * The API route selects the valid value for the automatic model route.
+     */
+    quality?: 'low' | 'medium' | 'high' | '1K' | '2K' | '4K';
     size?: string;
     n?: number;
     // Reference image URLs. Nano Banana 2 wants them as `image_urls`
@@ -168,6 +175,12 @@ export class EvolinkImageProvider {
       body.n = args.n ?? 1;
     }
     if (args.size) body.size = args.size;
+    if (isNanoBanana) {
+      if (args.quality) body.quality = args.quality;
+    } else {
+      if (args.resolution) body.resolution = args.resolution;
+      if (args.quality) body.quality = args.quality;
+    }
     if (args.referenceUrls?.length) {
       if (isNanoBanana) {
         body.image_urls = args.referenceUrls;
