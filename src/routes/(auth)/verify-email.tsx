@@ -6,8 +6,14 @@ import { toast } from 'sonner';
 import { authClient, useSession } from '@/core/auth/client';
 import { Link, useRouter } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
+import { TURNSTILE_ACTIONS } from '@/lib/turnstile-actions';
 import { m } from '@/paraglide/messages.js';
 import { deLocalizeHref, localizeHref } from '@/paraglide/runtime.js';
+import { usePublicConfig } from '@/hooks/use-public-config';
+import {
+  CaptchaWidget,
+  type CaptchaWidgetHandle,
+} from '@/components/captcha-widget';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -66,7 +72,18 @@ function VerifyEmailPage() {
   const [paramsReady, setParamsReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cooldownSeconds, setCooldownSeconds] = useState(0);
+  const [hasSentVerificationEmail, setHasSentVerificationEmail] =
+    useState(false);
   const lastSessionCheckAtRef = useRef(0);
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
+  const [turnstileToken, setTurnstileToken] = useState('');
+  const configQuery = usePublicConfig();
+  const configs = configQuery.data ?? {};
+  const turnstileEnabled = configs.turnstile_enabled === 'true';
+  const turnstileSiteKey =
+    turnstileEnabled && configs.turnstile_sitekey
+      ? configs.turnstile_sitekey
+      : '';
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -79,6 +96,7 @@ function VerifyEmailPage() {
     setParamsReady(true);
 
     if (sent === '1') {
+      setHasSentVerificationEmail(true);
       if (getCooldownRemainingSeconds(e) === 0) {
         markSentNow(e);
       }
@@ -189,13 +207,26 @@ function VerifyEmailPage() {
     }
     if (loading) return;
     if (getCooldownRemainingSeconds(email) > 0) return;
+    if (turnstileEnabled && !turnstileSiteKey) {
+      toast.error(m['common.sign.captcha_unavailable']());
+      return;
+    }
+    if (turnstileEnabled && !turnstileToken) {
+      toast.error(m['common.sign.captcha_required']());
+      return;
+    }
 
     try {
       setLoading(true);
-      const result = await authClient.sendVerificationEmail({
-        email,
-        callbackURL: localizeHref(nextUrl || '/'),
-      });
+      const result = await authClient.sendVerificationEmail(
+        {
+          email,
+          callbackURL: localizeHref(nextUrl || '/'),
+        },
+        turnstileToken
+          ? { headers: { 'x-captcha-response': turnstileToken } }
+          : undefined
+      );
       if (result?.error) {
         toast.error(
           result.error.message || m['common.sign.verify_email_send_failed']()
@@ -204,9 +235,13 @@ function VerifyEmailPage() {
       }
       markSentNow(email);
       setCooldownSeconds(getCooldownRemainingSeconds(email));
+      setHasSentVerificationEmail(true);
     } catch (e: any) {
       toast.error(e?.message || m['common.sign.verify_email_send_failed']());
     } finally {
+      // A token is one-shot once it reaches Siteverify, successful or not.
+      captchaRef.current?.reset();
+      setTurnstileToken('');
       setLoading(false);
     }
   };
@@ -240,12 +275,22 @@ function VerifyEmailPage() {
               {m['common.sign.verify_email_page_title']()}
             </CardTitle>
             <CardDescription className="text-xs md:text-sm">
-              {m['common.sign.verify_email_page_description']()}
+              {hasSentVerificationEmail
+                ? m['common.sign.verify_email_page_description']()
+                : m['common.sign.verify_email_page_description_pending']()}
               {email ? ` ${email}` : ''}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3">
+              {turnstileEnabled && (
+                <CaptchaWidget
+                  ref={captchaRef}
+                  siteKey={turnstileSiteKey}
+                  action={TURNSTILE_ACTIONS.verificationEmail}
+                  onToken={setTurnstileToken}
+                />
+              )}
               <Button
                 type="button"
                 variant="outline"

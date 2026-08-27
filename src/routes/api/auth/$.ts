@@ -4,7 +4,7 @@ import { and, count, eq, gt, sql } from 'drizzle-orm';
 import { getAuth, sendWelcomeEmail } from '@/core/auth';
 import { db } from '@/core/db';
 import { account, credit, user } from '@/config/db/schema';
-import { getAllConfigs, getConfig } from '@/modules/config/service';
+import { getAllConfigs, getAllConfigsStrict } from '@/modules/config/service';
 import { grantForNewUser } from '@/modules/credits/service';
 import { grantRoleForNewUser } from '@/modules/rbac/service';
 import {
@@ -14,6 +14,10 @@ import {
   recordQqAttempt,
 } from '@/lib/rate-limit';
 import { verifyTurnstile } from '@/lib/turnstile';
+import {
+  TURNSTILE_ACTIONS,
+  type TurnstileAction,
+} from '@/lib/turnstile-actions';
 import { m } from '@/paraglide/messages.js';
 
 /**
@@ -38,7 +42,8 @@ import { m } from '@/paraglide/messages.js';
  *
  * Abuse control is therefore up front, not behind the bonus: QQ/Foxmail
  * domains are rejected, per-IP registrations are capped at 3, Turnstile
- * guards the credential endpoints, and a 3s/IP floor throttles scripts.
+ * guards public identity and email-sending endpoints, and a 3s/IP floor
+ * throttles scripts.
  *
  * SECURITY: better-auth already includes per-endpoint brute-force protection,
  * but it does not stop a script that hammers `/sign-up/email` to fill the
@@ -46,18 +51,88 @@ import { m } from '@/paraglide/messages.js';
  * single browser/IP can submit at most ~20 sign-ups/min, which is plenty
  * for legitimate retries but stops scripted abuse.
  *
- * BOT CHECK: sign-up / sign-in / request-password-reset additionally require
- * a valid Cloudflare Turnstile token (header `x-captcha-response`), verified
- * via canonical siteverify before better-auth runs. Social OAuth and session
- * reads are unaffected. Fails closed once TURNSTILE_SECRET is configured;
- * passes through (no-op) when it isn't, so the app works without Turnstile.
+ * BOT CHECK: public identity and email-sending endpoints require a valid
+ * Cloudflare Turnstile token (header `x-captcha-response`) when the feature
+ * is enabled. Siteverify checks the token's action and configured hostname
+ * before better-auth runs. Session reads and OAuth callbacks are unaffected.
+ * Once enabled this always fails closed, including an incomplete deployment
+ * missing its secret or hostname configuration.
  */
-// Credential endpoints that create or reset identity — worth a bot check.
-const TURNSTILE_PROTECTED_PATHS = [
-  '/sign-up/email',
-  '/sign-in/email',
-  '/request-password-reset',
-];
+const AUTH_API_PREFIX = '/api/auth';
+
+// Every anonymous endpoint that can create an identity, start an OAuth flow,
+// or send email is protected. OAuth callbacks remain unprotected because they
+// are bound to the state created by the already-validated start request.
+const TURNSTILE_PROTECTED_ENDPOINTS: ReadonlyMap<string, TurnstileAction> =
+  new Map([
+    ['/sign-up/email', TURNSTILE_ACTIONS.credential],
+    ['/sign-in/email', TURNSTILE_ACTIONS.credential],
+    ['/sign-in/social', TURNSTILE_ACTIONS.credential],
+    ['/request-password-reset', TURNSTILE_ACTIONS.passwordReset],
+    ['/send-verification-email', TURNSTILE_ACTIONS.verificationEmail],
+    ['/sign-in/magic-link', TURNSTILE_ACTIONS.magicLink],
+  ]);
+
+function getAuthEndpointPath(pathname: string): string | null {
+  // Treat a trailing slash as the same endpoint. Better Auth routes are
+  // canonical without it, but normalizing here prevents a proxy/router
+  // normalization from turning it into a CAPTCHA bypass.
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  if (!normalized.startsWith(`${AUTH_API_PREFIX}/`)) return null;
+  return normalized.slice(AUTH_API_PREFIX.length);
+}
+
+function hostnameFromUrl(value: string | undefined): string {
+  if (!value) return '';
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+}
+
+function hostnameFromConfig(value: string): string {
+  const candidate = value.trim();
+  if (!candidate) return '';
+  try {
+    const url = new URL(
+      candidate.includes('://') ? candidate : `https://${candidate}`
+    );
+    // Siteverify returns a hostname, never a path or port. Reject a malformed
+    // allowlist entry instead of silently broadening it.
+    if (
+      url.username ||
+      url.password ||
+      url.port ||
+      url.pathname !== '/' ||
+      url.search ||
+      url.hash
+    ) {
+      return '';
+    }
+    return url.hostname.toLowerCase().replace(/\.$/, '');
+  } catch {
+    return '';
+  }
+}
+
+function getTurnstileExpectedHostnames(configs: Record<string, string>) {
+  const configured = configs.turnstile_hostnames?.trim();
+  const candidates = configured
+    ? configured.split(',').map(hostnameFromConfig)
+    : [hostnameFromUrl(configs.app_url), hostnameFromUrl(configs.auth_url)];
+  return [...new Set(candidates.filter(Boolean))];
+}
+
+function captchaFailureResponse() {
+  return Response.json(
+    { message: m['auth.signup.error_captcha_failed']() },
+    {
+      status: 403,
+      headers: { 'cache-control': 'no-store' },
+    }
+  );
+}
 
 // Signup policy gates: banned email domains + per-IP registration cap.
 // QQ Mail is rejected up front (whole-domain block — Tencent aliases all
@@ -82,8 +157,10 @@ const MAX_REGISTRATIONS_PER_IP = 3;
 // JSON when no callbackURL, 302 redirect when there is one). Both flows
 // insert into the `user` table mid-request, so we can't read the new
 // user from the response body — we have to detect them via the DB.
-const isNewUserCreatingPath = (pathname: string) =>
-  /\/callback\/[^/]+$/.test(pathname) || /\/magic-link\/verify/.test(pathname);
+const isNewUserCreatingPath = (endpointPath: string | null) =>
+  !!endpointPath &&
+  (/^\/callback\/[^/]+$/.test(endpointPath) ||
+    endpointPath === '/magic-link/verify');
 
 // Persist the client IP on a freshly created user row. Fire-and-forget —
 // never blocks the auth response, and a failed update just means the
@@ -112,13 +189,15 @@ async function handle(request: Request) {
   }
 
   const url = new URL(request.url);
-  const isSignUp = url.pathname.endsWith('/sign-up/email');
+  const endpointPath = getAuthEndpointPath(url.pathname);
+  const isSignUp = endpointPath === '/sign-up/email';
   const isMagicLinkRequest =
-    request.method === 'POST' && url.pathname.endsWith('/sign-in/magic-link');
-  const isNewUserCreating = isNewUserCreatingPath(url.pathname);
-  const needsCaptcha =
-    request.method === 'POST' &&
-    TURNSTILE_PROTECTED_PATHS.some((p) => url.pathname.endsWith(p));
+    request.method === 'POST' && endpointPath === '/sign-in/magic-link';
+  const isNewUserCreating = isNewUserCreatingPath(endpointPath);
+  const captchaAction =
+    request.method === 'POST' && endpointPath
+      ? TURNSTILE_PROTECTED_ENDPOINTS.get(endpointPath)
+      : undefined;
   // Single source of truth for the client IP — used by the signup preflight
   // (IP cap check), Turnstile, and the post-signup IP persistence below.
   const clientIp = getClientIpFromRequest(request);
@@ -129,32 +208,38 @@ async function handle(request: Request) {
   // OAuth credentials deliberately support environment fallbacks for local
   // development. Passing `getDbConfigs()` here skipped those fallbacks when
   // an admin value was absent or the config database was temporarily down.
-  const configs = await getAllConfigs(true);
+  let configs: Record<string, string>;
+  try {
+    // A protected endpoint cannot safely continue when a live config read
+    // fails: an empty fallback could make a DB-configured Turnstile switch
+    // appear disabled. Non-protected auth endpoints retain the template's
+    // normal best-effort configuration fallback.
+    configs = captchaAction
+      ? await getAllConfigsStrict(true)
+      : await getAllConfigs(true);
+  } catch {
+    return captchaFailureResponse();
+  }
 
-  // Cloudflare Turnstile bot verification on credential endpoints. Two
-  // gates must be open: the admin explicitly enabled the feature AND a
-  // secret key is configured (env → DB). Both come from the merged
-  // config; getConfig() reuses the cache just populated above, so there's
-  // no extra DB hit. Either gate closed → feature is off → request
-  // passes through.
-  if (needsCaptcha) {
-    const [enabled, secret] = await Promise.all([
-      getConfig('turnstile_enabled'),
-      getConfig('turnstile_secret'),
-    ]);
-    if (enabled === 'true' && secret) {
-      const token = request.headers.get('x-captcha-response') || '';
-      const { success } = await verifyTurnstile({
-        secret,
-        response: token,
-        remoteip: clientIp,
-      });
-      if (!success) {
-        return Response.json(
-          { message: m['auth.signup.error_captcha_failed']() },
-          { status: 403 }
-        );
-      }
+  // Cloudflare Turnstile bot verification. The admin switch alone enables
+  // enforcement: incomplete secrets or hostnames are rejected rather than
+  // silently switching security off. `configs` was force-refreshed above, so
+  // the current admin state applies to this request without another DB read.
+  if (captchaAction && configs.turnstile_enabled === 'true') {
+    const expectedHostnames = getTurnstileExpectedHostnames(configs);
+    if (!configs.turnstile_secret || expectedHostnames.length === 0) {
+      return captchaFailureResponse();
+    }
+    const token = request.headers.get('x-captcha-response') || '';
+    const { success } = await verifyTurnstile({
+      secret: configs.turnstile_secret,
+      response: token,
+      remoteip: clientIp,
+      expectedAction: captchaAction,
+      expectedHostnames,
+    });
+    if (!success) {
+      return captchaFailureResponse();
     }
   }
 

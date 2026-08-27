@@ -17,7 +17,10 @@ const CACHE_TTL = 3600_000; // 1 hour
 /**
  * Get all configs from database.
  */
-export async function getDbConfigs(forceRefresh = false): Promise<ConfigMap> {
+export async function getDbConfigs(
+  forceRefresh = false,
+  throwOnError = false
+): Promise<ConfigMap> {
   const now = Date.now();
   if (!forceRefresh && cachedConfigs && now - cacheTime < CACHE_TTL) {
     return cachedConfigs;
@@ -49,7 +52,13 @@ export async function getDbConfigs(forceRefresh = false): Promise<ConfigMap> {
     cachedConfigs = result;
     cacheTime = now;
     return result;
-  } catch {
+  } catch (error) {
+    // Auth flows that rely on a security switch must distinguish "no DB
+    // configuration" from "the configuration read failed". Silently
+    // returning an empty map in the latter case can turn an enabled control
+    // off for one request. Normal callers intentionally retain the historical
+    // best-effort fallback; strict callers fail closed instead.
+    if (throwOnError) throw error;
     return {};
   }
 }
@@ -59,6 +68,18 @@ export async function getDbConfigs(forceRefresh = false): Promise<ConfigMap> {
  */
 export async function getAllConfigs(forceRefresh = false): Promise<ConfigMap> {
   const dbConfigs = await getDbConfigs(forceRefresh);
+  return { ...envConfigs, ...dbConfigs };
+}
+
+/**
+ * Resolve configuration without converting a database read failure into an
+ * empty override map. Use this at security boundaries whose controls must not
+ * disappear during a transient config/database outage.
+ */
+export async function getAllConfigsStrict(
+  forceRefresh = false
+): Promise<ConfigMap> {
+  const dbConfigs = await getDbConfigs(forceRefresh, true);
   return { ...envConfigs, ...dbConfigs };
 }
 

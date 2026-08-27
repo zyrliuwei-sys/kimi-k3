@@ -3,10 +3,11 @@ import { useForm } from '@tanstack/react-form';
 import { createFileRoute } from '@tanstack/react-router';
 import { z } from 'zod';
 
-import { authClient, signIn, signUp, useSession } from '@/core/auth/client';
+import { signIn, signUp, useSession } from '@/core/auth/client';
 import { Link, useRouter } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { apiPost } from '@/lib/api-client';
+import { TURNSTILE_ACTIONS } from '@/lib/turnstile-actions';
 import { m } from '@/paraglide/messages.js';
 import { localizeHref } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
@@ -97,8 +98,9 @@ function SignUpPage() {
   const emailVerificationEnabled =
     configs.email_verification_enabled === 'true';
   const inviteCodeRequired = configs.invite_code_required === 'true';
+  const turnstileEnabled = configs.turnstile_enabled === 'true';
   const turnstileSiteKey =
-    configs.turnstile_enabled === 'true' && configs.turnstile_sitekey
+    turnstileEnabled && configs.turnstile_sitekey
       ? configs.turnstile_sitekey
       : '';
   const hasSocial = googleEnabled || githubEnabled;
@@ -115,7 +117,11 @@ function SignUpPage() {
     validators: { onSubmit: signUpSchema },
     onSubmit: async ({ value }) => {
       setError('');
-      if (turnstileSiteKey && !turnstileToken) {
+      if (turnstileEnabled && !turnstileSiteKey) {
+        setError(m['common.sign.captcha_unavailable']());
+        return;
+      }
+      if (turnstileEnabled && !turnstileToken) {
         setError(m['common.sign.captcha_required']());
         return;
       }
@@ -165,13 +171,12 @@ function SignUpPage() {
         }
 
         if (emailVerificationEnabled) {
-          const verifyPath = `/verify-email?sent=1&email=${encodeURIComponent(
+          // The sign-up Turnstile token has been redeemed already. The
+          // verification page obtains a fresh one before it requests email,
+          // so this cannot become an unprotected email-sending side door.
+          const verifyPath = `/verify-email?email=${encodeURIComponent(
             value.email
           )}&callbackUrl=${encodeURIComponent(afterLoginUrl)}`;
-          void authClient.sendVerificationEmail({
-            email: value.email,
-            callbackURL: localizeHref(afterLoginUrl),
-          });
           router.push(verifyPath);
         } else {
           // Hard navigation so the destination reloads with a fresh session
@@ -189,7 +194,32 @@ function SignUpPage() {
   });
 
   async function handleSocial(provider: 'google' | 'github') {
-    await signIn.social({ provider, callbackURL: afterLoginUrl });
+    setError('');
+    if (turnstileEnabled && !turnstileSiteKey) {
+      setError(m['common.sign.captcha_unavailable']());
+      return;
+    }
+    if (turnstileEnabled && !turnstileToken) {
+      setError(m['common.sign.captcha_required']());
+      return;
+    }
+    try {
+      const result = await signIn.social(
+        { provider, callbackURL: afterLoginUrl },
+        turnstileToken
+          ? { headers: { 'x-captcha-response': turnstileToken } }
+          : undefined
+      );
+      if (result.error) {
+        captchaRef.current?.reset();
+        setTurnstileToken('');
+        setError(result.error.message || 'Sign in failed');
+      }
+    } catch (err: any) {
+      captchaRef.current?.reset();
+      setTurnstileToken('');
+      setError(err.message || 'Sign in failed');
+    }
   }
 
   return (
@@ -277,6 +307,17 @@ function SignUpPage() {
                     </FieldSeparator>
                   )}
 
+                  {turnstileEnabled && (
+                    <Field>
+                      <CaptchaWidget
+                        ref={captchaRef}
+                        siteKey={turnstileSiteKey}
+                        action={TURNSTILE_ACTIONS.credential}
+                        onToken={setTurnstileToken}
+                      />
+                    </Field>
+                  )}
+
                   {emailEnabled && (
                     <>
                       <form.Field name="name">
@@ -343,11 +384,6 @@ function SignUpPage() {
                         </form.Field>
                       )}
                       <Field>
-                        <CaptchaWidget
-                          ref={captchaRef}
-                          siteKey={turnstileSiteKey}
-                          onToken={setTurnstileToken}
-                        />
                         <form.Subscribe selector={(s) => s.isSubmitting}>
                           {(isSubmitting) => (
                             <Button type="submit" disabled={isSubmitting}>

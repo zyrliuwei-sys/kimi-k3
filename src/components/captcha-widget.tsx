@@ -14,6 +14,8 @@ export interface CaptchaWidgetHandle {
 interface CaptchaWidgetProps {
   /** Public Turnstile site key. The widget is not rendered when empty. */
   siteKey?: string;
+  /** Server-validated action that identifies the protected operation. */
+  action: string;
   /** Called with the verification token (empty string on expire/error). */
   onToken: (token: string) => void;
   className?: string;
@@ -23,10 +25,9 @@ interface CaptchaWidgetProps {
  * Cloudflare Turnstile widget for React forms.
  *
  * Renders nothing when no site key is configured, so a form that includes
- * it degrades gracefully if Turnstile is turned off (env unset). The
- * `turnstile-spin-v2` action is passed via render options — the explicit-
- * render equivalent of the `data-action` attribute used by Cloudflare's
- * auto-render snippet, and what Cloudflare uses for activation telemetry.
+ * it degrades gracefully if Turnstile is turned off (env unset). The caller
+ * supplies an operation-specific action through render options; the server
+ * verifies that same action in the Siteverify response.
  *
  * The widget is explicitly rendered (not auto-rendered via a `cf-turnstile`
  * div) because this app is an SPA: auth pages mount through client-side
@@ -36,7 +37,7 @@ interface CaptchaWidgetProps {
 export const CaptchaWidget = forwardRef<
   CaptchaWidgetHandle,
   CaptchaWidgetProps
->(function CaptchaWidget({ siteKey, onToken, className }, ref) {
+>(function CaptchaWidget({ siteKey, action, onToken, className }, ref) {
   const widgetRef = useRef<TurnstileInstance | undefined>(undefined);
 
   useImperativeHandle(ref, () => ({
@@ -49,7 +50,7 @@ export const CaptchaWidget = forwardRef<
     <Turnstile
       siteKey={siteKey}
       className={className}
-      options={{ action: 'turnstile-spin-v2', theme: 'auto' }}
+      options={{ action, theme: 'auto' }}
       onSuccess={(token) => onToken(token)}
       onExpire={() => onToken('')}
       onError={() => onToken('')}

@@ -67,11 +67,16 @@ import { Link } from '@/core/i18n/navigation';
 import { apiDelete, apiGet, apiPost } from '@/lib/api-client';
 import { streamChat } from '@/lib/chat-stream';
 import { usePlaygroundStore } from '@/lib/playground-store';
+import { TURNSTILE_ACTIONS } from '@/lib/turnstile-actions';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { getLocale } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
 import { Pricing } from '@/blocks/pricing';
+import {
+  CaptchaWidget,
+  type CaptchaWidgetHandle,
+} from '@/components/captcha-widget';
 import { ClonePreview } from '@/components/clone-preview';
 import { ImageStreamHero } from '@/components/image-stream-hero';
 import { MarkdownContent } from '@/components/markdown-content';
@@ -1021,14 +1026,45 @@ function AuthPromptDialog({
 }) {
   const { data: configs } = usePublicConfig();
   const googleEnabled = configs?.google_auth_enabled === 'true';
+  const turnstileEnabled = configs?.turnstile_enabled === 'true';
+  const turnstileSiteKey =
+    turnstileEnabled && configs?.turnstile_sitekey
+      ? configs.turnstile_sitekey
+      : '';
+  const captchaRef = useRef<CaptchaWidgetHandle>(null);
+  const [turnstileToken, setTurnstileToken] = useState('');
 
   // One-click Google OAuth. The provider is registered server-side whenever
   // google_client_id/secret are set, so this works as long as it's enabled.
   async function handleGoogle() {
-    await signIn.social({
-      provider: 'google',
-      callbackURL: callbackUrl,
-    });
+    if (turnstileEnabled && !turnstileSiteKey) {
+      toast.error(m['common.sign.captcha_unavailable']());
+      return;
+    }
+    if (turnstileEnabled && !turnstileToken) {
+      toast.error(m['common.sign.captcha_required']());
+      return;
+    }
+    try {
+      const result = await signIn.social(
+        {
+          provider: 'google',
+          callbackURL: callbackUrl,
+        },
+        turnstileToken
+          ? { headers: { 'x-captcha-response': turnstileToken } }
+          : undefined
+      );
+      if (result.error) {
+        captchaRef.current?.reset();
+        setTurnstileToken('');
+        toast.error(result.error.message || 'Sign in failed');
+      }
+    } catch (error: any) {
+      captchaRef.current?.reset();
+      setTurnstileToken('');
+      toast.error(error?.message || 'Sign in failed');
+    }
   }
 
   const signUpHref = `/sign-up?callbackUrl=${encodeURIComponent(callbackUrl)}`;
@@ -1075,6 +1111,14 @@ function AuthPromptDialog({
               </p>
 
               <div className="mt-2 flex w-full flex-col gap-2.5">
+                {turnstileEnabled && (
+                  <CaptchaWidget
+                    ref={captchaRef}
+                    siteKey={turnstileSiteKey}
+                    action={TURNSTILE_ACTIONS.credential}
+                    onToken={setTurnstileToken}
+                  />
+                )}
                 {googleEnabled && (
                   <>
                     <button

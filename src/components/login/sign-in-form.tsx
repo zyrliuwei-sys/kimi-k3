@@ -2,8 +2,9 @@ import { useRef, useState } from 'react';
 import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
 
-import { authClient, signIn } from '@/core/auth/client';
+import { signIn } from '@/core/auth/client';
 import { Link, useRouter } from '@/core/i18n/navigation';
+import { TURNSTILE_ACTIONS } from '@/lib/turnstile-actions';
 import { m } from '@/paraglide/messages.js';
 import { localizeHref } from '@/paraglide/runtime.js';
 import {
@@ -39,7 +40,9 @@ type SignInFormProps = {
    *  `?error=<code>` (e.g. `ip_limit` for a rolled-back OAuth / magic-
    *  link sign-up that exceeded the per-IP registration cap). */
   initialError?: string;
-  /** Cloudflare Turnstile site key (undefined ⇒ Turnstile is off). */
+  /** Whether the server requires Turnstile for this public auth flow. */
+  turnstileEnabled: boolean;
+  /** Cloudflare Turnstile site key (undefined ⇒ unavailable or off). */
   turnstileSiteKey?: string;
 };
 
@@ -56,6 +59,7 @@ export function SignInForm({
   githubEnabled,
   passwordResetEnabled,
   initialError = '',
+  turnstileEnabled,
   turnstileSiteKey,
 }: SignInFormProps) {
   const router = useRouter();
@@ -71,7 +75,11 @@ export function SignInForm({
     validators: { onSubmit: signInSchema },
     onSubmit: async ({ value }) => {
       setError('');
-      if (turnstileSiteKey && !turnstileToken) {
+      if (turnstileEnabled && !turnstileSiteKey) {
+        setError(m['common.sign.captcha_unavailable']());
+        return;
+      }
+      if (turnstileEnabled && !turnstileToken) {
         setError(m['common.sign.captcha_required']());
         return;
       }
@@ -96,13 +104,14 @@ export function SignInForm({
             code === 'EMAIL_NOT_VERIFIED' ||
             (status === 403 && /not verified/i.test(msg))
           ) {
-            const verifyPath = `/verify-email?sent=1&email=${encodeURIComponent(
+            // The sign-in token was redeemed by the server. The verification
+            // page obtains a new token before sending another email, so a
+            // failed sign-in cannot trigger an unprotected mail request.
+            captchaRef.current?.reset();
+            setTurnstileToken('');
+            const verifyPath = `/verify-email?email=${encodeURIComponent(
               value.email
             )}&callbackUrl=${encodeURIComponent(afterLoginUrl)}`;
-            void authClient.sendVerificationEmail({
-              email: value.email,
-              callbackURL: localizeHref(afterLoginUrl),
-            });
             router.push(verifyPath);
             return;
           }
@@ -122,7 +131,32 @@ export function SignInForm({
   });
 
   async function handleSocial(provider: 'google' | 'github') {
-    await signIn.social({ provider, callbackURL: afterLoginUrl });
+    setError('');
+    if (turnstileEnabled && !turnstileSiteKey) {
+      setError(m['common.sign.captcha_unavailable']());
+      return;
+    }
+    if (turnstileEnabled && !turnstileToken) {
+      setError(m['common.sign.captcha_required']());
+      return;
+    }
+    try {
+      const result = await signIn.social(
+        { provider, callbackURL: afterLoginUrl },
+        turnstileToken
+          ? { headers: { 'x-captcha-response': turnstileToken } }
+          : undefined
+      );
+      if (result.error) {
+        captchaRef.current?.reset();
+        setTurnstileToken('');
+        setError(result.error.message || 'Sign in failed');
+      }
+    } catch (err: any) {
+      captchaRef.current?.reset();
+      setTurnstileToken('');
+      setError(err.message || 'Sign in failed');
+    }
   }
 
   if (!hasAnyMethod) {
@@ -167,6 +201,15 @@ export function SignInForm({
         <FieldSeparator className="*:data-[slot=field-separator-content]:bg-background">
           {m['common.sign.or']()}
         </FieldSeparator>
+      )}
+
+      {turnstileEnabled && (
+        <CaptchaWidget
+          ref={captchaRef}
+          siteKey={turnstileSiteKey}
+          action={TURNSTILE_ACTIONS.credential}
+          onToken={setTurnstileToken}
+        />
       )}
 
       {emailEnabled && (
@@ -231,12 +274,6 @@ export function SignInForm({
               );
             }}
           </form.Field>
-
-          <CaptchaWidget
-            ref={captchaRef}
-            siteKey={turnstileSiteKey}
-            onToken={setTurnstileToken}
-          />
 
           <Button
             type="submit"

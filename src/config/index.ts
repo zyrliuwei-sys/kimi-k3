@@ -118,6 +118,10 @@ export const envConfigs: Record<string, string> = {
   // whether to render without an extra /api call; the admin panel still wins.
   turnstile_sitekey: publicEnv('VITE_TURNSTILE_SITE_KEY') ?? '',
   turnstile_secret: procEnv.TURNSTILE_SECRET ?? '',
+  // Optional comma-separated hostname allowlist for Siteverify responses.
+  // When omitted, the auth wrapper derives hosts from APP_URL / AUTH_URL.
+  // This remains server-only: callers must never trust a browser-supplied host.
+  turnstile_hostnames: procEnv.TURNSTILE_HOSTNAMES ?? '',
   turnstile_enabled:
     publicEnv('VITE_TURNSTILE_ENABLED') ?? procEnv.TURNSTILE_ENABLED ?? '',
 

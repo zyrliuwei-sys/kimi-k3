@@ -99,6 +99,7 @@ function SignInPage() {
         githubEnabled={githubEnabled}
         passwordResetEnabled={passwordResetEnabled}
         initialError={initialError}
+        turnstileEnabled={configs.turnstile_enabled === 'true'}
         turnstileSiteKey={
           configs.turnstile_enabled === 'true' && configs.turnstile_sitekey
             ? configs.turnstile_sitekey

@@ -19,6 +19,10 @@ export interface VerifyTurnstileInput {
   response: string;
   /** Visitor IP (CF-Connecting-IP preferred). Optional but recommended. */
   remoteip?: string;
+  /** Expected widget action. A token minted for another action is rejected. */
+  expectedAction?: string;
+  /** Allowed widget hostnames. A token minted on another host is rejected. */
+  expectedHostnames?: readonly string[];
 }
 
 export interface VerifyTurnstileResult {
@@ -33,8 +37,19 @@ const SITEVERIFY_URL =
 export async function verifyTurnstile(
   input: VerifyTurnstileInput
 ): Promise<VerifyTurnstileResult> {
-  const { secret, response, remoteip } = input;
-  if (!secret || !response) return { success: false };
+  const { secret, remoteip, expectedAction } = input;
+  const response = input.response.trim();
+  // Cloudflare documents a 2048-character maximum. Reject oversized values
+  // before creating an outbound request to keep this boundary cheap to abuse.
+  if (!secret || !response || response.length > 2048) {
+    return { success: false };
+  }
+
+  const expectedHostnames = new Set(
+    (input.expectedHostnames ?? [])
+      .map((hostname) => hostname.trim().toLowerCase().replace(/\.$/, ''))
+      .filter(Boolean)
+  );
 
   try {
     const params = new URLSearchParams({ secret, response });
@@ -44,6 +59,8 @@ export async function verifyTurnstile(
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: params,
+      // A stuck third-party call must not tie up an auth request indefinitely.
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) return { success: false };
 
@@ -51,8 +68,29 @@ export async function verifyTurnstile(
     if (!data || typeof data !== 'object') return { success: false };
     const result = data as Record<string, unknown>;
     const errorCodes = result['error-codes'];
+    const action = typeof result.action === 'string' ? result.action : '';
+    const hostname =
+      typeof result.hostname === 'string'
+        ? result.hostname.trim().toLowerCase().replace(/\.$/, '')
+        : '';
+
+    if (result.success !== true) {
+      return {
+        success: false,
+        errorCodes: Array.isArray(errorCodes)
+          ? errorCodes.map(String)
+          : undefined,
+      };
+    }
+    if (expectedAction && action !== expectedAction) {
+      return { success: false, errorCodes: ['action-mismatch'] };
+    }
+    if (expectedHostnames.size > 0 && !expectedHostnames.has(hostname)) {
+      return { success: false, errorCodes: ['hostname-mismatch'] };
+    }
+
     return {
-      success: result.success === true,
+      success: true,
       errorCodes: Array.isArray(errorCodes)
         ? errorCodes.map(String)
         : undefined,

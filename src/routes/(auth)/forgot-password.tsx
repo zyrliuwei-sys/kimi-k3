@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { requestPasswordReset } from '@/core/auth/client';
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
+import { TURNSTILE_ACTIONS } from '@/lib/turnstile-actions';
 import { m } from '@/paraglide/messages.js';
 import { localizeHref } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
@@ -40,8 +41,9 @@ function ForgotPasswordPage() {
 
   const configsLoaded = configQuery.isSuccess;
   const passwordResetEnabled = configs.password_reset_enabled === 'true';
+  const turnstileEnabled = configs.turnstile_enabled === 'true';
   const turnstileSiteKey =
-    configs.turnstile_enabled === 'true' && configs.turnstile_sitekey
+    turnstileEnabled && configs.turnstile_sitekey
       ? configs.turnstile_sitekey
       : '';
 
@@ -50,7 +52,11 @@ function ForgotPasswordPage() {
     validators: { onSubmit: forgotSchema },
     onSubmit: async ({ value }) => {
       setError('');
-      if (turnstileSiteKey && !turnstileToken) {
+      if (turnstileEnabled && !turnstileSiteKey) {
+        setError(m['common.sign.captcha_unavailable']());
+        return;
+      }
+      if (turnstileEnabled && !turnstileToken) {
         setError(m['common.sign.captcha_required']());
         return;
       }
@@ -165,6 +171,7 @@ function ForgotPasswordPage() {
                     <CaptchaWidget
                       ref={captchaRef}
                       siteKey={turnstileSiteKey}
+                      action={TURNSTILE_ACTIONS.passwordReset}
                       onToken={setTurnstileToken}
                     />
                     <form.Subscribe selector={(s) => s.isSubmitting}>

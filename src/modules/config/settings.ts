@@ -484,8 +484,8 @@ export function getSettings(): Setting[] {
     // ─── Auth / Bot Protection (Cloudflare Turnstile) ────────────────
     // Opt-in: defaults to off so existing deploys without Turnstile keys
     // aren't broken. Both site key (public) and secret (server-only) must
-    // be configured before enabling — verification is a no-op when the
-    // secret is missing.
+    // be configured before enabling. The API rejects saving an incomplete
+    // enabled configuration and auth requests fail closed as a backstop.
     {
       name: 'turnstile_enabled',
       title: 'Enable Turnstile',
