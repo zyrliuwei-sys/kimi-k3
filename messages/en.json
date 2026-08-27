@@ -900,6 +900,7 @@
   "playground.input.placeholder": "Ask anything, or start an Agent task…",
   "playground.input.send": "Send",
   "playground.attachment.add": "Attach files",
+  "playground.attachment.upload_hint": "Up to 50 files per upload · PDF, MP4, PPT supported",
   "playground.attachment.signin_required": "Sign in to attach files",
   "playground.attachment.default_prompt": "What's in this image? Describe it.",
   "playground.attachment.uploading": "Uploading…",

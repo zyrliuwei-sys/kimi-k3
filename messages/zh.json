@@ -900,6 +900,7 @@
   "playground.input.placeholder": "尽管问,或做个 Agent 任务……",
   "playground.input.send": "发送",
   "playground.attachment.add": "添加文件",
+  "playground.attachment.upload_hint": "单次上传最多 50 个文件 · 支持 PDF、MP4、PPT",
   "playground.attachment.signin_required": "登录后即可上传文件",
   "playground.attachment.default_prompt": "这张图片里有什么?请描述一下。",
   "playground.attachment.uploading": "上传中…",

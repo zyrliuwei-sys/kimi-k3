@@ -1387,16 +1387,19 @@ function Composer({
         />
 
         <div className="flex items-center justify-between gap-2 pt-3">
-          <div className="flex items-center gap-1.5">
+          <div className="flex translate-y-1 items-center gap-1.5">
             <button
               type="button"
               onClick={onPlusClick}
               aria-label={m['playground.attachment.add']()}
               title={m['playground.attachment.add']()}
-              className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 translate-y-2 items-center justify-center rounded-full transition-colors"
+              className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 items-center justify-center rounded-full transition-colors"
             >
               <Plus className="size-[22px]" />
             </button>
+            <span className="text-foreground/40 text-[11px] leading-tight whitespace-nowrap">
+              {m['playground.attachment.upload_hint']()}
+            </span>
           </div>
 
           <div className="flex items-center gap-1.5">
