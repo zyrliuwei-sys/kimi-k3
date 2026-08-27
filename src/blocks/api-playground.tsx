@@ -3235,14 +3235,14 @@ const RATIO_MENU = ASPECT_RATIOS;
 
 type ImageResolution = '1K' | '2K' | '4K';
 
-type ImageModelChoice = 'gpt-image-2' | 'nano-banana-2-beta';
+type ImageModelChoice = 'gpt-image-2' | 'nano-banana-2';
 
 const IMAGE_MODEL_OPTIONS: Array<{
   value: ImageModelChoice;
   label: string;
 }> = [
   { value: 'gpt-image-2', label: 'GPT Image 2' },
-  { value: 'nano-banana-2-beta', label: 'Nano Banana 2' },
+  { value: 'nano-banana-2', label: 'Nano Banana 2' },
 ];
 
 const IMAGE_RESOLUTION_OPTIONS: Array<{

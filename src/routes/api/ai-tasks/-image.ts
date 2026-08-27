@@ -28,6 +28,11 @@ const IMAGE_MODEL_PRESETS = {
   'gpt-image-2': {
     quality: 'medium',
   },
+  // Official EvoLink route. The beta id is retained below for existing
+  // queued/client requests, but new generations use this stable route.
+  'nano-banana-2': {
+    quality: '1K',
+  },
   'nano-banana-2-beta': {
     quality: '1K',
   },
@@ -97,14 +102,16 @@ export async function postImageTask({
   if (!Object.hasOwn(IMAGE_RESOLUTION_PRESETS, requestedResolution)) {
     return respErr('Unsupported image resolution.', { status: 400 });
   }
-  const resolution = requestedResolution as ImageResolution;
-  const quality =
-    model === 'nano-banana-2-beta'
-      ? resolution
-      : resolution === '1K'
+  const selectedResolution = requestedResolution as ImageResolution;
+  let resolution = selectedResolution;
+  const qualityFor = (value: ImageResolution) =>
+    model === 'nano-banana-2' || model === 'nano-banana-2-beta'
+      ? value
+      : value === '1K'
         ? 'medium'
         : 'high';
-  const resolutionCost = IMAGE_RESOLUTION_PRESETS[resolution].credits;
+  const selectedResolutionCost =
+    IMAGE_RESOLUTION_PRESETS[selectedResolution].credits;
 
   // Both selected upstream routes accept aspect-ratio strings. Falling back
   // to 1:1 instead of an upstream "auto" default makes the fixed model
@@ -127,15 +134,15 @@ export async function postImageTask({
     );
   }
 
-  const standardCost = resolutionCost;
+  const standardCost = selectedResolutionCost;
 
   // First-image-free trial (`image_first_free`, default on). The signup
   // bonus is 5 credits and one image costs ~10, so without this a brand-new
   // account would hit the paywall on its very first click. Free only for the
-  // cheap shape (1 image, base resolution, no reference — see
+  // cheap shape (1 image, any aspect ratio, no reference — see
   // `isFreeTrialShape`) and only until the user's first non-failed image
-  // task exists; the second generation is charged normally, which is the
-  // intended paywall.
+  // task exists. The free trial always uses 1K upstream, even when the
+  // client selected 2K or 4K. Every later request requires paid credits.
   //
   // Race note: two concurrent submits can both read zero prior tasks and
   // both go free. The window is one request round-trip and the blast radius
@@ -144,14 +151,14 @@ export async function postImageTask({
   let pricingReason: 'first_free' | 'standard' = 'standard';
   if (
     readImageFirstFree(configs) &&
-    model === 'gpt-image-2' &&
-    resolution === '1K' &&
     isFreeTrialShape({ n, size: rawSize, hasReference: !!referenceUrl }) &&
     (await countUserActiveTasks(session.user.id, AIMediaType.IMAGE)) === 0
   ) {
     costCredits = 0;
     pricingReason = 'first_free';
+    resolution = '1K';
   }
+  const quality = qualityFor(resolution);
 
   // 1. Insert aiTask + consume credits (single transaction).
   let task;
@@ -169,7 +176,10 @@ export async function postImageTask({
         ...(referenceUrl ? { image: referenceUrl } : {}),
       },
       costCredits,
-      paidOnly: false, // signup bonus may be spent on images
+      // The signup bonus is only for the single trial image. Subsequent
+      // generations must use paid credits, which causes the client to open
+      // the checkout/pricing dialog when none are available.
+      paidOnly: pricingReason !== 'first_free',
     });
   } catch (e: any) {
     const msg = String(e?.message || '');
@@ -365,8 +375,13 @@ export async function postImageTask({
         raw
       )
     ) {
+      const detail = raw
+        .replace(/^Evolink submit failed:\s*/i, '')
+        .slice(0, 240);
       return await fail(
-        `Upstream rejected the selected model (${model}). Check EvoLink model access.`,
+        detail
+          ? `EvoLink rejected the image request: ${detail}`
+          : `EvoLink rejected the selected model (${model}). Check model access.`,
         { status: 400 }
       );
     }

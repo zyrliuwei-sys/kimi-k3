@@ -398,6 +398,9 @@ export class EvolinkImageProvider {
         'canceled',
         'cancelled',
         'failure',
+        'rejected',
+        'declined',
+        'denied',
       ];
       if (failedHints.includes(status)) {
         return {

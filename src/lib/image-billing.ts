@@ -140,23 +140,11 @@ export function readImageFirstFree(configs: Record<string, string>): boolean {
 }
 
 /**
- * Size tokens billed at the base (cheapest) resolution factor. Kept as an
- * explicit allowlist rather than "not mid and not large" so an unrecognized
- * string (e.g. Nano Banana's raw `"16:9"`, which `computeImageCost` silently
- * bills at the base factor) can't sneak a 1.8×-cost image into the free
- * trial.
- */
-const FREE_TRIAL_SIZES = new Set(['', '1024x1024', '1:1']);
-
-/**
- * Shape gate for the free trial: one image, base resolution, no reference
- * image. Without this a new account could take a batch of four 1792×1024
- * img2img renders for free (≈68 credits of real cost) instead of the ~10
- * credits the trial is meant to cover.
+ * Shape gate for the free trial: one image and no reference image. Aspect
+ * ratio is intentionally not restricted; the server forces the output
+ * resolution to 1K for the one free request, while preserving the user's
+ * chosen composition.
  *
- * `size === undefined` is the composer's default ("Smart" — let the model
- * decide), which `computeImageCost` bills at the base factor, so it is
- * eligible.
  */
 export function isFreeTrialShape(args: {
   n: number;
@@ -165,5 +153,5 @@ export function isFreeTrialShape(args: {
 }): boolean {
   if (args.hasReference) return false;
   if (Math.floor(args.n) !== 1) return false;
-  return args.size === undefined || FREE_TRIAL_SIZES.has(args.size);
+  return args.size === undefined || typeof args.size === 'string';
 }
