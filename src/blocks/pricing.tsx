@@ -196,46 +196,45 @@ export function Pricing({ title }: { title?: string } = {}) {
   const liteMonthly = {
     id: 'lite_monthly',
     price: 19,
-    credits: 224,
+    credits: 1292,
     productId: 'lite_monthly',
   };
   const plusMonthly = {
     id: 'plus_monthly',
     price: 39,
-    credits: 460,
+    credits: 2652,
     productId: 'plus_monthly',
   };
   const proMonthly = {
     id: 'pro_monthly',
     price: 99,
-    credits: 1180,
+    credits: 6732,
     productId: 'pro_monthly',
   };
 
   // Per product: yearly total (= 12 × monthlyEquiv), yearly credits (= 12 × monthly credits), monthly-equivalent display, yearly productId
   // `price` and `monthlyEquiv` always reconcile (12 × monthly = yearly), so the
   // card subline "billed annually · $X/yr" matches the big number.
-  // Pro yearly credits bumped from 11160 → 14160 to match the new Pro monthly
-  // (1180 credits × 12); the previous 11160 dated back to when monthly was 930.
+  // Yearly credits mirror the API Credits unit used by monthly plans.
   const liteYearly = {
     id: 'lite_yearly',
     price: 180,
     monthlyEquiv: 15,
-    credits: 2688,
+    credits: 15504,
     productId: 'lite_yearly',
   };
   const plusYearly = {
     id: 'plus_yearly',
     price: 420,
     monthlyEquiv: 35,
-    credits: 5520,
+    credits: 31824,
     productId: 'plus_yearly',
   };
   const proYearly = {
     id: 'pro_yearly',
     price: 948,
     monthlyEquiv: 79,
-    credits: 14160,
+    credits: 80784,
     productId: 'pro_yearly',
   };
 
@@ -366,11 +365,11 @@ export function Pricing({ title }: { title?: string } = {}) {
         price: '$9',
         priceInCents: 900,
         currency: 'usd',
-        credits: 105,
+        credits: 612,
         productId: 'starter_once',
         productName: 'Starter Pack',
         buttonText: m['landing.pricing.buy_pack'](),
-        features: buildStarterPackFeatures(Zap, 105),
+        features: buildStarterPackFeatures(Zap, 612),
       },
       {
         id: 'standard_once',
@@ -381,11 +380,11 @@ export function Pricing({ title }: { title?: string } = {}) {
         badge: m['landing.pricing.popular'](),
         priceInCents: 2900,
         currency: 'usd',
-        credits: 340,
+        credits: 1972,
         productId: 'standard_once',
         productName: 'Standard Pack',
         buttonText: m['landing.pricing.buy_pack'](),
-        features: buildStandardPackFeatures(Zap, 340),
+        features: buildStandardPackFeatures(Zap, 1972),
       },
       {
         id: 'boost_once',
@@ -395,11 +394,11 @@ export function Pricing({ title }: { title?: string } = {}) {
         badge: m['landing.pricing.best_value'](),
         priceInCents: 7900,
         currency: 'usd',
-        credits: 930,
+        credits: 5372,
         productId: 'boost_once',
         productName: 'Boost Pack',
         buttonText: m['landing.pricing.buy_pack'](),
-        features: buildBoostPackFeatures(Zap, 930),
+        features: buildBoostPackFeatures(Zap, 5372),
       },
     ],
     []

@@ -1,6 +1,10 @@
 import {
   AIMediaType,
   EvolinkImageProvider,
+  getGptLowPrice,
+  IMAGE_MODELS,
+  IMAGE_PRICING,
+  IMAGE_RESOLUTIONS,
   pickImageProvider,
 } from '@/core/ai';
 import { ASPECT_RATIOS } from '@/core/ai/aspect-ratios';
@@ -20,33 +24,12 @@ import { buildRehostSaveFiles } from './-shared';
  * Product pricing is intentionally resolved on the server. The client can
  * select a resolution tier, but it cannot submit arbitrary upstream values.
  *
- * EvoLink wholesale basis (August 2026): GPT Image 2 1K/medium ≈ $0.048;
- * Nano Banana 2 1K ≈ $0.063. At $99 / 1180 app credits, 3 / 4 credits
- * keeps the public price at roughly 5.2–5.3× wholesale.
+ * GPT Image 2 uses the economical Low route. Its server-side estimate is
+ * based on resolution and aspect ratio, then multiplied by the product
+ * markup and rounded up. Nano Banana 2 keeps its resolution tiers.
  */
-const IMAGE_MODEL_PRESETS = {
-  'gpt-image-2': {
-    quality: 'medium',
-  },
-  // Official EvoLink route. The beta id is retained below for existing
-  // queued/client requests, but new generations use this stable route.
-  'nano-banana-2': {
-    quality: '1K',
-  },
-  'nano-banana-2-beta': {
-    quality: '1K',
-  },
-} as const;
-
-const IMAGE_RESOLUTION_PRESETS = {
-  '1K': { credits: 3 },
-  '2K': { credits: 6 },
-  '4K': { credits: 9 },
-} as const;
-
-type ImageResolution = keyof typeof IMAGE_RESOLUTION_PRESETS;
-
-type ImageModelChoice = keyof typeof IMAGE_MODEL_PRESETS;
+type ImageResolution = (typeof IMAGE_RESOLUTIONS)[number];
+type ImageModelChoice = (typeof IMAGE_MODELS)[number];
 
 /**
  * Image generation branch of `POST /api/ai-tasks`.
@@ -91,27 +74,20 @@ export async function postImageTask({
   // batch (which made pricing and first-run failures confusing).
   const n = 1;
   const requestedModel = String(body?.model ?? 'gpt-image-2');
-  if (!Object.hasOwn(IMAGE_MODEL_PRESETS, requestedModel)) {
+  if (!IMAGE_MODELS.includes(requestedModel as ImageModelChoice)) {
     return respErr('Unsupported image model.', {
       status: 400,
     });
   }
   const model = requestedModel as ImageModelChoice;
-  const preset = IMAGE_MODEL_PRESETS[model];
   const requestedResolution = String(body?.resolution ?? '1K');
-  if (!Object.hasOwn(IMAGE_RESOLUTION_PRESETS, requestedResolution)) {
+  if (!IMAGE_RESOLUTIONS.includes(requestedResolution as ImageResolution)) {
     return respErr('Unsupported image resolution.', { status: 400 });
   }
   const selectedResolution = requestedResolution as ImageResolution;
   let resolution = selectedResolution;
   const qualityFor = (value: ImageResolution) =>
-    model === 'nano-banana-2' || model === 'nano-banana-2-beta'
-      ? value
-      : value === '1K'
-        ? 'medium'
-        : 'high';
-  const selectedResolutionCost =
-    IMAGE_RESOLUTION_PRESETS[selectedResolution].credits;
+    model === 'nano-banana-2' ? value : 'low';
 
   // Both selected upstream routes accept aspect-ratio strings. Falling back
   // to 1:1 instead of an upstream "auto" default makes the fixed model
@@ -124,6 +100,11 @@ export async function postImageTask({
       { status: 400 }
     );
   }
+
+  const selectedResolutionCost =
+    model === 'gpt-image-2'
+      ? getGptLowPrice(selectedResolution, rawSize)
+      : IMAGE_PRICING[model][selectedResolution];
 
   const configs = await getAllConfigs();
   const pick = await pickImageProvider(configs);
@@ -173,6 +154,10 @@ export async function postImageTask({
         model,
         resolution,
         aspectRatio: rawSize,
+        pricing: {
+          version: 'image-model-resolution-v2-low-observed',
+          credits: costCredits,
+        },
         ...(referenceUrl ? { image: referenceUrl } : {}),
       },
       costCredits,

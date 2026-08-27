@@ -1,8 +1,6 @@
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
-import { getLocale } from '@/paraglide/runtime.js';
-import { getLocalPosts, mergePosts } from '@/content/posts';
 
 interface BadgeEntry {
   href: string;
@@ -374,14 +372,6 @@ export function Footer() {
     { label: m['landing.footer.resources_status'](), href: '/' },
     { label: m['landing.footer.resources_signin'](), href: '/sign-in' },
   ];
-  // Localized blog directory: show the most recent posts as a quick
-  // discovery surface. Local MDX posts are bundled (isomorphic helper),
-  // so we sort newest-first and cap at 4 to keep the column compact.
-  // Database-authored posts are reachable via /blog.
-  const recentPosts = mergePosts([], getLocalPosts(getLocale()), {
-    limit: 4,
-  });
-
   return (
     <footer className="relative overflow-hidden bg-neutral-950 px-4 py-10 text-neutral-300 md:px-8">
       <div className="mx-auto max-w-7xl">
@@ -406,7 +396,7 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-7">
+        <div className="grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-6">
           {/* Product */}
           <div className="col-span-1">
             <h3 className="text-sm font-semibold text-neutral-100">
@@ -477,35 +467,8 @@ export function Footer() {
             </ul>
           </div>
 
-          {/* Blog directory */}
-          <div className="col-span-1">
-            <h3 className="text-sm font-semibold text-neutral-100">
-              {m['landing.footer.col_blog']()}
-            </h3>
-            <ul className="mt-4 space-y-2">
-              {recentPosts.map((post) => (
-                <li key={post.slug}>
-                  <Link
-                    href={`/blog/${post.slug}`}
-                    className="line-clamp-2 text-sm break-words text-neutral-400 transition-colors hover:text-neutral-100"
-                  >
-                    {post.title}
-                  </Link>
-                </li>
-              ))}
-              <li>
-                <Link
-                  href="/blog"
-                  className="text-sm text-neutral-400 transition-colors hover:text-neutral-100"
-                >
-                  {m['landing.footer.view_all']()}
-                </Link>
-              </li>
-            </ul>
-          </div>
-
           {/* Brand + locale */}
-          <div className="col-span-2 mt-8 lg:col-span-3 lg:mt-0">
+          <div className="col-span-2 mt-8 md:col-span-3 lg:col-span-3 lg:mt-0">
             <div className="flex items-center gap-2">
               <Link href="/" className="flex items-center gap-2">
                 <img

@@ -50,7 +50,10 @@ import { toast } from 'sonner';
 
 import {
   ASPECT_RATIOS,
+  IMAGE_RESOLUTIONS,
   SEEDANCE_VIDEO_MODEL,
+  type ImageModel,
+  type ImageResolution,
   type SeedanceVideoAspectRatio,
   type SeedanceVideoQuality,
 } from '@/core/ai';
@@ -3236,9 +3239,7 @@ function BananaIcon({ className }: { className?: string }) {
 // client and server only ever submit upstream-supported ratio tokens.
 const RATIO_MENU = ASPECT_RATIOS;
 
-type ImageResolution = '1K' | '2K' | '4K';
-
-type ImageModelChoice = 'gpt-image-2' | 'nano-banana-2';
+type ImageModelChoice = ImageModel;
 
 const IMAGE_MODEL_OPTIONS: Array<{
   value: ImageModelChoice;
@@ -3248,14 +3249,9 @@ const IMAGE_MODEL_OPTIONS: Array<{
   { value: 'nano-banana-2', label: 'Nano Banana 2' },
 ];
 
-const IMAGE_RESOLUTION_OPTIONS: Array<{
-  value: ImageResolution;
-  cost: number;
-}> = [
-  { value: '1K', cost: 3 },
-  { value: '2K', cost: 6 },
-  { value: '4K', cost: 9 },
-];
+const IMAGE_RESOLUTION_OPTIONS = IMAGE_RESOLUTIONS.map((value) => ({
+  value,
+}));
 
 // Inline mini-swatch that mirrors the chosen ratio so the trigger
 // label and the menu row line up visually.
@@ -3311,7 +3307,10 @@ function ImageModelSelect({
         className="text-muted-foreground hover:bg-foreground/5 hover:text-foreground inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors"
         aria-label={m['playground.image.model_label']()}
       >
-        <span>{active.label}</span>
+        <span>
+          {active.label}
+          {active.value === 'gpt-image-2' ? ' · Low' : null}
+        </span>
         <ChevronDown
           className={cn('size-3 transition-transform', open && 'rotate-180')}
         />
@@ -3352,11 +3351,13 @@ function ImageModelSelect({
 function AspectRatioMenu({
   value,
   onChange,
+  model,
   resolution,
   onResolutionChange,
 }: {
   value: string;
   onChange: (ratio: string) => void;
+  model: ImageModel;
   resolution: ImageResolution;
   onResolutionChange: (resolution: ImageResolution) => void;
 }) {
@@ -3417,7 +3418,7 @@ function AspectRatioMenu({
                   aria-pressed={selected}
                   onClick={() => onResolutionChange(option.value)}
                   className={cn(
-                    'text-muted-foreground rounded-lg px-2 py-2 text-center text-xs font-medium transition-colors',
+                    'text-muted-foreground flex flex-col items-center rounded-lg px-2 py-1.5 text-center text-xs font-medium transition-colors',
                     'hover:text-foreground',
                     selected && 'bg-background text-foreground shadow-sm'
                   )}
@@ -4306,7 +4307,15 @@ function MyImageTile({
   // arrived, leaving a gap before the bytes actually painted.
   const [isLoaded, setIsLoaded] = useState(false);
   const imgRef = useRef<HTMLImageElement | null>(null);
-  const { activeSrc, useFallback } = useImageFallback(url, fallbackUrl);
+  // Prefer the provider/CDN URL when the list endpoint has one. It is
+  // already available at task completion and avoids waiting for a second
+  // authenticated proxy request before the original image can paint. If the
+  // public URL has expired or fails, fall back to the private proxy URL.
+  const preferredUrl = fallbackUrl || url;
+  const { activeSrc, useFallback } = useImageFallback(
+    preferredUrl,
+    fallbackUrl ? url : null
+  );
   useEffect(() => {
     setRatio(requestedRatio ?? 1);
   }, [requestedRatio]);
@@ -5583,6 +5592,7 @@ export function ImagePlayground({
               <AspectRatioMenu
                 value={aspectRatio}
                 onChange={setAspectRatio}
+                model={imageModel}
                 resolution={imageResolution}
                 onResolutionChange={setImageResolution}
               />

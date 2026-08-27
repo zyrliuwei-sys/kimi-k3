@@ -8,6 +8,7 @@ export * from './evolink-video';
 
 export * from './aspect-ratios';
 export * from './image-urls';
+export * from './image-pricing';
 
 export * from './types';
 

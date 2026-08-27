@@ -7,11 +7,9 @@
  *
  * To change pricing, edit this file and redeploy. Admin UI cannot alter prices.
  *
- * Pricing model (统一单价 $0.085/积分 ≈ API 底价 $0.015 的 5.67 倍):
- *   - 订阅(月付):Lite $19/224cr, Plus $39/460cr, Pro $99/1180cr
- *   - 订阅(年付):Lite $180/2688cr (UI 显示 $15/mo), Plus $420/5520cr ($35/mo),
- *                Pro $948/14160cr ($79/mo)
- *   - 一次性:    Starter $9/105cr, Standard $29/340cr, Boost $79/930cr
+ * Pricing model: product credits use the same unit as the upstream API
+ * credits. Package amounts follow the provider's roughly 68 credits/USD
+ * wholesale unit (the $10 tier is 650 credits).
  */
 
 import { PaymentInterval, PaymentType } from '@/core/payment/types';
@@ -43,11 +41,11 @@ const monthlyProducts: Record<string, PricingProduct> = {
     productId: 'lite_monthly',
     productName: 'Lite',
     planName: 'Lite',
-    description: 'Lite 月度订阅 · 224 积分/月',
+    description: 'Lite 月度订阅 · 1,292 积分/月',
     type: PaymentType.SUBSCRIPTION,
     priceInCents: 1900, // $19
     currency: USD,
-    credits: 224,
+    credits: 1292,
     plan: {
       name: 'Lite',
       interval: PaymentInterval.MONTH,
@@ -58,11 +56,11 @@ const monthlyProducts: Record<string, PricingProduct> = {
     productId: 'plus_monthly',
     productName: 'Plus',
     planName: 'Plus',
-    description: 'Plus 月度订阅 · 460 积分/月',
+    description: 'Plus 月度订阅 · 2,652 积分/月',
     type: PaymentType.SUBSCRIPTION,
     priceInCents: 3900, // $39
     currency: USD,
-    credits: 460,
+    credits: 2652,
     plan: {
       name: 'Plus',
       interval: PaymentInterval.MONTH,
@@ -73,11 +71,11 @@ const monthlyProducts: Record<string, PricingProduct> = {
     productId: 'pro_monthly',
     productName: 'Pro',
     planName: 'Pro',
-    description: 'Pro 月度订阅 · 1,180 积分/月',
+    description: 'Pro 月度订阅 · 6,732 积分/月',
     type: PaymentType.SUBSCRIPTION,
     priceInCents: 9900, // $99
     currency: USD,
-    credits: 1180,
+    credits: 6732,
     plan: {
       name: 'Pro',
       interval: PaymentInterval.MONTH,
@@ -96,7 +94,7 @@ const yearlyProducts: Record<string, PricingProduct> = {
     type: PaymentType.SUBSCRIPTION,
     priceInCents: 18000, // $180 (= $15/mo × 12)
     currency: USD,
-    credits: 2688, // 224 × 12
+    credits: 15504, // 1292 × 12
     plan: {
       name: 'Lite',
       interval: PaymentInterval.YEAR,
@@ -111,7 +109,7 @@ const yearlyProducts: Record<string, PricingProduct> = {
     type: PaymentType.SUBSCRIPTION,
     priceInCents: 42000, // $420 (= $35/mo × 12)
     currency: USD,
-    credits: 5520, // 460 × 12
+    credits: 31824, // 2652 × 12
     plan: {
       name: 'Plus',
       interval: PaymentInterval.YEAR,
@@ -126,7 +124,7 @@ const yearlyProducts: Record<string, PricingProduct> = {
     type: PaymentType.SUBSCRIPTION,
     priceInCents: 94800, // $948 (= $79/mo × 12)
     currency: USD,
-    credits: 14160, // 1180 × 12
+    credits: 80784, // 6732 × 12
     plan: {
       name: 'Pro',
       interval: PaymentInterval.YEAR,
@@ -141,31 +139,31 @@ const oneTimeProducts: Record<string, PricingProduct> = {
     productId: 'starter_once',
     productName: 'Starter Pack',
     planName: 'Starter Pack',
-    description: 'Starter 小包 · 105 积分(约 17 次对话,视长度而定)',
+    description: 'Starter 小包 · 612 积分(约 17 次对话,视长度而定)',
     type: PaymentType.ONE_TIME,
     priceInCents: 900, // $9
     currency: USD,
-    credits: 105,
+    credits: 612,
   },
   standard_once: {
     productId: 'standard_once',
     productName: 'Standard Pack',
     planName: 'Standard Pack',
-    description: 'Standard 标配 · 340 积分(约 57 次对话,视长度而定)',
+    description: 'Standard 标配 · 1,972 积分(约 57 次对话,视长度而定)',
     type: PaymentType.ONE_TIME,
     priceInCents: 2900, // $29
     currency: USD,
-    credits: 340,
+    credits: 1972,
   },
   boost_once: {
     productId: 'boost_once',
     productName: 'Boost Pack',
     planName: 'Boost Pack',
-    description: 'Boost 加量包 · 930 积分(约 155 次对话,视长度而定)',
+    description: 'Boost 加量包 · 5,372 积分(约 155 次对话,视长度而定)',
     type: PaymentType.ONE_TIME,
     priceInCents: 7900, // $79
     currency: USD,
-    credits: 930,
+    credits: 5372,
   },
 };
 
