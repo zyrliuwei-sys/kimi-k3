@@ -16,11 +16,20 @@ import { getConfig } from '@/modules/config/service';
 
 /** The only models a browser may select for product chat. Keep this list
  * server-side: the client is allowed to request a model, never to name an
- * arbitrary EvoLink route. */
+ * arbitrary EvoLink route. Ids are the exact EvoLink API model ids — casing
+ * matters (`MiniMax-M3`). */
 export const CHAT_MODEL_IDS = [
   'kimi-k3',
-  'gpt-5.6-sol',
+  'glm-5.3-flash',
+  'deepseek-v4-flash',
+  'MiniMax-M3',
+  'glm-5.3',
+  'gemini-3.5-flash',
+  'claude-sonnet-5',
   'claude-opus-4-8',
+  'claude-opus-5',
+  'gpt-5.6-sol',
+  'claude-fable-5',
 ] as const;
 
 export type ChatModelId = (typeof CHAT_MODEL_IDS)[number];
@@ -28,23 +37,76 @@ export type ChatModelId = (typeof CHAT_MODEL_IDS)[number];
 export const DEFAULT_CHAT_MODEL_ID: ChatModelId = 'kimi-k3';
 
 /**
- * EvoLink bills all of these premium routes in the same credit unit used by
- * this app (68 credits = $1). These are the verified, base-context rates at a
- * fixed 7× retail multiplier, expressed as app credits per 1K tokens.
+ * Free-tier models: billed to nobody, limited to a per-day message quota
+ * (see `@/modules/free-chat-quota`). They still carry 7× rates above so a
+ * future policy change (or a non-quota surface) never meets missing rates.
+ */
+export const FREE_CHAT_MODEL_IDS = [
+  'glm-5.3-flash',
+  'deepseek-v4-flash',
+] as const;
+
+export type FreeChatModelId = (typeof FREE_CHAT_MODEL_IDS)[number];
+
+export function isFreeChatModel(model: string): boolean {
+  return (FREE_CHAT_MODEL_IDS as readonly string[]).includes(model);
+}
+
+/**
+ * EvoLink bills all of these routes in the same credit unit used by this app
+ * (68 credits = $1). Rates are the verified detail-page prices at a fixed 7×
+ * retail multiplier, expressed as app credits per 1K tokens.
  *
- * The GPT route moves to a higher band above 272K prompt tokens. We keep a
- * deliberately lower hard cap in `getChatModelInputBudgetError` so a request
- * cannot accidentally cross into that multiplier while we quote base rates.
+ * Promo notes (recheck quarterly — a promo ending silently drops the margin):
+ *   - claude-sonnet-5 is priced at the STABLE member rate (10% below the $3 /
+ *     $15 official list). The -40% launch promo ended Aug 31, 2026; pricing at
+ *     it would have meant a +50% correction three days after launch.
+ *   - MiniMax-M3 uses the ≤524.3K tier (its >524.3K tier doubles). Guarded in
+ *     `getChatModelInputBudgetError` like the GPT long-context band.
+ *   - claude-opus-5 / claude-fable-5 discounts (-5% / -10%) are EvoLink's
+ *     standing policy, not launch promos.
  */
 const PREMIUM_CHAT_MODEL_RATES: Record<
   Exclude<ChatModelId, 'kimi-k3'>,
   Omit<ChatTokenRates, 'minCost'>
 > = {
-  'gpt-5.6-sol': {
-    inputRate: 2.142, // 306 EvoLink cr / 1M × 7
-    outputRate: 12.852, // 1,836 EvoLink cr / 1M × 7
-    cacheWriteRate: 2.6775, // 382.5 EvoLink cr / 1M × 7
-    cacheReadRate: 0.2142, // 30.6 EvoLink cr / 1M × 7
+  // ── Free tier (rates kept for accounting / future policy changes) ──
+  'glm-5.3-flash': {
+    inputRate: 0.0714, // 10.2 EvoLink cr / 1M × 7
+    outputRate: 0.238, // 34 EvoLink cr / 1M × 7
+    cacheWriteRate: 0.0714, // no write surcharge — billed as input
+    cacheReadRate: 0.0147, // 2.1 EvoLink cr / 1M × 7
+  },
+  'deepseek-v4-flash': {
+    inputRate: 0.21, // 30 EvoLink cr / 1M × 7
+    outputRate: 0.63, // 90 EvoLink cr / 1M × 7
+    cacheWriteRate: 0.21, // no write surcharge — billed as input
+    cacheReadRate: 0.007, // 1 EvoLink cr / 1M × 7
+  },
+  // ── Paid 7× tier ──
+  'MiniMax-M3': {
+    inputRate: 0.2352, // 33.6 EvoLink cr / 1M × 7
+    outputRate: 0.9408, // 134.4 EvoLink cr / 1M × 7
+    cacheWriteRate: 0.294, // 42 EvoLink cr / 1M × 7
+    cacheReadRate: 0.0469, // 6.7 EvoLink cr / 1M × 7
+  },
+  'glm-5.3': {
+    inputRate: 0.6664, // 95.2 EvoLink cr / 1M × 7
+    outputRate: 2.0944, // 299.2 EvoLink cr / 1M × 7
+    cacheWriteRate: 0.6664, // no write surcharge — billed as input
+    cacheReadRate: 0.1239, // 17.7 EvoLink cr / 1M × 7
+  },
+  'gemini-3.5-flash': {
+    inputRate: 0.6426, // 91.8 EvoLink cr / 1M × 7
+    outputRate: 3.8556, // 550.8 EvoLink cr / 1M × 7
+    cacheWriteRate: 0.6426, // implicit caching — no write surcharge
+    cacheReadRate: 0.0644, // 9.2 EvoLink cr / 1M × 7
+  },
+  'claude-sonnet-5': {
+    inputRate: 1.2852, // 183.6 EvoLink cr / 1M × 7 (stable member rate)
+    outputRate: 6.426, // 918 EvoLink cr / 1M × 7
+    cacheWriteRate: 1.6065, // 229.5 EvoLink cr / 1M × 7
+    cacheReadRate: 0.12852, // 18.36 EvoLink cr / 1M × 7
   },
   'claude-opus-4-8': {
     inputRate: 2.142, // 306 EvoLink cr / 1M × 7
@@ -52,15 +114,42 @@ const PREMIUM_CHAT_MODEL_RATES: Record<
     cacheWriteRate: 2.6775, // 382.5 EvoLink cr / 1M × 7
     cacheReadRate: 0.2142, // 30.6 EvoLink cr / 1M × 7
   },
+  'claude-opus-5': {
+    inputRate: 2.261, // 323 EvoLink cr / 1M × 7
+    outputRate: 11.305, // 1,615 EvoLink cr / 1M × 7
+    cacheWriteRate: 2.8266, // 403.8 EvoLink cr / 1M × 7
+    cacheReadRate: 0.2261, // 32.3 EvoLink cr / 1M × 7
+  },
+  'gpt-5.6-sol': {
+    inputRate: 2.142, // 306 EvoLink cr / 1M × 7
+    outputRate: 12.852, // 1,836 EvoLink cr / 1M × 7
+    cacheWriteRate: 2.6775, // 382.5 EvoLink cr / 1M × 7
+    cacheReadRate: 0.2142, // 30.6 EvoLink cr / 1M × 7
+  },
+  'claude-fable-5': {
+    inputRate: 4.284, // 612 EvoLink cr / 1M × 7
+    outputRate: 21.42, // 3,060 EvoLink cr / 1M × 7
+    cacheWriteRate: 5.355, // 765 EvoLink cr / 1M × 7
+    cacheReadRate: 0.4284, // 61.2 EvoLink cr / 1M × 7
+  },
 };
 
 /** Hard output budget for paid premium turns. It is sent upstream and fully
  * reserved before generation, then unused credits are returned at settlement. */
 export const PREMIUM_CHAT_MAX_OUTPUT_TOKENS = 4096;
 
+/** Free-tier turns are not billed per token, so the only cost ceiling is this
+ * upstream cap — DeepSeek V4 Flash alone allows 384K output tokens, and a
+ * runaway generation on an unbilled route would be pure cost. */
+export const FREE_CHAT_MAX_OUTPUT_TOKENS = 2048;
+
 /** A 200K estimated prompt cap leaves margin below GPT-5.6 Sol's 272K
  * long-context pricing threshold, including token-estimation variance. */
 export const GPT_56_SOL_MAX_PROMPT_TOKENS = 200_000;
+
+/** MiniMax-M3 doubles its token rate above 524.3K prompt tokens. This cap
+ * keeps a quoted base-rate request safely inside the cheap tier. */
+export const MINIMAX_M3_MAX_PROMPT_TOKENS = 450_000;
 
 export interface ChatTokenRates {
   /** Credits per 1k input/prompt tokens. */
@@ -92,7 +181,11 @@ export function isChatModelId(value: unknown): value is ChatModelId {
 }
 
 export function isPremiumChatModel(model: string): boolean {
-  return model !== DEFAULT_CHAT_MODEL_ID && isChatModelId(model);
+  return (
+    model !== DEFAULT_CHAT_MODEL_ID &&
+    !isFreeChatModel(model) &&
+    isChatModelId(model)
+  );
 }
 
 /** Resolve an untrusted requested model against the server-owned allowlist. */
@@ -108,6 +201,22 @@ export function getChatModelDisplayName(model: string): string {
       return 'GPT-5.6';
     case 'claude-opus-4-8':
       return 'Claude Opus 4.8';
+    case 'claude-opus-5':
+      return 'Claude Opus 5';
+    case 'claude-sonnet-5':
+      return 'Claude Sonnet 5';
+    case 'claude-fable-5':
+      return 'Claude Fable 5';
+    case 'gemini-3.5-flash':
+      return 'Gemini 3.5 Flash';
+    case 'glm-5.3':
+      return 'GLM-5.3';
+    case 'glm-5.3-flash':
+      return 'GLM-5.3 Flash';
+    case 'deepseek-v4-flash':
+      return 'DeepSeek V4 Flash';
+    case 'MiniMax-M3':
+      return 'MiniMax-M3';
     case 'kimi-k3':
       return 'Kimi K3';
     default:
@@ -211,7 +320,7 @@ export function computeChatReservationCost(params: {
   const inputWithSafetyMargin = Math.ceil(estimatedInputTokens * 1.25);
   return computeTokenCost(
     inputWithSafetyMargin,
-    PREMIUM_CHAT_MAX_OUTPUT_TOKENS,
+    getChatModelMaxOutputTokens(model) ?? PREMIUM_CHAT_MAX_OUTPUT_TOKENS,
     {
       ...rates,
       inputRate: Math.max(rates.inputRate, rates.cacheWriteRate),
@@ -222,7 +331,9 @@ export function computeChatReservationCost(params: {
 export function getChatModelMaxOutputTokens(
   model: ChatModelId
 ): number | undefined {
-  return isPremiumChatModel(model) ? PREMIUM_CHAT_MAX_OUTPUT_TOKENS : undefined;
+  if (isPremiumChatModel(model)) return PREMIUM_CHAT_MAX_OUTPUT_TOKENS;
+  if (isFreeChatModel(model)) return FREE_CHAT_MAX_OUTPUT_TOKENS;
+  return undefined; // Kimi keeps its uncapped default behavior
 }
 
 /** Returns a user-safe validation message when a model's quoted rate would no
@@ -237,6 +348,12 @@ export function getChatModelInputBudgetError(params: {
     estimatedInputTokens > GPT_56_SOL_MAX_PROMPT_TOKENS
   ) {
     return 'GPT-5.6 Sol supports up to 200K prompt tokens per chat turn.';
+  }
+  if (
+    model === 'MiniMax-M3' &&
+    estimatedInputTokens > MINIMAX_M3_MAX_PROMPT_TOKENS
+  ) {
+    return 'MiniMax-M3 supports up to 450K prompt tokens per chat turn.';
   }
   return null;
 }

@@ -945,7 +945,33 @@ export function getSettings(): Setting[] {
       title: 'Model',
       type: 'text',
       placeholder: 'gpt-5.6-sol',
-      tip: 'Default product-chat model. Allowed choices are gpt-5.6-sol, kimi-k3, and claude-opus-4-8; the chat UI lets users switch among those server-billed routes.',
+      tip: 'Default product-chat model. Any id from the server allowlist (kimi-k3, glm-5.3-flash, deepseek-v4-flash, MiniMax-M3, glm-5.3, gemini-3.5-flash, claude-sonnet-5, claude-opus-4-8, claude-opus-5, gpt-5.6-sol, claude-fable-5); the chat UI lets users switch among those server-billed routes.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      // Free-tier chat: glm-5.3-flash and deepseek-v4-flash cost a fraction
+      // of a credit per message, so they are offered on a daily message
+      // allowance instead of per-token billing (see
+      // `@/modules/free-chat-quota`). This switch is the kill switch —
+      // flipping it off routes those models back through the normal
+      // credit gates without a redeploy.
+      name: 'free_chat_enabled',
+      title: 'Enable free-tier chat models',
+      type: 'switch',
+      defaultValue: 'true',
+      tip: 'GLM-5.3 Flash and DeepSeek V4 Flash on a daily message quota instead of credits (no per-token billing). Off = those models require credits/subscription like the rest.',
+      group: 'evolink',
+      tab: 'ai',
+    },
+    {
+      name: 'free_chat_daily_limit',
+      title: 'Free chat messages / user / day',
+      type: 'number',
+      placeholder: '30',
+      defaultValue: '30',
+      min: 1,
+      tip: 'Free-tier messages per user per day across both free models. Resets at Beijing midnight. Heavy daily use of both models ≈ $0.9–2.4/month per user at wholesale.',
       group: 'evolink',
       tab: 'ai',
     },

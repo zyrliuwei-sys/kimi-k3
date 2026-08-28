@@ -13,6 +13,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
 } from 'drizzle-orm/pg-core';
 
 const table = pgTable;
@@ -826,3 +827,31 @@ export type AuditCache = typeof auditCache.$inferSelect;
 export type NewAuditCache = typeof auditCache.$inferInsert;
 export type AuditShare = typeof auditShare.$inferSelect;
 export type NewAuditShare = typeof auditShare.$inferInsert;
+
+// ─── Free chat daily quota ───────────────────────────────────────────────────
+// One row per (user, day) counting messages sent to the free-tier chat models
+// (see FREE_CHAT_MODEL_IDS in `@/lib/chat-billing`). `day` is the calendar
+// date at UTC+8 so the allowance resets at Beijing midnight, and the rows
+// double as the free-tier usage audit trail. Consume is an atomic upsert in
+// `@/modules/free-chat-quota/service.ts`.
+
+export const chatFreeQuota = table(
+  'chat_free_quota',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id')
+      .notNull()
+      .references(() => user.id),
+    day: text('day').notNull(),
+    count: integer('count').notNull().default(0),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('idx_chat_free_quota_user_day').on(t.userId, t.day),
+    index('idx_chat_free_quota_day').on(t.day),
+  ]
+);
+
+export type ChatFreeQuota = typeof chatFreeQuota.$inferSelect;
+export type NewChatFreeQuota = typeof chatFreeQuota.$inferInsert;

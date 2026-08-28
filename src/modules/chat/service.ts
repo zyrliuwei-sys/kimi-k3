@@ -15,6 +15,10 @@ import {
   type ChatMessage,
 } from '@/config/db/schema';
 import { getConfig } from '@/modules/config/service';
+import {
+  consumeFreeChatQuota,
+  isFreeChatEnabled,
+} from '@/modules/free-chat-quota/service';
 import { settleConsume } from '@/modules/subscription-quota/refund';
 import { consumeMessage } from '@/modules/subscription-quota/service';
 import {
@@ -26,6 +30,7 @@ import {
   getChatModelInputBudgetError,
   getChatModelMaxOutputTokens,
   getChatTokenRates,
+  isFreeChatModel,
   isPremiumChatModel,
 } from '@/lib/chat-billing';
 import { getUuid } from '@/lib/hash';
@@ -336,9 +341,11 @@ export async function* streamMessage(params: {
     return;
   }
 
-  // 1c. Per-token billing. A premium request reserves the permitted output
-  // budget before generation; settlement returns every unused credit. Do not
-  // bill the local setup-guidance fallback when no upstream key exists.
+  // 1c. Billing gate. Free-tier models run on the DB-backed daily message
+  // quota (no credits, no subscription slot); everything else reserves the
+  // permitted output budget before generation, with settlement returning
+  // every unused credit. Do not bill the local setup-guidance fallback when
+  // no upstream key exists.
   let chargeCtx:
     | {
         via: 'credits';
@@ -348,7 +355,19 @@ export async function* streamMessage(params: {
       }
     | { via: 'quota' }
     | null = null;
-  if (cfg.hasKey) {
+  if (
+    cfg.hasKey &&
+    isFreeChatModel(billingModel) &&
+    (await isFreeChatEnabled())
+  ) {
+    const quota = await consumeFreeChatQuota(userId);
+    if (!quota.allowed) {
+      // Stable marker: the client maps it to the pricing panel (upsell),
+      // same as `payment_required`.
+      yield { type: 'error', message: 'free_limit_reached' };
+      return;
+    }
+  } else if (cfg.hasKey) {
     const rates = await getChatTokenRates(billingModel);
     const estimatedCost = computeChatReservationCost({
       model: billingModel,

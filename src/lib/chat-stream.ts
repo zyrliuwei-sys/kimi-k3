@@ -14,7 +14,9 @@
  */
 export interface ChatStreamHandlers {
   onDelta?: (text: string) => void;
-  onGate?: (status: 'login_required' | 'payment_required') => void;
+  onGate?: (
+    status: 'login_required' | 'payment_required' | 'free_limit_reached'
+  ) => void;
   onDone?: (info: {
     model?: string;
     provider?: string;
@@ -163,7 +165,8 @@ function dispatchFrame(frame: string, handlers: ChatStreamHandlers): void {
       case 'gate':
         if (
           evt.status === 'login_required' ||
-          evt.status === 'payment_required'
+          evt.status === 'payment_required' ||
+          evt.status === 'free_limit_reached'
         ) {
           handlers.onGate?.(evt.status);
         }

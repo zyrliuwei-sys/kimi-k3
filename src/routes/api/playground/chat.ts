@@ -14,6 +14,10 @@ import { getAuth } from '@/core/auth';
 import { getConfig } from '@/modules/config/service';
 import { getBalance } from '@/modules/credits/service';
 import { parseDocument } from '@/modules/doc-library/parser';
+import {
+  consumeFreeChatQuota,
+  isFreeChatEnabled,
+} from '@/modules/free-chat-quota/service';
 import { getStorage } from '@/modules/storage/service';
 import { settleConsume } from '@/modules/subscription-quota/refund';
 import {
@@ -28,6 +32,7 @@ import {
   getChatModelInputBudgetError,
   getChatModelMaxOutputTokens,
   getChatTokenRates,
+  isFreeChatModel,
   isPremiumChatModel,
   type ChatTokenRates,
 } from '@/lib/chat-billing';
@@ -626,7 +631,21 @@ async function POST({ request }: { request: Request }) {
             rates: ChatTokenRates;
           }
         | null = null;
-      if (session?.user) {
+      if (
+        session?.user &&
+        isFreeChatModel(billingModel) &&
+        (await isFreeChatEnabled())
+      ) {
+        // Free-tier models: no credits, no subscription slot — a DB-backed
+        // daily message quota is the entire gate. Exhausted quota opens the
+        // same checkout panel as credit exhaustion (upsell, not a dead end).
+        const quota = await consumeFreeChatQuota(session.user.id);
+        if (!quota.allowed) {
+          emit({ t: 'gate', status: 'free_limit_reached' });
+          emit({ t: 'done' });
+          return;
+        }
+      } else if (session?.user) {
         const rates = await getChatTokenRates(billingModel);
         // Premium models reserve a bounded output budget before contacting the
         // provider. Kimi keeps its existing input-only reservation behavior.

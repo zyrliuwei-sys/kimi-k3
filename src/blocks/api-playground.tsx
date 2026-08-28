@@ -860,10 +860,15 @@ export function ApiPlayground() {
           onDelta: (delta) => pushOrAppend(delta),
           onGate: (status) => {
             setIsThinking(false);
-            if (status === 'payment_required' && needsAuth === false) {
-              // Credit exhaustion is a billing gate, not an assistant reply.
-              // Open the pricing selector so the user can choose a pack or
-              // subscription and keep the draft available for retry.
+            if (
+              (status === 'payment_required' ||
+                status === 'free_limit_reached') &&
+              needsAuth === false
+            ) {
+              // Credit exhaustion / free-tier daily quota used up is a billing
+              // gate, not an assistant reply. Open the pricing selector so the
+              // user can choose a pack or subscription and keep the draft
+              // available for retry.
               setBillingOpen(true);
               return;
             }
@@ -884,12 +889,14 @@ export function ApiPlayground() {
           },
           onError: (msg) => {
             setIsThinking(false);
-            // Persistent chat reports exhausted credits as an error frame
-            // (the stateless playground uses a dedicated gate frame). Treat
-            // both paths identically: restore the draft and open checkout
-            // instead of rendering `payment_required` as assistant text.
+            // Persistent chat reports exhausted credits (or a used-up free
+            // daily quota) as an error frame — the stateless playground uses
+            // a dedicated gate frame. Treat all paths identically: restore
+            // the draft and open checkout instead of rendering the marker as
+            // assistant text.
             if (
               msg === 'payment_required' ||
+              msg === 'free_limit_reached' ||
               /insufficient(?: paid)? credits|payment required/i.test(msg)
             ) {
               setMessages((prev) =>
@@ -2301,12 +2308,14 @@ export function ChatPlayground() {
           },
           onError: (msg) => {
             setIsThinking(false);
-            // A persistent chat can surface exhausted trial/paid credits as
-            // an SSE error frame (rather than a gate frame). Do not append
-            // that internal marker to the transcript; restore the draft and
-            // open the same pricing panel used by the gate path.
+            // A persistent chat can surface exhausted trial/paid credits (or
+            // a used-up free daily quota) as an SSE error frame rather than
+            // a gate frame. Do not append that internal marker to the
+            // transcript; restore the draft and open the same pricing panel
+            // used by the gate path.
             if (
               msg === 'payment_required' ||
+              msg === 'free_limit_reached' ||
               /insufficient(?: paid)? credits|payment required/i.test(msg)
             ) {
               setMessages((prev) =>
