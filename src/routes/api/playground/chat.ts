@@ -21,8 +21,13 @@ import {
   getRemainingQuota,
 } from '@/modules/subscription-quota/service';
 import {
-  computeTokenCost,
+  computeChatReservationCost,
+  computeUsageTokenCost,
+  getChatModelId,
+  getChatModelInputBudgetError,
+  getChatModelMaxOutputTokens,
   getChatTokenRates,
+  isPremiumChatModel,
   type ChatTokenRates,
 } from '@/lib/chat-billing';
 import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
@@ -39,7 +44,7 @@ import { respErr } from '@/lib/resp';
  *   3. Signed-in user with neither → `payment_required` gate.
  *
  * Conversations are NOT persisted here — that's what /api/chat is for.
- * Prefer the configured `evolink` provider (model defaults to `kimi-k3`)
+ * Prefer the configured `evolink` provider (model defaults to `gpt-5.6-sol`)
  * when its key is present.
  *
  * The response is a `text/event-stream` of typed JSON frames:
@@ -68,15 +73,15 @@ const RATE_LIMIT_INTERVAL_MS = 2000;
 // No free tier — 0 subscription quota + 0 credits = paywall.
 
 const SYSTEM_PROMPT =
-  'You are kimik3, a friendly assistant powered by Kimi K3. Be concise, warm, and practical. Use Markdown when it improves clarity. Attached images: respond to what you see. Attached documents (PDF, Word, Excel, PPT, Apple Pages, Apple Numbers, MD, TXT, CSV): their parsed text is inlined in the user message — answer from it directly. Excel tables include a Formula column — use the formulas, not just the values. PPT slides include "Speaker notes:" — read those for intent.';
+  'You are kimik3, a friendly assistant. Be concise, warm, and practical. Use Markdown when it improves clarity. Attached images: respond to what you see. Attached documents (PDF, Word, Excel, PPT, Apple Pages, Apple Numbers, MD, TXT, CSV): their parsed text is inlined in the user message — answer from it directly. Excel tables include a Formula column — use the formulas, not just the values. PPT slides include "Speaker notes:" — read those for intent.';
 
 const NOT_CONFIGURED_REPLY = `👋 I'm kimik3 — but no live model is reachable yet.
 
 An admin needs to connect one from **Admin → Settings → AI**:
 1. Paste your key under the **evolink** group (\`evolink_api_key\`).
-2. Set the model to **\`kimi-k3\`** (\`evolink_model\`) — or leave it blank and Kimi K3 is used by default.
+2. Set the model to **\`gpt-5.6-sol\`** (\`evolink_model\`) — or leave it blank and GPT-5.6 is used by default.
 
-Once that's in place, every message here gets a real Kimi K3 response.`;
+Once that's in place, every message uses the selected live model.`;
 
 interface PlaygroundConfig {
   provider: string;
@@ -100,7 +105,7 @@ interface Attachment {
 type SseEmit = (obj: Record<string, unknown>) => void;
 
 /**
- * Resolve the model config for the playground. Prefers evolink (Kimi K3) when
+ * Resolve the model config for the playground. Prefers EvoLink when
  * its key is present, otherwise falls back to OpenAI. Same logic as
  * getChatModelConfig() in the chat service.
  */
@@ -112,7 +117,7 @@ async function resolvePlaygroundConfig(): Promise<PlaygroundConfig> {
       apiKey: evolinkKey,
       baseUrl:
         (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1',
-      model: (await getConfig('evolink_model')) || 'kimi-k3',
+      model: (await getConfig('evolink_model')) || 'gpt-5.6-sol',
       hasKey: true,
     };
   }
@@ -378,14 +383,18 @@ async function buildMessages(
   turns: ChatTurn[],
   attachments: Attachment[],
   cfg: PlaygroundConfig,
+  requestedModel: string,
   trustedHosts: Set<string>
 ): Promise<{ messages: ChatTurn[]; model: string }> {
   const images = attachments.filter((a) => a.type === 'image');
   const videos = attachments.filter((a) => a.type === 'video');
   const documents = attachments.filter((a) => a.type === 'document');
 
-  let model = cfg.model;
-  if (images.length > 0) {
+  let model = requestedModel;
+  // The selectable premium models can process image inputs directly. Preserve
+  // their exact id so the selected model and the server-side billing model
+  // always stay identical; the legacy vision override remains Kimi-only.
+  if (images.length > 0 && model === 'kimi-k3') {
     const vision =
       (await getConfig('evolink_vision_model')) ||
       (await getConfig('openai_vision_model')) ||
@@ -473,6 +482,10 @@ async function POST({ request }: { request: Request }) {
 
   const body = await request.json().catch(() => ({}));
   const raw = Array.isArray(body?.messages) ? body.messages : [];
+  const requestedModel = getChatModelId(body?.model);
+  if (body?.model !== undefined && !requestedModel) {
+    return respErr('Unsupported chat model');
+  }
   const rawAttachments: Attachment[] = Array.isArray(body?.attachments)
     ? body.attachments.filter(
         (a: any) =>
@@ -496,13 +509,26 @@ async function POST({ request }: { request: Request }) {
   }
 
   const cfg = await resolvePlaygroundConfig();
+  // The product chat only exposes a small, server-owned EvoLink allowlist.
+  // Leave the legacy OpenAI-compatible fallback untouched when EvoLink is not
+  // configured: the configured fallback model wins over a selector value.
   if (!cfg.hasKey) {
-    // No live model — deliver the setup guidance as a normal (single-chunk) message.
+    const setupModel = requestedModel ?? 'gpt-5.6-sol';
     return sseResponse(async (emit) => {
       emit({ t: 'delta', text: NOT_CONFIGURED_REPLY });
-      emit({ t: 'done', model: 'kimi-k3', provider: 'unconfigured' });
+      emit({ t: 'done', model: setupModel, provider: 'unconfigured' });
     });
   }
+  const model =
+    cfg.provider === 'evolink'
+      ? (requestedModel ?? getChatModelId(cfg.model))
+      : cfg.model;
+  if (!model) {
+    return respErr(
+      'Configure evolink_model as kimi-k3, gpt-5.6-sol, or claude-opus-4-8'
+    );
+  }
+  const billingModel = getChatModelId(model) ?? 'kimi-k3';
 
   // --- Access gate (only enforced when a live model is configured) ---
   const auth = getAuth();
@@ -541,16 +567,27 @@ async function POST({ request }: { request: Request }) {
       // long-context guard so we don't charge for requests that get
       // rejected downstream (doc parse failures, 200k+ token past grace).
       const trustedHosts = await getTrustedStorageHosts();
-      const { messages, model } = await buildMessages(
+      const { messages, model: resolvedModel } = await buildMessages(
         turns,
         rawAttachments,
         cfg,
+        model,
         trustedHosts
       );
       const fullMessages: ChatTurn[] = [
         { role: 'system', content: SYSTEM_PROMPT },
         ...messages,
       ];
+      const estimatedInputTokens = estimateMessagesTokens(fullMessages);
+      const modelBudgetError = getChatModelInputBudgetError({
+        model: billingModel,
+        estimatedInputTokens,
+      });
+      if (modelBudgetError) {
+        emit({ t: 'error', message: modelBudgetError });
+        emit({ t: 'done' });
+        return;
+      }
 
       // Long-context guard. Only enforced for signed-in users (anon path
       // is already capped at MAX_CONTENT_LEN * MAX_TURNS above, well below
@@ -587,16 +624,20 @@ async function POST({ request }: { request: Request }) {
           }
         | null = null;
       if (session?.user) {
-        const rates = await getChatTokenRates();
-        const estimatedInputTokens = estimateMessagesTokens(fullMessages);
-        // Reserve on input estimate only — output isn't known yet. Floored
-        // at minCost so even a tiny prompt reserves the minimum.
-        const estimatedCost = computeTokenCost(estimatedInputTokens, 0, rates);
+        const rates = await getChatTokenRates(billingModel);
+        // Premium models reserve a bounded output budget before contacting the
+        // provider. Kimi keeps its existing input-only reservation behavior.
+        const estimatedCost = computeChatReservationCost({
+          model: billingModel,
+          estimatedInputTokens,
+          rates,
+        });
 
         const debit = await consumeMessage(session.user.id, {
           cost: estimatedCost,
           scene: 'playground_chat',
-          description: `Playground chat · ~${estimatedInputTokens} in tok (est.)`,
+          description: `Playground chat · ${billingModel} · ~${estimatedInputTokens} in tok (est.)`,
+          allowSubscriptionQuota: !isPremiumChatModel(billingModel),
         });
         if (!debit.success) {
           emit({ t: 'gate', status: 'payment_required' });
@@ -617,22 +658,55 @@ async function POST({ request }: { request: Request }) {
 
       // Stream + collect actual usage for the refund pass.
       let actualUsage: ChatCompletionUsage | undefined;
+      let streamedText = '';
       try {
         for await (const chunk of openaiChatCompletionStream({
           apiKey: cfg.apiKey,
           baseUrl: cfg.baseUrl,
-          model,
+          model: resolvedModel,
           messages: fullMessages,
+          includeTemperature: !isPremiumChatModel(billingModel),
+          maxCompletionTokens: getChatModelMaxOutputTokens(billingModel),
+          maxCompletionTokenField:
+            billingModel === 'gpt-5.6-sol'
+              ? 'max_completion_tokens'
+              : 'max_tokens',
         })) {
           if (typeof chunk === 'string') {
-            if (chunk) emit({ t: 'delta', text: chunk });
+            if (chunk) {
+              streamedText += chunk;
+              emit({ t: 'delta', text: chunk });
+            }
           } else {
             actualUsage = chunk.usage;
           }
         }
       } catch (streamErr) {
-        // Stream failed mid-flight — keep the charge (user got partial
-        // output) and surface the error.
+        // Return the unused premium reservation on a failed stream. We only
+        // retain a conservative estimate for visible partial output.
+        if (chargeCtx?.via === 'credits') {
+          const partialCost = computeUsageTokenCost(
+            {
+              prompt_tokens: estimatedInputTokens,
+              completion_tokens: estimateMessagesTokens([
+                { role: 'assistant', content: streamedText },
+              ]),
+              // Without a provider usage frame, retain enough of a premium
+              // reservation to cover a cache-write prompt that reached the
+              // gateway before it failed.
+              ...(isPremiumChatModel(billingModel)
+                ? { cache_write_tokens: estimatedInputTokens }
+                : {}),
+            },
+            chargeCtx.rates
+          );
+          void settleConsume({
+            consumeId: chargeCtx.consumeId,
+            userId: session.user.id,
+            originalCost: chargeCtx.originalCost,
+            finalAmount: partialCost,
+          });
+        }
         emit({
           t: 'error',
           message: (streamErr as Error)?.message || 'Stream interrupted',
@@ -641,7 +715,7 @@ async function POST({ request }: { request: Request }) {
         return;
       }
 
-      emit({ t: 'done', model, provider: cfg.provider });
+      emit({ t: 'done', model: resolvedModel, provider: cfg.provider });
 
       // Post-flight settle to ACTUAL usage (input + output, split rates).
       // Two-way: surcharge when the reply ran longer than the input-only
@@ -653,11 +727,7 @@ async function POST({ request }: { request: Request }) {
         actualUsage &&
         actualUsage.total_tokens > 0
       ) {
-        const finalCost = computeTokenCost(
-          actualUsage.prompt_tokens ?? 0,
-          actualUsage.completion_tokens ?? 0,
-          chargeCtx.rates
-        );
+        const finalCost = computeUsageTokenCost(actualUsage, chargeCtx.rates);
         void settleConsume({
           consumeId: chargeCtx.consumeId,
           userId: session.user.id,

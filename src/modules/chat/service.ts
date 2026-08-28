@@ -17,17 +17,26 @@ import {
 import { getConfig } from '@/modules/config/service';
 import { settleConsume } from '@/modules/subscription-quota/refund';
 import { consumeMessage } from '@/modules/subscription-quota/service';
-import { computeTokenCost, getChatTokenRates } from '@/lib/chat-billing';
+import {
+  computeChatReservationCost,
+  computeUsageTokenCost,
+  DEFAULT_CHAT_MODEL_ID,
+  getChatModelId,
+  getChatModelInputBudgetError,
+  getChatModelMaxOutputTokens,
+  getChatTokenRates,
+  isPremiumChatModel,
+} from '@/lib/chat-billing';
 import { getUuid } from '@/lib/hash';
 
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
 
 const SYSTEM_PROMPT =
-  'You are kimik3, a friendly, knowledgeable assistant powered by Kimi K3. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
+  'You are kimik3, a friendly, knowledgeable assistant. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
 
 const NOT_CONFIGURED_REPLY =
-  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo live model is reachable yet. An admin can connect one from **Admin → Settings → AI** by pasting a key under the **EvoLink** group (`evolink_api_key`); set the model to `kimi-k3` — or leave it blank and Kimi K3 is used by default. Once that's in place, every message here gets a real Kimi K3 response.\n\nIn the meantime, your conversations are still saved here.";
+  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo live model is reachable yet. An admin can connect one from **Admin → Settings → AI** by pasting a key under the **EvoLink** group (`evolink_api_key`); set the model to `gpt-5.6-sol` — or leave it blank and GPT-5.6 is used by default.\n\nIn the meantime, your conversations are still saved here.";
 
 export interface ChatModelConfig {
   provider: string;
@@ -39,8 +48,7 @@ export interface ChatModelConfig {
 
 /**
  * Resolve the chat model config. Prefers the `evolink` provider (model defaults
- * to `kimi-k3` — Kimi K3) when its key is present, so an admin who only pasted
- * the key still gets a working Kimi K3 response. Falls back to OpenAI (or any
+ * to `gpt-5.6-sol`) when its key is present. Falls back to OpenAI (or any
  * OpenAI-compatible endpoint) otherwise. Mirrors /api/playground/chat.
  * `hasKey` lets callers fall back to a friendly notice instead of erroring.
  */
@@ -52,7 +60,7 @@ export async function getChatModelConfig(): Promise<ChatModelConfig> {
       apiKey: evolinkKey,
       baseUrl:
         (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1',
-      model: (await getConfig('evolink_model')) || 'kimi-k3',
+      model: (await getConfig('evolink_model')) || 'gpt-5.6-sol',
       hasKey: true,
     };
   }
@@ -98,6 +106,20 @@ export async function createChat(params: {
 }): Promise<Chat> {
   const { userId, title = '', model, provider } = params;
   const cfg = await getChatModelConfig();
+  const requestedModel = model === undefined ? null : getChatModelId(model);
+  if (model !== undefined && !requestedModel) {
+    throw new Error('Unsupported chat model');
+  }
+  // EvoLink exposes only the curated allowlist. Preserve the established
+  // OpenAI-compatible fallback for installations that have not configured
+  // EvoLink yet; a requested selector value is intentionally ignored there.
+  const selectedModel =
+    cfg.provider === 'evolink'
+      ? (requestedModel ?? getChatModelId(cfg.model))
+      : cfg.model;
+  if (!selectedModel) {
+    throw new Error('Unsupported chat model');
+  }
   const [row] = await db()
     .insert(chat)
     .values({
@@ -105,7 +127,7 @@ export async function createChat(params: {
       userId,
       status: 'active',
       title,
-      model: model || cfg.model,
+      model: selectedModel,
       provider: provider || (cfg.hasKey ? cfg.provider : 'unconfigured'),
       parts: '[]',
     })
@@ -212,7 +234,7 @@ async function saveAssistantAndBump(params: {
   const title = owned.title?.trim() ? {} : { title: content.slice(0, 60) };
   await db()
     .update(chat)
-    .set({ ...title, updatedAt: new Date() })
+    .set({ ...title, model, provider, updatedAt: new Date() })
     .where(eq(chat.id, owned.id));
 
   return assistantMessage;
@@ -232,11 +254,21 @@ export async function* streamMessage(params: {
   userId: string;
   chatId: string;
   content: string;
+  /** Optional per-turn selection, validated at the API boundary and again
+   * below before it reaches the upstream provider. */
+  model?: string;
   /** Extra, non-persisted context (for example parsed document attachments). */
   attachmentContext?: string | Promise<string>;
   signal?: AbortSignal;
 }): AsyncGenerator<ChatStreamEvent, void, unknown> {
-  const { userId, chatId, content, attachmentContext, signal } = params;
+  const {
+    userId,
+    chatId,
+    content,
+    model: requestedModel,
+    attachmentContext,
+    signal,
+  } = params;
   const owned = await getChat({ userId, chatId });
   if (!owned) {
     yield { type: 'error', message: 'Chat not found' };
@@ -258,6 +290,25 @@ export async function* streamMessage(params: {
     : content;
   turns.push({ role: 'user', content: contentForModel });
 
+  const cfg = await getChatModelConfig();
+  const requestedSelectedModel =
+    requestedModel === undefined ? null : getChatModelId(requestedModel);
+  if (requestedModel !== undefined && !requestedSelectedModel) {
+    yield { type: 'error', message: 'Unsupported chat model' };
+    return;
+  }
+  const model =
+    cfg.provider === 'evolink'
+      ? (requestedSelectedModel ??
+        getChatModelId(owned.model) ??
+        getChatModelId(cfg.model))
+      : cfg.model;
+  if (!model) {
+    yield { type: 'error', message: 'Unsupported chat model' };
+    return;
+  }
+  const billingModel = getChatModelId(model) ?? DEFAULT_CHAT_MODEL_ID;
+
   // 1b. long-context guard — refuse if total tokens exceed the subscription
   //     threshold (32k). Short-circuits BEFORE we call the model so a long
   //     history + pasted essay can't burn through credits.
@@ -271,36 +322,57 @@ export async function* streamMessage(params: {
     return;
   }
 
-  // 1c. Per-token billing — pre-flight reservation on estimated INPUT
-  //     tokens, post-flight settle to actual (input+output). Mirrors
-  //     /api/playground/chat. Pre-charge so a drained balance between build
-  //     and stream can't leak free responses.
-  const rates = await getChatTokenRates();
   const estimatedInputTokens = estimateMessagesTokens(turns);
-  const estimatedCost = computeTokenCost(estimatedInputTokens, 0, rates);
-
-  const debit = await consumeMessage(userId, {
-    cost: estimatedCost,
-    scene: 'persistent_chat',
-    description: `Persistent chat · ~${estimatedInputTokens} in tok (est.)`,
+  const modelBudgetError = getChatModelInputBudgetError({
+    model: billingModel,
+    estimatedInputTokens,
   });
-  if (!debit.success) {
-    yield { type: 'error', message: 'payment_required' };
+  if (modelBudgetError) {
+    yield { type: 'error', message: modelBudgetError };
     return;
   }
-  const chargeCtx =
-    debit.via === 'credits' && debit.result?.consumedCredit?.id
-      ? {
-          via: 'credits' as const,
-          consumeId: debit.result.consumedCredit.id,
-          originalCost: estimatedCost,
-          rates,
-        }
-      : { via: 'quota' as const };
+
+  // 1c. Per-token billing. A premium request reserves the permitted output
+  // budget before generation; settlement returns every unused credit. Do not
+  // bill the local setup-guidance fallback when no upstream key exists.
+  let chargeCtx:
+    | {
+        via: 'credits';
+        consumeId: string;
+        originalCost: number;
+        rates: Awaited<ReturnType<typeof getChatTokenRates>>;
+      }
+    | { via: 'quota' }
+    | null = null;
+  if (cfg.hasKey) {
+    const rates = await getChatTokenRates(billingModel);
+    const estimatedCost = computeChatReservationCost({
+      model: billingModel,
+      estimatedInputTokens,
+      rates,
+    });
+    const debit = await consumeMessage(userId, {
+      cost: estimatedCost,
+      scene: 'persistent_chat',
+      description: `Persistent chat · ${model} · ~${estimatedInputTokens} in tok (est.)`,
+      allowSubscriptionQuota: !isPremiumChatModel(billingModel),
+    });
+    if (!debit.success) {
+      yield { type: 'error', message: 'payment_required' };
+      return;
+    }
+    chargeCtx =
+      debit.via === 'credits' && debit.result?.consumedCredit?.id
+        ? {
+            via: 'credits',
+            consumeId: debit.result.consumedCredit.id,
+            originalCost: estimatedCost,
+            rates,
+          }
+        : { via: 'quota' };
+  }
 
   // 2. resolve model config
-  const cfg = await getChatModelConfig();
-  const model = cfg.model || owned.model;
   const provider = cfg.hasKey ? cfg.provider : 'unconfigured';
 
   // 3. generate the assistant text — streaming when a live model is configured
@@ -313,6 +385,12 @@ export async function* streamMessage(params: {
         baseUrl: cfg.baseUrl,
         model,
         messages: turns,
+        includeTemperature: !isPremiumChatModel(billingModel),
+        maxCompletionTokens: getChatModelMaxOutputTokens(billingModel),
+        maxCompletionTokenField:
+          billingModel === 'gpt-5.6-sol'
+            ? 'max_completion_tokens'
+            : 'max_tokens',
         signal,
       })) {
         if (typeof chunk === 'string') {
@@ -325,6 +403,32 @@ export async function* streamMessage(params: {
       }
     } catch (err: any) {
       if (signal?.aborted) return; // client stopped — discard, persist nothing
+      if (chargeCtx?.via === 'credits') {
+        // The provider did not send an authoritative usage frame. Refund the
+        // unused premium output reservation while retaining a conservative
+        // input estimate for a request that may have reached the gateway.
+        const partialCost = computeUsageTokenCost(
+          {
+            prompt_tokens: estimatedInputTokens,
+            completion_tokens: estimateMessagesTokens([
+              { role: 'assistant', content: assistantText },
+            ]),
+            // A failed request may have reached EvoLink before it returned a
+            // usage frame. Conservatively price premium prompt tokens as a
+            // cache write; normal Kimi billing keeps its existing input rate.
+            ...(isPremiumChatModel(billingModel)
+              ? { cache_write_tokens: estimatedInputTokens }
+              : {}),
+          },
+          chargeCtx.rates
+        );
+        void settleConsume({
+          consumeId: chargeCtx.consumeId,
+          userId,
+          originalCost: chargeCtx.originalCost,
+          finalAmount: partialCost,
+        });
+      }
       assistantText = `⚠️ I couldn't reach the model just now.\n\n\`${err?.message || 'Unknown error'}\`\n\nPlease try again in a moment.`;
       yield { type: 'delta', text: assistantText };
     }
@@ -341,11 +445,7 @@ export async function* streamMessage(params: {
     actualUsage &&
     actualUsage.total_tokens > 0
   ) {
-    const finalCost = computeTokenCost(
-      actualUsage.prompt_tokens ?? 0,
-      actualUsage.completion_tokens ?? 0,
-      chargeCtx.rates
-    );
+    const finalCost = computeUsageTokenCost(actualUsage, chargeCtx.rates);
     void settleConsume({
       consumeId: chargeCtx.consumeId,
       userId,

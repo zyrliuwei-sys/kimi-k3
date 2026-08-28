@@ -25,10 +25,13 @@ async function POST({ request }: { request: Request }) {
 
     const body = await request.json().catch(() => ({}));
     const title = typeof body.title === 'string' ? body.title.trim() : '';
+    const model =
+      typeof body.model === 'string' ? body.model.trim() : undefined;
 
     const chat = await chatService.createChat({
       userId: session.user.id,
       title,
+      model,
     });
     return respData({ chat });
   } catch (error: any) {

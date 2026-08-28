@@ -72,6 +72,10 @@ import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
 import { getLocale } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
+import {
+  ChatModelPicker,
+  type SelectableChatModelId,
+} from '@/blocks/chat-model-picker';
 import { Pricing } from '@/blocks/pricing';
 import {
   CaptchaWidget,
@@ -423,7 +427,7 @@ export function ApiPlayground() {
   const [isThinking, setIsThinking] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
-  const modelId = 'Kimi K3';
+  const [modelId, setModelId] = useState<SelectableChatModelId>('gpt-5.6-sol');
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -849,6 +853,7 @@ export function ApiPlayground() {
             } = a;
             return rest;
           }),
+          model: modelId,
         },
         {
           signal: controller.signal,
@@ -946,6 +951,7 @@ export function ApiPlayground() {
     canSend,
     isThinking: isThinking || hasPendingUploads,
     modelId,
+    onModelChange: setModelId,
     taRef,
     attachments,
     uploading: hasPendingUploads,
@@ -1212,6 +1218,7 @@ function Composer({
   canSend,
   isThinking,
   modelId,
+  onModelChange,
   taRef,
   attachments,
   uploading,
@@ -1226,13 +1233,8 @@ function Composer({
   onSend: () => void;
   canSend: boolean;
   isThinking: boolean;
-  // The model id the parent currently has selected. Passed straight to
-  // `ChatModelPicker` so the trigger reflects the user's last pick
-  // (the previous `selected: ModelOption` prop was derived from a
-  // legacy 3-row list that didn't include the chat picker's models,
-  // so any GPT/Claude/Gemini selection silently fell back to the
-  // first legacy entry and the trigger froze on it).
-  modelId: string;
+  modelId: SelectableChatModelId;
+  onModelChange: (id: SelectableChatModelId) => void;
   taRef: React.RefObject<HTMLTextAreaElement | null>;
   attachments: Attachment[];
   uploading: boolean;
@@ -1458,7 +1460,11 @@ function Composer({
 
           <div className="flex items-center gap-1.5">
             <div className="mr-2">
-              <ChatModelPicker selectedId={modelId} />
+              <ChatModelPicker
+                selectedId={modelId}
+                onSelect={onModelChange}
+                disabled={isThinking}
+              />
             </div>
             <button
               type="button"
@@ -1835,6 +1841,7 @@ function buildPreviewReply(prompt: string, model: ModelOption): string {
 interface ChatRow {
   id: string;
   title?: string | null;
+  model?: SelectableChatModelId;
   createdAt: string | Date;
   updatedAt?: string | Date;
 }
@@ -1892,7 +1899,7 @@ export function ChatPlayground() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
-  const modelId = 'Kimi K3';
+  const [modelId, setModelId] = useState<SelectableChatModelId>('gpt-5.6-sol');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -1949,6 +1956,7 @@ export function ChatPlayground() {
     );
     idRef.current = hydratedMessages.length;
     setMessages(hydratedMessages);
+    if (chatQuery.data.chat.model) setModelId(chatQuery.data.chat.model);
     // Deliberately omit `isThinking` from dependencies. If the initial empty
     // read arrived while streaming, changing back to idle must not replay that
     // stale response over the local transcript.
@@ -2138,19 +2146,6 @@ export function ChatPlayground() {
     });
   }
 
-  /**
-   * Lazily create a chat row on first send (mirrors /settings/chat.tsx).
-   * If the user hasn't picked a session, we mint one server-side and then
-   * set it as active — sidebar picks it up via the chats list query.
-   */
-  const newChatMutation = useMutation({
-    mutationFn: () => apiPost<{ chat: ChatRow }>('/api/chat', {}),
-    onSuccess: (data) => {
-      store.setActiveChatId(data.chat.id);
-      queryClient.invalidateQueries({ queryKey: ['chats'] });
-    },
-  });
-
   async function handleSend() {
     // Keep the draft in place and open the login dialog before creating a
     // chat row or submitting a stream. This gives anonymous users a clear
@@ -2186,7 +2181,9 @@ export function ChatPlayground() {
       // Lazy-create. The mutation's onSuccess will set the id; we then
       // need to read it back from the store before posting the message.
       try {
-        const created = await apiPost<{ chat: ChatRow }>('/api/chat', {});
+        const created = await apiPost<{ chat: ChatRow }>('/api/chat', {
+          model: modelId,
+        });
         chatId = created.chat.id;
         store.setActiveChatId(chatId);
         queryClient.invalidateQueries({ queryKey: ['chats'] });
@@ -2243,6 +2240,7 @@ export function ChatPlayground() {
       await streamChat(
         {
           chatId,
+          model: modelId,
           messages: turns.map((msg) => ({
             role: msg.role,
             content: msg.content,
@@ -2384,6 +2382,7 @@ export function ChatPlayground() {
       attachments.some((attachment) => isReadyAttachment(attachment)),
     isThinking: isThinking || hasPendingUploads,
     modelId,
+    onModelChange: setModelId,
     taRef,
     attachments,
     uploading: hasPendingUploads,
@@ -4027,51 +4026,6 @@ function VideoModelPicker({
         </div>
       </PopoverContent>
     </Popover>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Chat model label                                                   */
-/* ------------------------------------------------------------------ */
-
-interface ChatModelMeta {
-  test: RegExp;
-  name: string;
-}
-
-const CHAT_MODEL_META: ChatModelMeta[] = [
-  // ── Kimi (powers this chat) ────────────────────────────────────────────
-  {
-    test: /^kimi-k3/i,
-    name: 'Kimi K3',
-  },
-];
-
-function resolveChatModelMeta(id: string): ChatModelMeta {
-  const lower = id.toLowerCase();
-  return (
-    CHAT_MODEL_META.find((m) => m.test.test(lower)) ?? {
-      test: /^.*$/,
-      name: id,
-    }
-  );
-}
-
-/**
- * The chat deployment currently has one wired model. Keep its label visible
- * beside the send button, but deliberately avoid exposing a non-functional
- * model picker until real model switching is available.
- */
-function ChatModelPicker({ selectedId }: { selectedId: string }) {
-  const selectedMeta = resolveChatModelMeta(selectedId);
-
-  return (
-    <span
-      aria-label={m['playground.chat.model_label']()}
-      className="inline-flex items-center px-1 py-2 text-sm font-medium tracking-tight text-black"
-    >
-      {selectedMeta.name}
-    </span>
   );
 }
 

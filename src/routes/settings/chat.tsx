@@ -13,11 +13,16 @@ import { toast } from 'sonner';
 import { apiDelete, apiGet, apiPost } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
+import {
+  ChatModelPicker,
+  type SelectableChatModelId,
+} from '@/blocks/chat-model-picker';
 import { MarkdownContent } from '@/components/markdown-content';
 
 interface ChatItem {
   id: string;
   title: string;
+  model?: SelectableChatModelId;
   updatedAt: string;
 }
 interface Message {
@@ -69,6 +74,7 @@ function ChatPage() {
   const [input, setInput] = useState('');
   const [pending, setPending] = useState<PendingBubble[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [modelId, setModelId] = useState<SelectableChatModelId>('gpt-5.6-sol');
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -86,6 +92,11 @@ function ChatPage() {
   });
 
   const messages = messagesQuery.data?.messages ?? [];
+
+  useEffect(() => {
+    const model = messagesQuery.data?.chat.model;
+    if (model) setModelId(model);
+  }, [messagesQuery.data?.chat.model]);
 
   useEffect(() => {
     // Auto-select the most recent chat on first load.
@@ -112,7 +123,8 @@ function ChatPage() {
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const newChatMutation = useMutation({
-    mutationFn: () => apiPost<{ chat: ChatItem }>('/api/chat', {}),
+    mutationFn: (model: SelectableChatModelId) =>
+      apiPost<{ chat: ChatItem }>('/api/chat', { model }),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['chats'] });
       setActiveId(data.chat.id);
@@ -123,7 +135,7 @@ function ChatPage() {
   });
 
   const streamSend = useCallback(
-    async (id: string, content: string) => {
+    async (id: string, content: string, model: SelectableChatModelId) => {
       const controller = new AbortController();
       abortRef.current = controller;
       setIsStreaming(true);
@@ -157,7 +169,7 @@ function ChatPage() {
         const res = await fetch(`/api/chat/${id}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content }),
+          body: JSON.stringify({ content, model }),
           signal: controller.signal,
         });
 
@@ -246,12 +258,12 @@ function ChatPage() {
 
     let id = activeId;
     if (!id) {
-      const created = await newChatMutation.mutateAsync();
+      const created = await newChatMutation.mutateAsync(modelId);
       id = created.chat.id;
     }
     setInput('');
     stickToBottomRef.current = true;
-    streamSend(id!, content);
+    streamSend(id!, content, modelId);
   }
 
   function handleStop() {
@@ -274,7 +286,7 @@ function ChatPage() {
       <aside className="border-foreground/10 bg-muted/30 hidden w-72 shrink-0 flex-col border-r md:flex">
         <div className="p-3">
           <button
-            onClick={() => newChatMutation.mutate()}
+            onClick={() => newChatMutation.mutate(modelId)}
             disabled={newChatMutation.isPending}
             className="bg-foreground text-background hover:bg-foreground/85 flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors disabled:opacity-60"
           >
@@ -346,6 +358,11 @@ function ChatPage() {
         <div className="border-foreground/10 bg-background/80 border-t px-4 py-3 backdrop-blur">
           <div className="mx-auto max-w-3xl">
             <div className="bg-card focus-within:border-foreground/25 border-foreground/10 flex items-end gap-2 rounded-2xl border p-2 shadow-sm">
+              <ChatModelPicker
+                selectedId={modelId}
+                onSelect={setModelId}
+                disabled={isStreaming}
+              />
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}

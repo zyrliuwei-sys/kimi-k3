@@ -36,6 +36,13 @@ export interface ChatCompletionParams {
   model: string;
   messages: ChatTurn[];
   temperature?: number;
+  /** Omit sampling parameters for routes that reject them. */
+  includeTemperature?: boolean;
+  /** Server-enforced output ceiling used by premium routes. */
+  maxCompletionTokens?: number;
+  /** GPT-5 uses `max_completion_tokens`; Claude-compatible routes accept the
+   * conventional `max_tokens` parameter. */
+  maxCompletionTokenField?: 'max_tokens' | 'max_completion_tokens';
   signal?: AbortSignal;
 }
 
@@ -45,6 +52,10 @@ export interface ChatCompletionUsage {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  /** Cache-hit tokens included in prompt_tokens when EvoLink reports them. */
+  cached_tokens?: number;
+  /** Cache-write tokens included in prompt_tokens when EvoLink reports them. */
+  cache_write_tokens?: number;
 }
 
 /** One yield from the streaming generator. Either an incremental text delta
@@ -63,17 +74,23 @@ export async function openaiChatCompletion(
     // Kimi K3 (and several reasoning models) only accept temperature = 1;
     // 1 is also the OpenAI default, so it's a safe default for any provider.
     temperature = 1,
+    includeTemperature = true,
+    maxCompletionTokens,
+    maxCompletionTokenField = 'max_tokens',
     signal,
   } = params;
 
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
+  const body: Record<string, unknown> = { model, messages, stream: false };
+  if (includeTemperature) body.temperature = temperature;
+  if (maxCompletionTokens) body[maxCompletionTokenField] = maxCompletionTokens;
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
     },
-    body: JSON.stringify({ model, messages, temperature, stream: false }),
+    body: JSON.stringify(body),
     signal,
   });
 
@@ -100,7 +117,17 @@ export async function openaiChatCompletion(
 export async function* openaiChatCompletionStream(
   params: ChatCompletionParams
 ): AsyncGenerator<ChatCompletionChunk, void, unknown> {
-  const { apiKey, baseUrl, model, messages, temperature = 1, signal } = params;
+  const {
+    apiKey,
+    baseUrl,
+    model,
+    messages,
+    temperature = 1,
+    includeTemperature = true,
+    maxCompletionTokens,
+    maxCompletionTokenField = 'max_tokens',
+    signal,
+  } = params;
 
   const url = `${baseUrl.replace(/\/+$/, '')}/chat/completions`;
   // Hard upstream cap. Without it, a hung gateway leaves the SSE stream
@@ -115,23 +142,28 @@ export async function* openaiChatCompletionStream(
   signal?.addEventListener('abort', onCallerAbort);
   let res: Response;
   try {
+    const body: Record<string, unknown> = {
+      model,
+      messages,
+      stream: true,
+      // Ask the provider to emit a final frame with `usage`. Not all
+      // OpenAI-compatible gateways honor this — when missing, the parser
+      // just never yields a usage chunk and the caller's pre-flight
+      // reservation stands.
+      stream_options: { include_usage: true },
+    };
+    if (includeTemperature) body.temperature = temperature;
+    if (maxCompletionTokens) {
+      body[maxCompletionTokenField] = maxCompletionTokens;
+    }
+
     res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature,
-        stream: true,
-        // Ask the provider to emit a final frame with `usage`. Not all
-        // OpenAI-compatible gateways honor this — when missing, the parser
-        // just never yields a usage chunk and the caller's pre-flight
-        // estimate stands.
-        stream_options: { include_usage: true },
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch (e: any) {
@@ -199,10 +231,23 @@ function parseFrame(frame: string): ChatCompletionChunk[] {
       const piece: string | undefined = json?.choices?.[0]?.delta?.content;
       if (piece) text += piece;
       if (json?.usage) {
+        const promptDetails =
+          json.usage.prompt_tokens_details ??
+          json.usage.input_tokens_details ??
+          {};
         usage = {
           prompt_tokens: Number(json.usage.prompt_tokens) || 0,
           completion_tokens: Number(json.usage.completion_tokens) || 0,
           total_tokens: Number(json.usage.total_tokens) || 0,
+          cached_tokens:
+            Number(
+              promptDetails.cached_tokens ?? promptDetails.cache_read_tokens
+            ) || 0,
+          cache_write_tokens:
+            Number(
+              promptDetails.cache_write_tokens ??
+                promptDetails.cache_creation_tokens
+            ) || 0,
         };
       }
     } catch {

@@ -930,8 +930,8 @@ export function getSettings(): Setting[] {
 
     // ─── AI / EvoLink ────────────────────────────────────────────────
     // EvoLink (https://evolink.ai) is an OpenAI-compatible gateway: one API key
-    // reaches any model in its Text Series. This product uses it for Kimi K3
-    // (model id `kimi-k3`); the admin can switch to another id if needed.
+    // reaches any model in its Text Series. Product chat defaults to GPT-5.6
+    // (model id `gpt-5.6-sol`); users can switch within the curated list.
     {
       name: 'evolink_api_key',
       title: 'API Key',
@@ -944,8 +944,8 @@ export function getSettings(): Setting[] {
       name: 'evolink_model',
       title: 'Model',
       type: 'text',
-      placeholder: 'kimi-k3',
-      tip: 'Kimi K3 is used by default (kimi-k3). You can set another EvoLink model id, e.g. claude-..., gemini-..., gpt-..., deepseek-...',
+      placeholder: 'gpt-5.6-sol',
+      tip: 'Default product-chat model. Allowed choices are gpt-5.6-sol, kimi-k3, and claude-opus-4-8; the chat UI lets users switch among those server-billed routes.',
       group: 'evolink',
       tab: 'ai',
     },

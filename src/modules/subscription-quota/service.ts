@@ -59,6 +59,9 @@ export interface ConsumeMessageOptions {
   scene?: string;
   /** Description written to the credit.consume record. */
   description?: string;
+  /** Premium model routes must use paid credits, not an unlimited-looking
+   * message quota whose price was calculated for the default model. */
+  allowSubscriptionQuota?: boolean;
 }
 
 /** Consume a message slot. Tries subscription quota first, then credit balance. */
@@ -66,7 +69,10 @@ export async function consumeMessage(
   userId: string,
   options: ConsumeMessageOptions = {}
 ): Promise<QuotaConsumeResult> {
-  const sub = await getCurrentSubscription(userId);
+  const allowSubscriptionQuota = options.allowSubscriptionQuota !== false;
+  const sub = allowSubscriptionQuota
+    ? await getCurrentSubscription(userId)
+    : null;
 
   // 1. Subscription quota path — 1 quota slot per call regardless of cost.
   //    This is intentional: subscribers get the "all-you-can-eat" feel.

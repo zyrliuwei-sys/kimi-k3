@@ -7,6 +7,7 @@ import * as chatService from '@/modules/chat/service';
 import { messageText } from '@/modules/chat/service';
 import { parseDocument } from '@/modules/doc-library/parser';
 import { getStorage } from '@/modules/storage/service';
+import { getChatModelId } from '@/lib/chat-billing';
 import { respData, respErr, respOk } from '@/lib/resp';
 
 const MAX_DOCUMENT_CONTEXT_CHARS = 500_000;
@@ -160,8 +161,10 @@ async function POST({
 
   const body = await request.json().catch(() => ({}));
   const content = typeof body.content === 'string' ? body.content.trim() : '';
+  const model = typeof body.model === 'string' ? body.model.trim() : undefined;
   if (!content) return respErr('Content is required');
   if (content.length > 8000) return respErr('Message is too long');
+  if (model && !getChatModelId(model)) return respErr('Unsupported chat model');
   const attachments: ChatAttachment[] = Array.isArray(body.attachments)
     ? body.attachments.filter(
         (attachment: unknown): attachment is ChatAttachment => {
@@ -190,6 +193,7 @@ async function POST({
           userId: chat.userId,
           chatId: id,
           content,
+          model,
           attachmentContext: buildAttachmentContext(attachments),
           // Do not pass request.signal to the upstream model. In a streamed
           // response Nitro may mark the completed request body as aborted,

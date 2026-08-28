@@ -27,6 +27,8 @@ export interface ChatStreamHandlers {
 export interface ChatStreamBody {
   /** When set, use the persistent multi-session chat endpoint. */
   chatId?: string | null;
+  /** A server-validated EvoLink model id for this turn. */
+  model?: string;
   messages: { role: 'user' | 'assistant'; content: string }[];
   attachments?: {
     type: 'image' | 'video' | 'document';
@@ -73,7 +75,11 @@ export async function streamChat(
         // documents into temporary model context for this turn.
         body: JSON.stringify(
           isPersistentChat
-            ? { content: latestMessage, attachments: body.attachments ?? [] }
+            ? {
+                content: latestMessage,
+                model: body.model,
+                attachments: body.attachments ?? [],
+              }
             : body
         ),
         signal,
