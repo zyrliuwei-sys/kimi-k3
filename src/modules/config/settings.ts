@@ -354,7 +354,7 @@ export function getSettings(): Setting[] {
     },
     {
       // Per-token chat billing — input and output billed SEPARATELY at
-      // 6× the EvoLink wholesale cost (input 0.204 cr/1k, output 1.02 cr/1k;
+      // 7× the EvoLink wholesale cost (input 0.204 cr/1k, output 1.02 cr/1k;
       // output is ~5× pricier, so it gets its own rate). Applied at
       // /api/playground/chat, /api/chat/$id, and doc-library `ask`.
       //
@@ -367,23 +367,23 @@ export function getSettings(): Setting[] {
       name: 'chat_credit_per_1k_input_tokens',
       title: 'Chat credits per 1k INPUT tokens',
       type: 'number',
-      placeholder: '1.2',
-      defaultValue: '1.2',
+      placeholder: '1.428',
+      defaultValue: '1.428',
       min: 0,
       group: 'credit',
       tab: 'general',
-      tip: "Per 1k input/prompt tokens (the user's message + history + uploaded file text). 1.2 ≈ 6× wholesale cost.",
+      tip: "Per 1k input/prompt tokens (the user's message + history + uploaded file text). 1.428 ≈ 7× wholesale cost.",
     },
     {
       name: 'chat_credit_per_1k_output_tokens',
       title: 'Chat credits per 1k OUTPUT tokens',
       type: 'number',
-      placeholder: '6',
-      defaultValue: '6',
+      placeholder: '7.14',
+      defaultValue: '7.14',
       min: 0,
       group: 'credit',
       tab: 'general',
-      tip: 'Per 1k tokens the model generates (the reply). Output costs ~5× input, so default 6 ≈ 6× wholesale. Long replies cost proportionally more.',
+      tip: 'Per 1k tokens the model generates (the reply). Output costs ~5× input, so default 7.14 ≈ 7× wholesale. Long replies cost proportionally more.',
     },
     {
       name: 'chat_credit_min_per_call',
@@ -930,8 +930,8 @@ export function getSettings(): Setting[] {
 
     // ─── AI / EvoLink ────────────────────────────────────────────────
     // EvoLink (https://evolink.ai) is an OpenAI-compatible gateway: one API key
-    // reaches any model in its Text Series. Product chat defaults to GPT-5.6
-    // (model id `gpt-5.6-sol`); users can switch within the curated list.
+    // reaches any model in its Text Series. Product chat defaults to Kimi K3
+    // (model id `kimi-k3`); users can switch within the curated list.
     {
       name: 'evolink_api_key',
       title: 'API Key',
@@ -944,7 +944,7 @@ export function getSettings(): Setting[] {
       name: 'evolink_model',
       title: 'Model',
       type: 'text',
-      placeholder: 'gpt-5.6-sol',
+      placeholder: 'kimi-k3',
       tip: 'Default product-chat model. Any id from the server allowlist (kimi-k3, glm-5.3-flash, deepseek-v4-flash, MiniMax-M3, glm-5.3, gemini-3.5-flash, claude-sonnet-5, claude-opus-4-8, claude-opus-5, gpt-5.6-sol, claude-fable-5); the chat UI lets users switch among those server-billed routes.',
       group: 'evolink',
       tab: 'ai',

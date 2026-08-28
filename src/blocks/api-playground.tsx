@@ -427,7 +427,7 @@ export function ApiPlayground() {
   const [isThinking, setIsThinking] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
 
-  const [modelId, setModelId] = useState<SelectableChatModelId>('gpt-5.6-sol');
+  const [modelId, setModelId] = useState<SelectableChatModelId>('kimi-k3');
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1906,7 +1906,7 @@ export function ChatPlayground() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
-  const [modelId, setModelId] = useState<SelectableChatModelId>('gpt-5.6-sol');
+  const [modelId, setModelId] = useState<SelectableChatModelId>('kimi-k3');
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);

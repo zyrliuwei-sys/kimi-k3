@@ -44,7 +44,7 @@ function getSystemPrompt(model: string): string {
 }
 
 const NOT_CONFIGURED_REPLY =
-  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo live model is reachable yet. An admin can connect one from **Admin → Settings → AI** by pasting a key under the **EvoLink** group (`evolink_api_key`); set the model to `gpt-5.6-sol` — or leave it blank and GPT-5.6 is used by default.\n\nIn the meantime, your conversations are still saved here.";
+  "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo live model is reachable yet. An admin can connect one from **Admin → Settings → AI** by pasting a key under the **EvoLink** group (`evolink_api_key`); set the model to `kimi-k3` — or leave it blank and Kimi K3 is used by default.\n\nIn the meantime, your conversations are still saved here.";
 
 export interface ChatModelConfig {
   provider: string;
@@ -56,7 +56,7 @@ export interface ChatModelConfig {
 
 /**
  * Resolve the chat model config. Prefers the `evolink` provider (model defaults
- * to `gpt-5.6-sol`) when its key is present. Falls back to OpenAI (or any
+ * to `kimi-k3`) when its key is present. Falls back to OpenAI (or any
  * OpenAI-compatible endpoint) otherwise. Mirrors /api/playground/chat.
  * `hasKey` lets callers fall back to a friendly notice instead of erroring.
  */
@@ -68,7 +68,7 @@ export async function getChatModelConfig(): Promise<ChatModelConfig> {
       apiKey: evolinkKey,
       baseUrl:
         (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1',
-      model: (await getConfig('evolink_model')) || 'gpt-5.6-sol',
+      model: (await getConfig('evolink_model')) || DEFAULT_CHAT_MODEL_ID,
       hasKey: true,
     };
   }

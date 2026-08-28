@@ -74,7 +74,7 @@ function ChatPage() {
   const [input, setInput] = useState('');
   const [pending, setPending] = useState<PendingBubble[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [modelId, setModelId] = useState<SelectableChatModelId>('gpt-5.6-sol');
+  const [modelId, setModelId] = useState<SelectableChatModelId>('kimi-k3');
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);

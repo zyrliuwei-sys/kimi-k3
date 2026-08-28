@@ -5,9 +5,9 @@
  * and doc-library `ask` — so they all charge identically and a rate change
  * in the admin panel applies everywhere at once.
  *
- * Rates default to 6× the EvoLink wholesale cost for Kimi K3
- * (input 0.204 cr/1k, output 1.02 cr/1k → 1.2 / 6). Output is billed at a
- * higher rate because the provider charges ~5× more for generated tokens.
+ * Rates default to 7× the EvoLink wholesale cost for Kimi K3
+ * (input 0.204 cr/1k, output 1.02 cr/1k → 1.428 / 7.14). Output is billed at
+ * a higher rate because the provider charges ~5× more for generated tokens.
  *
  * Server-only — reads admin config via `getConfig`.
  */
@@ -164,8 +164,8 @@ export interface ChatTokenRates {
   minCost: number;
 }
 
-const DEFAULT_INPUT_RATE = 1.2;
-const DEFAULT_OUTPUT_RATE = 6;
+const DEFAULT_INPUT_RATE = 1.428; // 204 EvoLink cr / 1M × 7
+const DEFAULT_OUTPUT_RATE = 7.14; // 1,020 EvoLink cr / 1M × 7
 const DEFAULT_MIN_COST = 1;
 
 function parseRate(raw: string | undefined, fallback: number): number {

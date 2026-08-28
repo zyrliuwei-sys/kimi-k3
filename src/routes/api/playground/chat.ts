@@ -27,6 +27,7 @@ import {
 import {
   computeChatReservationCost,
   computeUsageTokenCost,
+  DEFAULT_CHAT_MODEL_ID,
   getChatModelDisplayName,
   getChatModelId,
   getChatModelInputBudgetError,
@@ -50,7 +51,7 @@ import { respErr } from '@/lib/resp';
  *   3. Signed-in user with neither → `payment_required` gate.
  *
  * Conversations are NOT persisted here — that's what /api/chat is for.
- * Prefer the configured `evolink` provider (model defaults to `gpt-5.6-sol`)
+ * Prefer the configured `evolink` provider (model defaults to `kimi-k3`)
  * when its key is present.
  *
  * The response is a `text/event-stream` of typed JSON frames:
@@ -87,7 +88,7 @@ const NOT_CONFIGURED_REPLY = `👋 I'm kimik3 — but no live model is reachable
 
 An admin needs to connect one from **Admin → Settings → AI**:
 1. Paste your key under the **evolink** group (\`evolink_api_key\`).
-2. Set the model to **\`gpt-5.6-sol\`** (\`evolink_model\`) — or leave it blank and GPT-5.6 is used by default.
+2. Set the model to **\`kimi-k3\`** (\`evolink_model\`) — or leave it blank and Kimi K3 is used by default.
 
 Once that's in place, every message uses the selected live model.`;
 
@@ -125,7 +126,7 @@ async function resolvePlaygroundConfig(): Promise<PlaygroundConfig> {
       apiKey: evolinkKey,
       baseUrl:
         (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1',
-      model: (await getConfig('evolink_model')) || 'gpt-5.6-sol',
+      model: (await getConfig('evolink_model')) || DEFAULT_CHAT_MODEL_ID,
       hasKey: true,
     };
   }
@@ -521,7 +522,7 @@ async function POST({ request }: { request: Request }) {
   // Leave the legacy OpenAI-compatible fallback untouched when EvoLink is not
   // configured: the configured fallback model wins over a selector value.
   if (!cfg.hasKey) {
-    const setupModel = requestedModel ?? 'gpt-5.6-sol';
+    const setupModel = requestedModel ?? DEFAULT_CHAT_MODEL_ID;
     return sseResponse(async (emit) => {
       emit({ t: 'delta', text: NOT_CONFIGURED_REPLY });
       emit({ t: 'done', model: setupModel, provider: 'unconfigured' });
