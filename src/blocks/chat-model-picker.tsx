@@ -112,7 +112,7 @@ function tierLabel(tier: ModelTier): string {
  *
  * Free and paid models are visually separated: free-tier entries sit in their
  * own group with a FREE badge (daily quota, no credits), the default model
- * carries its Default badge, and premium entries carry the 7× rate badge.
+ * carries its Default badge, and premium entries carry the PRO badge.
  */
 export function ChatModelPicker({
   selectedId,
@@ -197,8 +197,8 @@ export function ChatModelPicker({
                               {m['playground.chat.models.default_badge']()}
                             </span>
                           ) : (
-                            <span className="text-foreground/40 shrink-0 font-mono text-[10px] leading-none font-bold">
-                              7×
+                            <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] leading-none font-bold tracking-wide text-amber-600 dark:text-amber-400">
+                              {m['playground.chat.models.premium_badge']()}
                             </span>
                           )}
                         </button>
