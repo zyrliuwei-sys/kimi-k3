@@ -23,6 +23,7 @@ import {
 import {
   computeChatReservationCost,
   computeUsageTokenCost,
+  getChatModelDisplayName,
   getChatModelId,
   getChatModelInputBudgetError,
   getChatModelMaxOutputTokens,
@@ -72,8 +73,10 @@ const RATE_LIMIT_INTERVAL_MS = 2000;
 // Signed-in users: subscription quota first, then credit balance fallback.
 // No free tier — 0 subscription quota + 0 credits = paywall.
 
-const SYSTEM_PROMPT =
-  'You are kimik3, a friendly assistant. Be concise, warm, and practical. Use Markdown when it improves clarity. Attached images: respond to what you see. Attached documents (PDF, Word, Excel, PPT, Apple Pages, Apple Numbers, MD, TXT, CSV): their parsed text is inlined in the user message — answer from it directly. Excel tables include a Formula column — use the formulas, not just the values. PPT slides include "Speaker notes:" — read those for intent.';
+function getSystemPrompt(model: string): string {
+  const modelName = getChatModelDisplayName(model);
+  return `You are ${modelName}, the model selected for this conversation. kimik3 is the product name, not your model identity. If asked who you are or which model is replying, identify yourself as ${modelName}; never say that you are kimik3 or that you cannot verify your model identity. Be concise, warm, and practical. Use Markdown when it improves clarity. Attached images: respond to what you see. Attached documents (PDF, Word, Excel, PPT, Apple Pages, Apple Numbers, MD, TXT, CSV): their parsed text is inlined in the user message — answer from it directly. Excel tables include a Formula column — use the formulas, not just the values. PPT slides include "Speaker notes:" — read those for intent.`;
+}
 
 const NOT_CONFIGURED_REPLY = `👋 I'm kimik3 — but no live model is reachable yet.
 
@@ -575,7 +578,7 @@ async function POST({ request }: { request: Request }) {
         trustedHosts
       );
       const fullMessages: ChatTurn[] = [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: getSystemPrompt(resolvedModel) },
         ...messages,
       ];
       const estimatedInputTokens = estimateMessagesTokens(fullMessages);

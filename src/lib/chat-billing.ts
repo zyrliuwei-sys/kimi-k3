@@ -100,6 +100,21 @@ export function getChatModelId(value: unknown): ChatModelId | null {
   return isChatModelId(value) ? value : null;
 }
 
+/** User-facing identity for a known product-chat model. Never interpolate an
+ * arbitrary configured provider ID into a system prompt. */
+export function getChatModelDisplayName(model: string): string {
+  switch (model) {
+    case 'gpt-5.6-sol':
+      return 'GPT-5.6';
+    case 'claude-opus-4-8':
+      return 'Claude Opus 4.8';
+    case 'kimi-k3':
+      return 'Kimi K3';
+    default:
+      return 'the configured AI model';
+  }
+}
+
 /** Read the admin-configured per-token rates (with safe defaults). */
 export async function getChatTokenRates(
   model: ChatModelId = DEFAULT_CHAT_MODEL_ID

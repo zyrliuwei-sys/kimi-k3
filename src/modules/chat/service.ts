@@ -21,6 +21,7 @@ import {
   computeChatReservationCost,
   computeUsageTokenCost,
   DEFAULT_CHAT_MODEL_ID,
+  getChatModelDisplayName,
   getChatModelId,
   getChatModelInputBudgetError,
   getChatModelMaxOutputTokens,
@@ -32,8 +33,10 @@ import { getUuid } from '@/lib/hash';
 const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_MODEL = 'gpt-4o-mini';
 
-const SYSTEM_PROMPT =
-  'You are kimik3, a friendly, knowledgeable assistant. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.';
+function getSystemPrompt(model: string): string {
+  const modelName = getChatModelDisplayName(model);
+  return `You are ${modelName}, the model selected for this conversation. kimik3 is the product name, not your model identity. If asked who you are or which model is replying, identify yourself as ${modelName}; never say that you are kimik3 or that you cannot verify your model identity. You help people think, write, research, and build. Be concise, warm, and practical. Use Markdown when it improves clarity.`;
+}
 
 const NOT_CONFIGURED_REPLY =
   "👋 I'm kimik3 — your AI workspace for chat, research, and content.\n\nNo live model is reachable yet. An admin can connect one from **Admin → Settings → AI** by pasting a key under the **EvoLink** group (`evolink_api_key`); set the model to `gpt-5.6-sol` — or leave it blank and GPT-5.6 is used by default.\n\nIn the meantime, your conversations are still saved here.";
@@ -277,7 +280,7 @@ export async function* streamMessage(params: {
 
   // 1. build conversation history (prior turns only — new turn appended below)
   const history = await listMessages({ userId, chatId });
-  const turns: ChatTurn[] = [{ role: 'system', content: SYSTEM_PROMPT }];
+  const turns: ChatTurn[] = [];
   for (const msg of history ?? []) {
     const role = msg.role === 'assistant' ? 'assistant' : 'user';
     turns.push({ role, content: textFromParts(msg.parts) });
@@ -308,6 +311,7 @@ export async function* streamMessage(params: {
     return;
   }
   const billingModel = getChatModelId(model) ?? DEFAULT_CHAT_MODEL_ID;
+  turns.unshift({ role: 'system', content: getSystemPrompt(model) });
 
   // 1b. long-context guard — refuse if total tokens exceed the subscription
   //     threshold (32k). Short-circuits BEFORE we call the model so a long
