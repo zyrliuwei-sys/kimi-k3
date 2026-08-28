@@ -228,17 +228,35 @@ async function handle(request: Request) {
   if (captchaAction && configs.turnstile_enabled === 'true') {
     const expectedHostnames = getTurnstileExpectedHostnames(configs);
     if (!configs.turnstile_secret || expectedHostnames.length === 0) {
+      // Fail-closed misconfiguration (e.g. Turnstile enabled in admin but
+      // the secret never left .env.development). Loud on purpose — this
+      // branch rejects EVERY protected auth request and is otherwise
+      // indistinguishable from a Cloudflare-side failure.
+      console.error('[auth] turnstile misconfigured, rejecting:', {
+        endpoint: endpointPath,
+        hasSecret: !!configs.turnstile_secret,
+        expectedHostnames,
+      });
       return captchaFailureResponse();
     }
     const token = request.headers.get('x-captcha-response') || '';
-    const { success } = await verifyTurnstile({
+    const verifyResult = await verifyTurnstile({
       secret: configs.turnstile_secret,
       response: token,
       remoteip: clientIp,
       expectedAction: captchaAction,
       expectedHostnames,
     });
-    if (!success) {
+    if (!verifyResult.success) {
+      // errorCodes tell the three failures apart: invalid-input-secret /
+      // timeout-or-duplicate (token reuse) / hostname-mismatch /
+      // action-mismatch. Without this line they all look identical.
+      console.error('[auth] turnstile verify failed:', {
+        endpoint: endpointPath,
+        errorCodes: verifyResult.errorCodes,
+        tokenPresent: !!token,
+        expectedHostnames,
+      });
       return captchaFailureResponse();
     }
   }
