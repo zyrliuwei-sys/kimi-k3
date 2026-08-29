@@ -529,3 +529,17 @@ html body #crisp-chatbox,
 html body iframe[src*='crisp.chat'] {
   display: none !important;
 }
+
+/* Tawk uses a third-party iframe for its floating launcher. This fallback
+   also removes a launcher that was injected before the widget was disabled
+   (for example during local hot reload). */
+html body iframe[src*='tawk.to'] {
+  display: none !important;
+}
+
+/* Dragging the file-preview side panel's divider: the host shells' ceded
+   padding must track the cursor 1:1, so suspend their padding transition
+   while a resize is in flight (class toggled on <html> by the divider). */
+html.file-preview-resizing .file-preview-shell {
+  transition-property: none;
+}

@@ -1,4 +1,10 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { ChevronDown } from 'lucide-react';
 import { createPortal } from 'react-dom';
 
@@ -156,6 +162,37 @@ export function ChatModelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  /**
+   * Dismiss on any click outside the trigger/menu. A document-level listener
+   * rather than a fixed backdrop: the composer's motion.div (transform during
+   * entrance) and its z-10 wrapper both turned a `fixed inset-0` overlay into
+   * a composer-sized hit area, so clicks in the transcript never reached it
+   * and the menu stayed open. This also lets the dismissing click pass
+   * through to what the user actually aimed at (textarea, a chip, …).
+   */
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (btnRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
+        event.preventDefault();
+        setOpen(false);
+      }
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [open]);
   /**
    * Fixed coords for the portaled menu. Rendering to document.body escapes
    * clipping by scroll containers — e.g. the compare board's `overflow-x-auto`
@@ -224,80 +261,66 @@ export function ChatModelPicker({
         />
       </button>
 
-      {open && (
-        <>
-          <button
-            type="button"
-            aria-label={m['playground.chat.models.close']()}
-            className="fixed inset-0 z-40 cursor-default"
-            onClick={() => setOpen(false)}
-          />
-          {menuPos &&
-            createPortal(
-              <div
-                style={{
-                  position: 'fixed',
-                  left: menuPos.left,
-                  top: menuPos.top,
-                  bottom: menuPos.bottom,
-                }}
-                className="bg-popover text-popover-foreground border-foreground/10 z-50 w-60 overflow-hidden rounded-xl border p-1 shadow-[0_18px_44px_-20px_rgba(0,0,0,0.38)]"
-              >
-                <div className="max-h-[19rem] space-y-2 overflow-y-auto p-0.5">
-                  {(['free', 'default', 'premium'] as ModelTier[]).map(
-                    (tier) => (
-                      <div key={tier} className="space-y-0.5">
-                        <div className="text-foreground/45 px-3 pt-1 pb-0.5 text-[10px] font-bold tracking-wider uppercase">
-                          {tierLabel(tier)}
-                        </div>
-                        {options
-                          .filter((option) => option.tier === tier)
-                          .map((option) => {
-                            const active = option.id === selected.id;
-                            return (
-                              <button
-                                key={option.id}
-                                type="button"
-                                onClick={() => {
-                                  onSelect(option.id);
-                                  setOpen(false);
-                                }}
-                                className={cn(
-                                  'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors',
-                                  'hover:bg-foreground/[0.045]',
-                                  active && 'bg-foreground/[0.06]'
-                                )}
-                              >
-                                <span className="truncate">{option.name}</span>
-                                {option.tier === 'free' ? (
-                                  <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] leading-none font-bold tracking-wide text-emerald-600 dark:text-emerald-400">
-                                    {m['playground.chat.models.free_badge']()}
-                                  </span>
-                                ) : option.tier === 'default' ? (
-                                  <span className="text-foreground/40 bg-foreground/[0.06] shrink-0 rounded px-1.5 py-0.5 text-[9px] leading-none font-bold tracking-wide">
-                                    {m[
-                                      'playground.chat.models.default_badge'
-                                    ]()}
-                                  </span>
-                                ) : (
-                                  <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] leading-none font-bold tracking-wide text-amber-600 dark:text-amber-400">
-                                    {m[
-                                      'playground.chat.models.premium_badge'
-                                    ]()}
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
-                      </div>
-                    )
-                  )}
+      {open &&
+        menuPos &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{
+              position: 'fixed',
+              left: menuPos.left,
+              top: menuPos.top,
+              bottom: menuPos.bottom,
+            }}
+            className="bg-popover text-popover-foreground border-foreground/10 z-50 w-60 overflow-hidden rounded-xl border p-1 shadow-[0_18px_44px_-20px_rgba(0,0,0,0.38)]"
+          >
+            <div className="max-h-[19rem] space-y-2 overflow-y-auto p-0.5">
+              {(['free', 'default', 'premium'] as ModelTier[]).map((tier) => (
+                <div key={tier} className="space-y-0.5">
+                  <div className="text-foreground/45 px-3 pt-1 pb-0.5 text-[10px] font-bold tracking-wider uppercase">
+                    {tierLabel(tier)}
+                  </div>
+                  {options
+                    .filter((option) => option.tier === tier)
+                    .map((option) => {
+                      const active = option.id === selected.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => {
+                            onSelect(option.id);
+                            setOpen(false);
+                          }}
+                          className={cn(
+                            'flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-sm font-semibold transition-colors',
+                            'hover:bg-foreground/[0.045]',
+                            active && 'bg-foreground/[0.06]'
+                          )}
+                        >
+                          <span className="truncate">{option.name}</span>
+                          {option.tier === 'free' ? (
+                            <span className="shrink-0 rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] leading-none font-bold tracking-wide text-emerald-600 dark:text-emerald-400">
+                              {m['playground.chat.models.free_badge']()}
+                            </span>
+                          ) : option.tier === 'default' ? (
+                            <span className="text-foreground/40 bg-foreground/[0.06] shrink-0 rounded px-1.5 py-0.5 text-[9px] leading-none font-bold tracking-wide">
+                              {m['playground.chat.models.default_badge']()}
+                            </span>
+                          ) : (
+                            <span className="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] leading-none font-bold tracking-wide text-amber-600 dark:text-amber-400">
+                              {m['playground.chat.models.premium_badge']()}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                 </div>
-              </div>,
-              document.body
-            )}
-        </>
-      )}
+              ))}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

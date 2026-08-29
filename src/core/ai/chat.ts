@@ -84,27 +84,49 @@ export async function openaiChatCompletion(
   const body: Record<string, unknown> = { model, messages, stream: false };
   if (includeTemperature) body.temperature = temperature;
   if (maxCompletionTokens) body[maxCompletionTokenField] = maxCompletionTokens;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => '');
-    throw new Error(
-      `Chat request failed (${res.status}): ${detail.slice(0, 300)}`
-    );
+  // Hard cap mirroring the streaming variant. Without it a hung gateway
+  // leaves the one-shot completion pending forever — the file-studio
+  // generator is the main caller, and a stalled request there never
+  // produces a response, wedging the client's generation mutation (send
+  // button + model picker disabled) until a manual reload.
+  const controller = new AbortController();
+  const upstreamTimer = setTimeout(() => controller.abort(), 120_000);
+  const onCallerAbort = () => controller.abort();
+  signal?.addEventListener('abort', onCallerAbort);
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(
+        `Chat request failed (${res.status}): ${detail.slice(0, 300)}`
+      );
+    }
+
+    const data = await res.json();
+    const content: string | undefined = data?.choices?.[0]?.message?.content;
+    if (!content) throw new Error('Empty response from model');
+    return content;
+  } catch (e: any) {
+    if (e?.name === 'AbortError' && !signal?.aborted) {
+      throw new Error(
+        'Upstream chat provider timed out after 120s — please retry.'
+      );
+    }
+    throw e;
+  } finally {
+    clearTimeout(upstreamTimer);
+    signal?.removeEventListener('abort', onCallerAbort);
   }
-
-  const data = await res.json();
-  const content: string | undefined = data?.choices?.[0]?.message?.content;
-  if (!content) throw new Error('Empty response from model');
-  return content;
 }
 
 /**

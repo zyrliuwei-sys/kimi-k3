@@ -30,11 +30,18 @@ import { enforceMinIntervalRateLimit } from '@/lib/rate-limit';
 import { respErr } from '@/lib/resp';
 
 import {
+  attachMediaToLastUserTurn,
   getSystemPrompt,
+  getTrustedStorageHosts,
   NOT_CONFIGURED_REPLY,
+  prepareAttachmentMedia,
   resolvePlaygroundConfig,
+  resolveVisionOverride,
+  sanitizePlaygroundAttachments,
   sseResponse,
+  type PlaygroundAttachment,
   type PlaygroundConfig,
+  type PreparedAttachmentMedia,
   type SseEmit,
 } from './-shared';
 
@@ -59,9 +66,15 @@ import {
  * pre-flight (scene `compare_chat`, one reservation PER COLUMN) and settle
  * to actual usage post-flight. A column that can't pay is gated alone; the
  * other columns keep streaming.
+ *
+ * Attachments ride along SHARED by every column (the board has one composer,
+ * so one question — and one set of files — goes to every model). Images are
+ * inlined once and spliced into each column's last user turn; documents are
+ * parsed once, never N times. Billing stays keyed to each column's REQUESTED
+ * model even when the Kimi vision override swaps the streaming model.
  */
 
-const MAX_COLUMNS = 4;
+const MAX_COLUMNS = 3;
 const MAX_TURNS = 20;
 const MAX_CONTENT_LEN = 4000;
 // One comparison costs N× a single message, so give the anti-spam interval a
@@ -98,6 +111,10 @@ async function POST({ request }: { request: Request }) {
   if (rawColumns.length < 1 || rawColumns.length > MAX_COLUMNS) {
     return respErr(`Compare requires between 1 and ${MAX_COLUMNS} columns`);
   }
+  // One composer → one attachment set shared by every column.
+  const attachments: PlaygroundAttachment[] = sanitizePlaygroundAttachments(
+    body?.attachments
+  );
 
   const columns: CompareColumn[] = [];
   for (const col of rawColumns) {
@@ -168,6 +185,17 @@ async function POST({ request }: { request: Request }) {
         emit(obj);
       } catch {}
     };
+    // Parse documents + inline images ONCE for the whole fan-out (a 3-column
+    // board must not triple the fetch/parse work). A failure here throws into
+    // sseResponse's catch, which emits a global error frame — the client
+    // marks every column failed and toasts once.
+    let media: PreparedAttachmentMedia | null = null;
+    if (attachments.length) {
+      media = await prepareAttachmentMedia(
+        attachments,
+        await getTrustedStorageHosts()
+      );
+    }
     await Promise.all(
       columns.map((col, c) =>
         runColumn(
@@ -176,7 +204,8 @@ async function POST({ request }: { request: Request }) {
           session.user.id,
           cfg,
           modelFor(col.requestedModel),
-          col.turns
+          col.turns,
+          media
         )
       )
     );
@@ -195,13 +224,26 @@ async function runColumn(
   userId: string,
   cfg: PlaygroundConfig,
   model: string,
-  turns: ChatTurn[]
+  turns: ChatTurn[],
+  media: PreparedAttachmentMedia | null
 ): Promise<void> {
   const billingModel = getChatModelId(model) ?? 'kimi-k3';
   try {
+    // Shared attachments splice into THIS column's last user turn. The Kimi
+    // default swaps to the configured vision model when images are present
+    // (same override as the single-model endpoint); billing keeps the
+    // requested model id.
+    let resolvedModel = model;
+    let colTurns = turns;
+    if (media && (media.textBits.length || media.imageDataUrls.length)) {
+      if (media.imageDataUrls.length) {
+        resolvedModel = await resolveVisionOverride(model);
+      }
+      colTurns = attachMediaToLastUserTurn(turns, media);
+    }
     const fullMessages: ChatTurn[] = [
-      { role: 'system', content: getSystemPrompt(model) },
-      ...turns,
+      { role: 'system', content: getSystemPrompt(resolvedModel) },
+      ...colTurns,
     ];
     const estimatedInputTokens = estimateMessagesTokens(fullMessages);
     const modelBudgetError = getChatModelInputBudgetError({
@@ -281,7 +323,7 @@ async function runColumn(
       for await (const chunk of openaiChatCompletionStream({
         apiKey: cfg.apiKey,
         baseUrl: cfg.baseUrl,
-        model,
+        model: resolvedModel,
         messages: fullMessages,
         includeTemperature: !isPremiumChatModel(billingModel),
         maxCompletionTokens: getChatModelMaxOutputTokens(billingModel),
@@ -330,7 +372,7 @@ async function runColumn(
       return;
     }
 
-    emit({ t: 'done', c, model, provider: cfg.provider });
+    emit({ t: 'done', c, model: resolvedModel, provider: cfg.provider });
 
     // Post-flight settle to ACTUAL usage (input + output, split rates).
     // Fire-and-forget — settleConsume logs its own failures.

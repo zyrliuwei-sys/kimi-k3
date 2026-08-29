@@ -78,6 +78,7 @@ import { Link } from '@/core/i18n/navigation';
 import { apiDelete, apiGet, apiPost } from '@/lib/api-client';
 import { streamChat } from '@/lib/chat-stream';
 import { usePlaygroundStore } from '@/lib/playground-store';
+import { requestedPptSlideCount } from '@/lib/presentation-page-count';
 import { TURNSTILE_ACTIONS } from '@/lib/turnstile-actions';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
@@ -87,6 +88,8 @@ import {
   ChatFileToolPicker,
   FileGenerationTurn,
   FileStyleGallery,
+  PresentationTemplateMiniature,
+  useFilePreviewOpen,
   type FileArtifact,
   type FileKind,
   type FileTemplate,
@@ -456,8 +459,14 @@ export function ApiPlayground() {
   const [isThinking, setIsThinking] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [fileTool, setFileTool] = useState<FileKind | null>(null);
-  const [fileTemplate, setFileTemplate] = useState<FileTemplate>('business');
+  const [fileTemplate, setFileTemplate] =
+    useState<FileTemplate>('blue-professional');
+  const [showPresentationTemplatePreview, setShowPresentationTemplatePreview] =
+    useState(false);
   const [fileTurns, setFileTurns] = useState<FileTurn[]>([]);
+  // While a file viewer is open the shell cedes the right 42rem to it, so
+  // the thread AND the composer shift left instead of being covered.
+  const filePreviewBeside = useFilePreviewOpen();
 
   const [modelId, setModelId] = useState<SelectableChatModelId>('kimi-k3');
   const [authOpen, setAuthOpen] = useState(false);
@@ -697,17 +706,26 @@ export function ApiPlayground() {
       kind,
       prompt,
       template,
+      model,
     }: {
       id: string;
       kind: FileKind;
       prompt: string;
       template: FileTemplate;
-    }) =>
-      apiPost<FileArtifact>('/api/file-studio/generate', {
-        kind,
-        prompt,
-        template,
-      }),
+      model: SelectableChatModelId;
+    }) => {
+      // Client-side hard cap. The server gives AI planning 18s before its
+      // deterministic draft fallback, so this only fires when the request is
+      // wedged — without it isPending stays true forever and the composer
+      // (send button, model picker) stays disabled until a reload.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 180_000);
+      return apiPost<FileArtifact>(
+        '/api/file-studio/generate',
+        { kind, prompt, template, model },
+        { signal: controller.signal }
+      ).finally(() => clearTimeout(timer));
+    },
     onSuccess: (artifact, variables) => {
       setFileTurns((turns) =>
         turns.map((turn) =>
@@ -749,6 +767,7 @@ export function ApiPlayground() {
       kind: fileTool,
       prompt,
       template: fileTemplate,
+      model: modelId,
     });
   }
 
@@ -762,7 +781,14 @@ export function ApiPlayground() {
 
   function handleFileToolChange(kind: FileKind | null) {
     setFileTool(kind);
-    if (kind) setFileTemplate('business');
+    setShowPresentationTemplatePreview(false);
+    if (kind)
+      setFileTemplate(kind === 'pptx' ? 'blue-professional' : 'business');
+  }
+
+  function selectFileTemplate(template: FileTemplate) {
+    setFileTemplate(template);
+    setShowPresentationTemplatePreview(fileTool === 'pptx');
   }
 
   async function handleSend(opts?: {
@@ -1051,16 +1077,22 @@ export function ApiPlayground() {
     }
   }
 
-  // Gallery cards are suggestions, not a submit action. Let people refine the
-  // brief in the composer before they deliberately press Generate.
-  function pickFilePrompt(prompt: string) {
+  /** Restore a submitted file brief and move attention back to the composer. */
+  function editFilePrompt(prompt: string) {
     setInput(prompt);
     requestAnimationFrame(() => {
       const el = taRef.current;
       if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     });
+  }
+
+  // Gallery cards are suggestions, not a submit action. Let people refine the
+  // brief in the composer before they deliberately press Generate.
+  function pickFilePrompt(prompt: string) {
+    editFilePrompt(prompt);
   }
 
   const hasThread = messages.length > 0 || fileTurns.length > 0 || isThinking;
@@ -1090,10 +1122,26 @@ export function ApiPlayground() {
     fileInputRef,
     fileTool,
     onFileToolChange: handleFileToolChange,
+    presentationTemplate:
+      fileTool === 'pptx' && showPresentationTemplatePreview
+        ? fileTemplate
+        : null,
+    onClearPresentationTemplatePreview: () =>
+      setShowPresentationTemplatePreview(false),
   };
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div
+      className={cn(
+        'file-preview-shell relative flex h-full min-h-0 flex-col transition-[padding] duration-300',
+        // An open file viewer takes over the right side (42rem default,
+        // resizable by dragging the panel's divider); the chat column
+        // (composer included) narrows to the left of it. The ambient
+        // decorations are absolutely positioned off the padding box, so
+        // they stay full-bleed.
+        filePreviewBeside && 'xl:pr-[var(--file-preview-w,42rem)]'
+      )}
+    >
       {/* Ambient brand glow */}
       <div
         aria-hidden
@@ -1117,16 +1165,21 @@ export function ApiPlayground() {
                 {messages.map((msg) => (
                   <MessageBubble key={msg.id} message={msg} />
                 ))}
-                {fileTurns.map((turn) => (
-                  <FileGenerationTurn
-                    key={turn.id}
-                    prompt={turn.prompt}
-                    kind={turn.kind}
-                    template={turn.template}
-                    artifact={turn.artifact}
-                    pending={turn.pending}
-                  />
-                ))}
+                {fileTurns.length > 0 && (
+                  <div className="space-y-6 pt-12">
+                    {fileTurns.map((turn) => (
+                      <FileGenerationTurn
+                        key={turn.id}
+                        prompt={turn.prompt}
+                        kind={turn.kind}
+                        template={turn.template}
+                        artifact={turn.artifact}
+                        pending={turn.pending}
+                        onEditPrompt={editFilePrompt}
+                      />
+                    ))}
+                  </div>
+                )}
                 {isThinking && <ThinkingBubble />}
               </div>
             </div>
@@ -1146,7 +1199,7 @@ export function ApiPlayground() {
                 <FileStyleGallery
                   kind={fileTool}
                   value={fileTemplate}
-                  onTemplateChange={setFileTemplate}
+                  onTemplateChange={selectFileTemplate}
                   onPromptPick={pickFilePrompt}
                 />
               )}
@@ -1377,6 +1430,8 @@ function Composer({
   fileInputRef,
   fileTool,
   onFileToolChange,
+  presentationTemplate,
+  onClearPresentationTemplatePreview,
   compareMode = false,
   onToggleCompare,
   compareStreaming = false,
@@ -1399,6 +1454,9 @@ function Composer({
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   fileTool: FileKind | null;
   onFileToolChange: (kind: FileKind | null) => void;
+  /** Shown only after an explicit PPT style click—never on dialog re-entry. */
+  presentationTemplate: FileTemplate | null;
+  onClearPresentationTemplatePreview: () => void;
   /** Side-by-side compare mode: columns own their models, composer is text-only. */
   compareMode?: boolean;
   onToggleCompare?: () => void;
@@ -1474,6 +1532,8 @@ function Composer({
     : compareMode
       ? m['settings.chat.compare_placeholder']()
       : m['playground.input.placeholder']();
+  const requestedSlides =
+    fileTool === 'pptx' ? requestedPptSlideCount(input) : undefined;
 
   return (
     <div className="w-full">
@@ -1505,11 +1565,25 @@ function Composer({
           onFilesSelected(event.dataTransfer.files);
         }}
         className={cn(
-          'border-foreground/20 focus-within:border-foreground/35 dark:bg-foreground/5 rounded-[1.5rem] border bg-white py-4 pr-7 pl-3 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]',
+          'border-foreground/20 focus-within:border-foreground/35 dark:bg-foreground/5 relative rounded-[1.5rem] border bg-white py-4 pr-7 pl-3 shadow-sm transition-all focus-within:shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)]',
           isFileDragging &&
             'border-primary bg-primary/[0.035] ring-primary/15 shadow-[0_10px_44px_-14px_rgba(124,58,237,0.3)] ring-4'
         )}
       >
+        {presentationTemplate && (
+          <div className="absolute top-3 left-3 z-20 w-11 rounded-[3px] bg-white p-px shadow-[0_5px_12px_-8px_rgba(15,23,42,0.3)] ring-1 ring-black/10 dark:bg-zinc-900">
+            <PresentationTemplateMiniature template={presentationTemplate} />
+            <button
+              type="button"
+              onClick={onClearPresentationTemplatePreview}
+              aria-label={m['file_studio.template.preview_remove']()}
+              title={m['file_studio.template.preview_remove']()}
+              className="bg-background/95 text-foreground/70 hover:bg-background hover:text-foreground absolute -top-1 -right-1 flex size-3.5 items-center justify-center rounded-full border border-black/10 shadow-sm transition-colors"
+            >
+              <X className="size-2.5" />
+            </button>
+          </div>
+        )}
         {/* Hidden media input — images + videos, multi-select. */}
         <input
           ref={fileInputRef}
@@ -1574,7 +1648,9 @@ function Composer({
                   )}
                   {isError && (
                     <span
-                      title={m['playground.attachment.err_upload_failed']()}
+                      title={m['playground.attachment.err_upload_failed']({
+                        name: a.filename || a.type,
+                      })}
                       className="text-destructive text-[10px] font-medium tracking-wide uppercase"
                     >
                       {m['playground.attachment.status_error']()}
@@ -1616,7 +1692,10 @@ function Composer({
           }}
           rows={1}
           placeholder={inputPlaceholder}
-          className="placeholder:text-foreground/40 block max-h-[280px] min-h-[2.5rem] w-full resize-none bg-transparent px-4 pt-2 font-mono text-[15px] leading-relaxed outline-none"
+          className={cn(
+            'placeholder:text-foreground/40 block max-h-[280px] min-h-[2.5rem] w-full resize-none bg-transparent px-4 pt-2 font-mono text-[15px] leading-relaxed outline-none',
+            presentationTemplate && 'pl-16'
+          )}
         />
 
         <div className="flex items-center justify-between gap-2 pt-3">
@@ -1647,6 +1726,14 @@ function Composer({
                   disabled={isThinking}
                   compact
                 />
+                {requestedSlides && (
+                  <span className="bg-primary/[0.08] text-primary inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] font-semibold tabular-nums">
+                    <FileText className="size-3" aria-hidden="true" />
+                    {m['file_studio.prompt_slide_target']({
+                      count: requestedSlides,
+                    })}
+                  </span>
+                )}
               </>
             )}
             {onToggleCompare && (
@@ -1701,7 +1788,7 @@ function Composer({
                 onClick={onSend}
                 disabled={!canSend || isThinking}
                 aria-label={m['playground.input.send']()}
-                className="border-foreground/10 bg-foreground/[0.05] text-foreground/75 hover:bg-foreground/[0.09] hover:text-foreground flex size-11 shrink-0 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                className="bg-foreground text-background hover:bg-foreground/85 flex size-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ArrowUp className="size-5" />
               </button>
@@ -2250,8 +2337,12 @@ export function ChatPlayground() {
   const [compareMode, setCompareMode] = useState(false);
   const compare = useCompareChat();
   const [fileTool, setFileTool] = useState<FileKind | null>(null);
-  const [fileTemplate, setFileTemplate] = useState<FileTemplate>('business');
+  const [fileTemplate, setFileTemplate] =
+    useState<FileTemplate>('blue-professional');
+  const [showPresentationTemplatePreview, setShowPresentationTemplatePreview] =
+    useState(false);
   const [fileTurns, setFileTurns] = useState<FileTurn[]>([]);
+  const filePreviewBeside = useFilePreviewOpen();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -2509,17 +2600,26 @@ export function ChatPlayground() {
       kind,
       prompt,
       template,
+      model,
     }: {
       id: string;
       kind: FileKind;
       prompt: string;
       template: FileTemplate;
-    }) =>
-      apiPost<FileArtifact>('/api/file-studio/generate', {
-        kind,
-        prompt,
-        template,
-      }),
+      model: SelectableChatModelId;
+    }) => {
+      // Client-side hard cap. The server gives AI planning 18s before its
+      // deterministic draft fallback, so this only fires when the request is
+      // wedged — without it isPending stays true forever and the composer
+      // (send button, model picker) stays disabled until a reload.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 180_000);
+      return apiPost<FileArtifact>(
+        '/api/file-studio/generate',
+        { kind, prompt, template, model },
+        { signal: controller.signal }
+      ).finally(() => clearTimeout(timer));
+    },
     onSuccess: (artifact, variables) => {
       setFileTurns((turns) =>
         turns.map((turn) =>
@@ -2558,6 +2658,7 @@ export function ChatPlayground() {
       kind: fileTool,
       prompt,
       template: fileTemplate,
+      model: modelId,
     });
   }
 
@@ -2571,7 +2672,14 @@ export function ChatPlayground() {
 
   function handleFileToolChange(kind: FileKind | null) {
     setFileTool(kind);
-    if (kind) setFileTemplate('business');
+    setShowPresentationTemplatePreview(false);
+    if (kind)
+      setFileTemplate(kind === 'pptx' ? 'blue-professional' : 'business');
+  }
+
+  function selectFileTemplate(template: FileTemplate) {
+    setFileTemplate(template);
+    setShowPresentationTemplatePreview(fileTool === 'pptx');
   }
 
   async function handleSend() {
@@ -2581,11 +2689,20 @@ export function ChatPlayground() {
     if (!requireAuth()) return;
     // Compare mode: one question fans out to every column's model via the
     // stateless compare endpoint — no chat row is created, nothing persists.
+    // Attachments are shared by every column (one composer → one file set);
+    // the server splices them into each column's last user turn.
     if (compareMode) {
       const compareText = input.trim();
-      if (!compareText || compare.isStreaming) return;
+      if (compare.isStreaming) return;
+      if (attachments.some((a) => a.uploadStatus === 'uploading')) return;
+      const submitted = attachments.filter(isReadyAttachment);
+      if (!compareText && submitted.length === 0) return;
       setInput('');
-      void compare.send(compareText);
+      setAttachments([]);
+      void compare.send(
+        compareText || m['playground.attachment.default_prompt'](),
+        submitted
+      );
       return;
     }
     const text = input.trim();
@@ -2816,13 +2933,9 @@ export function ChatPlayground() {
   function toggleCompareMode() {
     if (!compareMode) {
       if (isThinking) return;
-      // Compare columns are text-only — drop any pending attachments AND any
-      // active file tool. The tool entry is hidden while the board is up, so a
-      // stale `fileTool` would keep routing sends to the (invisible) file
-      // generation flow instead of the compare fan-out — the send would look
-      // dead while a file quietly generates in the background.
-      for (const a of attachments) removeAttachment(a.id);
-      setFileTool(null);
+      // The board's mirrored composers carry the same affordances as the
+      // single-column one (attachments + file tools), so pending drafts and
+      // an active tool carry over instead of being dropped on entry.
       compare.begin(modelId);
       setCompareMode(true);
     } else {
@@ -2830,6 +2943,25 @@ export function ChatPlayground() {
       setCompareMode(false);
     }
   }
+
+  // The comparison board is a temporary workspace rather than a persisted
+  // conversation. Esc gives it the same quick-dismiss behaviour as the
+  // reference interaction, returning the user to the regular chat landing
+  // state. Respect an already-handled Escape so an open model menu or dialog
+  // can close itself first.
+  useEffect(() => {
+    if (!compareMode) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      event.preventDefault();
+      compare.exit();
+      setCompareMode(false);
+    };
+
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [compare.exit, compareMode]);
 
   // Closing the last remaining column would leave an empty board — treat it
   // as exiting compare mode (back to the normal single-column chat).
@@ -2842,17 +2974,23 @@ export function ChatPlayground() {
     compare.removeColumn(id);
   }
 
-  // A tool chip fills a starter prompt and focuses the textarea so the user
-  // pastes their content after it — sent only when they hit Enter themselves.
-  // Height re-syncs automatically via the [input] effect above.
-  function pickToolPrompt(prompt: string) {
+  /** Restore a submitted file brief and move attention back to the composer. */
+  function editFilePrompt(prompt: string) {
     setInput(prompt);
     requestAnimationFrame(() => {
       const el = taRef.current;
       if (!el) return;
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       el.focus();
       el.setSelectionRange(el.value.length, el.value.length);
     });
+  }
+
+  // A tool chip fills a starter prompt and focuses the textarea so the user
+  // pastes their content after it — sent only when they hit Enter themselves.
+  // Height re-syncs automatically via the [input] effect above.
+  function pickToolPrompt(prompt: string) {
+    editFilePrompt(prompt);
   }
 
   // Pass-through to the legacy Composer (re-uses the chat-mode file picker,
@@ -2881,6 +3019,12 @@ export function ChatPlayground() {
     fileInputRef,
     fileTool,
     onFileToolChange: handleFileToolChange,
+    presentationTemplate:
+      fileTool === 'pptx' && showPresentationTemplatePreview
+        ? fileTemplate
+        : null,
+    onClearPresentationTemplatePreview: () =>
+      setShowPresentationTemplatePreview(false),
     compareMode,
     onToggleCompare: toggleCompareMode,
     compareStreaming: compare.isStreaming,
@@ -2891,11 +3035,19 @@ export function ChatPlayground() {
     compareMode || messages.length > 0 || fileTurns.length > 0 || isThinking;
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div
+      className={cn(
+        'file-preview-shell relative flex h-full min-h-0 flex-col transition-[padding] duration-300',
+        // An open file viewer takes over the right side (42rem default,
+        // resizable by dragging the panel's divider); the chat column
+        // (composer included) narrows to the left of it.
+        filePreviewBeside && 'xl:pr-[var(--file-preview-w,42rem)]'
+      )}
+    >
       {hasThread ? (
         compareMode ? (
-          // Compare keeps the fixed split: the board manages its own column
-          // scrolling, composer pinned below it.
+          // Compare keeps the fixed split: every column manages its own
+          // scrolling and mirrored composer at its bottom.
           <>
             <div className="relative min-h-0 flex-1">
               <CompareBoard
@@ -2905,18 +3057,23 @@ export function ChatPlayground() {
                 onAdd={compare.addColumn}
                 onRemove={handleRemoveColumn}
                 onSelectModel={compare.setColumnModel}
+                fileTurns={fileTurns}
+                composer={{
+                  input,
+                  onInputChange: setInput,
+                  // An active file tool redirects the shared send to the
+                  // generation flow (result mirrors into every column).
+                  onSend: fileTool ? handleFileSend : () => void handleSend(),
+                  onStop: compare.stop,
+                  fileTool,
+                  onFileToolChange: handleFileToolChange,
+                  onFilesSelected: handleFilesSelected,
+                  attachments,
+                  onRemoveAttachment: removeAttachment,
+                  uploading: hasPendingUploads,
+                  filePending: fileGeneration.isPending,
+                }}
               />
-            </div>
-            <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
-              <Composer {...composerProps} />
-              {fileTool && (
-                <FileStyleGallery
-                  kind={fileTool}
-                  value={fileTemplate}
-                  onTemplateChange={setFileTemplate}
-                  onPromptPick={pickToolPrompt}
-                />
-              )}
             </div>
           </>
         ) : (
@@ -2933,16 +3090,21 @@ export function ChatPlayground() {
                 {messages.map((msg) => (
                   <MessageBubble key={msg.id} message={msg} />
                 ))}
-                {fileTurns.map((turn) => (
-                  <FileGenerationTurn
-                    key={turn.id}
-                    prompt={turn.prompt}
-                    kind={turn.kind}
-                    template={turn.template}
-                    artifact={turn.artifact}
-                    pending={turn.pending}
-                  />
-                ))}
+                {fileTurns.length > 0 && (
+                  <div className="space-y-6 pt-12">
+                    {fileTurns.map((turn) => (
+                      <FileGenerationTurn
+                        key={turn.id}
+                        prompt={turn.prompt}
+                        kind={turn.kind}
+                        template={turn.template}
+                        artifact={turn.artifact}
+                        pending={turn.pending}
+                        onEditPrompt={editFilePrompt}
+                      />
+                    ))}
+                  </div>
+                )}
                 {isThinking && <ThinkingBubble />}
               </div>
             </div>
@@ -2952,7 +3114,7 @@ export function ChatPlayground() {
                 <FileStyleGallery
                   kind={fileTool}
                   value={fileTemplate}
-                  onTemplateChange={setFileTemplate}
+                  onTemplateChange={selectFileTemplate}
                   onPromptPick={pickToolPrompt}
                 />
               ) : (
@@ -2971,7 +3133,7 @@ export function ChatPlayground() {
                 <FileStyleGallery
                   kind={fileTool}
                   value={fileTemplate}
-                  onTemplateChange={setFileTemplate}
+                  onTemplateChange={selectFileTemplate}
                   onPromptPick={pickToolPrompt}
                 />
               ) : (

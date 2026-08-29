@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { ChevronDown, Sparkles } from 'lucide-react';
+import { ChevronDown, FileText, Sparkles } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
@@ -96,7 +96,18 @@ export const MessageBubble = memo(function MessageBubble({
   streaming,
   compact = false,
 }: {
-  message: { id: string; role: 'user' | 'assistant'; content: string };
+  message: {
+    id: string;
+    role: 'user' | 'assistant';
+    content: string;
+    /** Thumbnails rendered above a user bubble's text (display only). */
+    attachments?: {
+      type: 'image' | 'video' | 'document';
+      url: string;
+      previewUrl?: string;
+      filename?: string;
+    }[];
+  };
   streaming?: boolean;
   /** Tighter layout for the compare columns (narrow width, denser stack). */
   compact?: boolean;
@@ -133,7 +144,40 @@ export const MessageBubble = memo(function MessageBubble({
         )}
       >
         {isUser ? (
-          <span className="whitespace-pre-wrap">{message.content}</span>
+          <>
+            {message.attachments?.length ? (
+              <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+                {message.attachments.map((a) =>
+                  a.type === 'image' ? (
+                    <img
+                      key={a.url}
+                      src={a.previewUrl || a.url}
+                      alt={a.filename || ''}
+                      className="size-14 rounded-lg object-cover"
+                    />
+                  ) : a.type === 'video' ? (
+                    <video
+                      key={a.url}
+                      src={a.previewUrl || a.url}
+                      muted
+                      playsInline
+                      preload="metadata"
+                      className="size-14 rounded-lg object-cover"
+                    />
+                  ) : (
+                    <span
+                      key={a.url}
+                      title={a.filename}
+                      className="bg-foreground/5 text-foreground/50 grid size-14 place-items-center rounded-lg"
+                    >
+                      <FileText className="size-4" />
+                    </span>
+                  )
+                )}
+              </div>
+            ) : null}
+            <span className="whitespace-pre-wrap">{message.content}</span>
+          </>
         ) : empty ? (
           <ThinkingDots />
         ) : (
