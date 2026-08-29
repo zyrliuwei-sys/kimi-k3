@@ -1,8 +1,9 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import {
   ArrowUp,
+  Columns2,
   MessageSquarePlus,
   Sparkles,
   Square,
@@ -17,7 +18,8 @@ import {
   ChatModelPicker,
   type SelectableChatModelId,
 } from '@/blocks/chat-model-picker';
-import { MarkdownContent } from '@/components/markdown-content';
+import { MessageBubble } from '@/blocks/chat-shared';
+import { CompareBoard, useCompareChat } from '@/blocks/compare-board';
 
 interface ChatItem {
   id: string;
@@ -75,6 +77,8 @@ function ChatPage() {
   const [pending, setPending] = useState<PendingBubble[]>([]);
   const [isStreaming, setIsStreaming] = useState(false);
   const [modelId, setModelId] = useState<SelectableChatModelId>('kimi-k3');
+  const [compareMode, setCompareMode] = useState(false);
+  const compare = useCompareChat();
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottomRef = useRef(true);
   const abortRef = useRef<AbortController | null>(null);
@@ -254,8 +258,18 @@ function ChatPage() {
 
   async function handleSend() {
     const content = input.trim();
-    if (!content || isStreaming) return;
+    if (!content) return;
 
+    // Compare mode: fan the question out to every column via the shared
+    // stateless endpoint — no chat is created, nothing is persisted.
+    if (compareMode) {
+      if (compare.isStreaming) return;
+      setInput('');
+      compare.send(content);
+      return;
+    }
+
+    if (isStreaming) return;
     let id = activeId;
     if (!id) {
       const created = await newChatMutation.mutateAsync(modelId);
@@ -267,7 +281,34 @@ function ChatPage() {
   }
 
   function handleStop() {
+    if (compareMode) {
+      compare.stop();
+      return;
+    }
     abortRef.current?.abort();
+  }
+
+  function toggleCompareMode() {
+    if (compareMode) {
+      compare.exit();
+      setCompareMode(false);
+      return;
+    }
+    // Entering mid-stream would orphan the pending bubbles — wait it out.
+    if (isStreaming) return;
+    compare.begin(modelId);
+    setCompareMode(true);
+  }
+
+  // Closing the last remaining column would leave an empty board — treat it
+  // as exiting compare mode (back to the normal single-column chat).
+  function handleRemoveColumn(id: string) {
+    if (compare.columns.length <= 1) {
+      compare.exit();
+      setCompareMode(false);
+      return;
+    }
+    compare.removeColumn(id);
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -282,188 +323,179 @@ function ChatPage() {
 
   return (
     <div className="flex h-[calc(100dvh-3.5rem)]">
-      {/* Conversation sidebar */}
-      <aside className="border-foreground/10 bg-muted/30 hidden w-72 shrink-0 flex-col border-r md:flex">
-        <div className="p-3">
-          <button
-            onClick={() => newChatMutation.mutate(modelId)}
-            disabled={newChatMutation.isPending}
-            className="bg-foreground text-background hover:bg-foreground/85 flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors disabled:opacity-60"
-          >
-            <MessageSquarePlus className="size-4" />
-            {m['settings.chat.new_chat']()}
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto px-2 pb-3">
-          {chats.length > 0 &&
-            chats.map((c) => (
-              <div
-                key={c.id}
-                className={cn(
-                  'group flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
-                  c.id === activeId
-                    ? 'bg-card font-medium shadow-sm'
-                    : 'hover:bg-card/60'
-                )}
-              >
-                <button
-                  className="flex-1 truncate text-left"
-                  onClick={() => setActiveId(c.id)}
+      {/* Conversation sidebar — hidden in compare mode (the columns need the
+          width, and compare threads are ephemeral anyway) */}
+      {!compareMode && (
+        <aside className="border-foreground/10 bg-muted/30 hidden w-72 shrink-0 flex-col border-r md:flex">
+          <div className="p-3">
+            <button
+              onClick={() => newChatMutation.mutate(modelId)}
+              disabled={newChatMutation.isPending}
+              className="bg-foreground text-background hover:bg-foreground/85 flex w-full items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors disabled:opacity-60"
+            >
+              <MessageSquarePlus className="size-4" />
+              {m['settings.chat.new_chat']()}
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-3">
+            {chats.length > 0 &&
+              chats.map((c) => (
+                <div
+                  key={c.id}
+                  className={cn(
+                    'group flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    c.id === activeId
+                      ? 'bg-card font-medium shadow-sm'
+                      : 'hover:bg-card/60'
+                  )}
                 >
-                  {c.title?.trim() || m['settings.chat.untitled']()}
-                </button>
-                <DeleteChatButton
-                  chatId={c.id}
-                  onDeleted={(deletedId) => {
-                    if (deletedId === activeId) setActiveId(null);
-                  }}
-                />
-              </div>
-            ))}
-        </div>
-      </aside>
+                  <button
+                    className="flex-1 truncate text-left"
+                    onClick={() => setActiveId(c.id)}
+                  >
+                    {c.title?.trim() || m['settings.chat.untitled']()}
+                  </button>
+                  <DeleteChatButton
+                    chatId={c.id}
+                    onDeleted={(deletedId) => {
+                      if (deletedId === activeId) setActiveId(null);
+                    }}
+                  />
+                </div>
+              ))}
+          </div>
+        </aside>
+      )}
 
-      {/* Thread */}
+      {/* Thread / compare board */}
       <section className="flex min-w-0 flex-1 flex-col">
-        <div
-          ref={scrollRef}
-          onScroll={() => {
-            const el = scrollRef.current;
-            if (!el) return;
-            stickToBottomRef.current =
-              el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-          }}
-          className="flex-1 overflow-y-auto"
-        >
-          {showEmpty ? (
-            <EmptyState
-              onPick={(prompt) => {
-                setInput(prompt);
-              }}
-              disabled={!activeId}
+        {compareMode ? (
+          <div className="min-h-0 flex-1">
+            <CompareBoard
+              columns={compare.columns}
+              threads={compare.threads}
+              isStreaming={compare.isStreaming}
+              onAdd={compare.addColumn}
+              onRemove={handleRemoveColumn}
+              onSelectModel={compare.setColumnModel}
             />
-          ) : (
-            <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
-              {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
-              ))}
-              {pending.map((b) => (
-                <MessageBubble key={b.id} message={b} streaming={b.streaming} />
-              ))}
-            </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div
+            ref={scrollRef}
+            onScroll={() => {
+              const el = scrollRef.current;
+              if (!el) return;
+              stickToBottomRef.current =
+                el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            }}
+            className="flex-1 overflow-y-auto"
+          >
+            {showEmpty ? (
+              <EmptyState
+                onPick={(prompt) => {
+                  setInput(prompt);
+                }}
+                disabled={!activeId}
+              />
+            ) : (
+              <div className="mx-auto max-w-3xl space-y-6 px-4 py-8">
+                {messages.map((msg) => (
+                  <MessageBubble key={msg.id} message={msg} />
+                ))}
+                {pending.map((b) => (
+                  <MessageBubble
+                    key={b.id}
+                    message={b}
+                    streaming={b.streaming}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Composer */}
         <div className="border-foreground/10 bg-background/80 border-t px-4 py-3 backdrop-blur">
           <div className="mx-auto max-w-3xl">
-            <div className="bg-card focus-within:border-foreground/25 border-foreground/10 flex items-end gap-2 rounded-2xl border p-2 shadow-sm">
-              <ChatModelPicker
-                selectedId={modelId}
-                onSelect={setModelId}
-                disabled={isStreaming}
-              />
+            <div className="bg-card focus-within:border-foreground/25 border-foreground/10 flex flex-col gap-1 rounded-2xl border p-2 shadow-sm">
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 rows={1}
-                placeholder={m['settings.chat.placeholder']()}
-                className="placeholder:text-foreground/40 max-h-40 min-h-[2.5rem] flex-1 resize-none bg-transparent px-3 py-2 text-[15px] outline-none"
+                placeholder={
+                  compareMode
+                    ? m['settings.chat.compare_placeholder']()
+                    : m['settings.chat.placeholder']()
+                }
+                className="placeholder:text-foreground/40 max-h-40 min-h-[2.5rem] w-full resize-none bg-transparent px-2 py-2 text-[15px] outline-none"
               />
-              {isStreaming ? (
+              {/* Bottom toolbar: compare entry/exit at the far left, hint in
+                  the middle, model picker + send on the right. In compare
+                  mode the leftmost button becomes the exit button. */}
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={handleStop}
-                  aria-label="Stop"
-                  className="text-foreground/70 hover:bg-foreground/5 border-foreground/10 flex size-9 shrink-0 items-center justify-center rounded-xl border transition-colors"
+                  type="button"
+                  onClick={toggleCompareMode}
+                  disabled={!compareMode && isStreaming}
+                  aria-label={
+                    compareMode
+                      ? m['settings.chat.compare_exit']()
+                      : m['settings.chat.compare_toggle']()
+                  }
+                  title={
+                    compareMode
+                      ? m['settings.chat.compare_exit']()
+                      : m['settings.chat.compare_toggle']()
+                  }
+                  className={cn(
+                    'flex size-8 shrink-0 items-center justify-center rounded-full transition-colors',
+                    compareMode
+                      ? 'bg-foreground text-background'
+                      : 'text-foreground/55 hover:bg-foreground/5 hover:text-foreground'
+                  )}
                 >
-                  <Square className="size-4" fill="currentColor" />
+                  <Columns2 className="size-4" />
                 </button>
-              ) : (
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim()}
-                  aria-label={m['settings.chat.send']()}
-                  className="brand-gradient flex size-9 shrink-0 items-center justify-center rounded-xl text-white transition-opacity disabled:opacity-40"
-                >
-                  <ArrowUp className="size-4" />
-                </button>
-              )}
+                <p className="text-foreground/35 min-w-0 flex-1 truncate text-[11px]">
+                  {compareMode
+                    ? m['settings.chat.compare_billing_hint']({
+                        count: compare.columns.length,
+                      })
+                    : m['settings.chat.disclaimer']()}
+                </p>
+                {!compareMode && (
+                  <ChatModelPicker
+                    selectedId={modelId}
+                    onSelect={setModelId}
+                    disabled={isStreaming}
+                  />
+                )}
+                {(compareMode ? compare.isStreaming : isStreaming) ? (
+                  <button
+                    onClick={handleStop}
+                    aria-label="Stop"
+                    className="text-foreground/70 hover:bg-foreground/5 border-foreground/10 flex size-8 shrink-0 items-center justify-center rounded-xl border transition-colors"
+                  >
+                    <Square className="size-4" fill="currentColor" />
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleSend}
+                    disabled={!input.trim()}
+                    aria-label={m['settings.chat.send']()}
+                    className="border-foreground/10 bg-foreground/[0.05] text-foreground/75 hover:bg-foreground/[0.09] hover:text-foreground flex size-8 shrink-0 items-center justify-center rounded-xl border transition-colors disabled:opacity-40"
+                  >
+                    <ArrowUp className="size-4" />
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-foreground/35 mt-2 text-center text-[11px]">
-              {m['settings.chat.disclaimer']()}
-            </p>
           </div>
         </div>
       </section>
     </div>
-  );
-}
-
-/** Memoized so a streaming sibling updating 25×/s never re-renders finished bubbles. */
-const MessageBubble = memo(function MessageBubble({
-  message,
-  streaming,
-}: {
-  message: { id: string; role: 'user' | 'assistant'; content: string };
-  streaming?: boolean;
-}) {
-  const isUser = message.role === 'user';
-  const empty = !message.content;
-  return (
-    <div className={cn('flex gap-3', isUser && 'flex-row-reverse')}>
-      <div
-        className={cn(
-          'mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold',
-          isUser ? 'bg-foreground text-background' : 'brand-gradient text-white'
-        )}
-      >
-        {isUser ? (
-          m['settings.chat.you_initial']()
-        ) : (
-          <Sparkles className="size-3.5" />
-        )}
-      </div>
-      <div
-        className={cn(
-          'max-w-[85%] rounded-2xl px-4 py-2.5 text-[15px] leading-relaxed',
-          isUser
-            ? 'bg-foreground text-background rounded-tr-md'
-            : 'bg-card text-foreground border-foreground/10 rounded-tl-md border shadow-sm'
-        )}
-      >
-        {isUser ? (
-          <span className="whitespace-pre-wrap">{message.content}</span>
-        ) : empty ? (
-          <ThinkingDots />
-        ) : (
-          <>
-            <MarkdownContent content={message.content} />
-            {streaming && <StreamingCursor />}
-          </>
-        )}
-      </div>
-    </div>
-  );
-});
-
-function ThinkingDots() {
-  return (
-    <span className="flex items-center gap-1.5 py-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="bg-foreground/40 size-2 animate-bounce rounded-full"
-          style={{ animationDelay: `${i * 0.15}s` }}
-        />
-      ))}
-    </span>
-  );
-}
-
-function StreamingCursor() {
-  return (
-    <span className="bg-foreground/60 ml-0.5 inline-block h-4 w-[2px] translate-y-0.5 animate-pulse rounded-full align-middle" />
   );
 }
 

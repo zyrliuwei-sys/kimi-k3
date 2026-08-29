@@ -16,14 +16,19 @@ import {
   Check,
   ChevronDown,
   Circle,
+  Columns2,
   Copy,
   CornerDownLeft,
   Crown,
   Download,
   Eraser,
+  Feather,
   FileText,
+  FileType,
   Film,
+  GraduationCap,
   Image as ImageIcon,
+  Languages,
   LayoutGrid,
   Loader2,
   Maximize2,
@@ -32,18 +37,24 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RemoveFormatting,
+  ScanEye,
   Search as SearchIcon,
   Sparkles,
   Sparkles as SparklesIcon,
   Square,
   Terminal,
+  TextSearch,
   Trash2,
   Triangle,
   Type,
   Undo2,
+  UserRound,
   Wand2,
+  WholeWord,
   Wrench,
   X,
+  type LucideIcon,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { toast } from 'sonner';
@@ -73,9 +84,19 @@ import { m } from '@/paraglide/messages.js';
 import { getLocale } from '@/paraglide/runtime.js';
 import { usePublicConfig } from '@/hooks/use-public-config';
 import {
+  ChatFileToolPicker,
+  FileGenerationTurn,
+  FileStyleGallery,
+  type FileArtifact,
+  type FileKind,
+  type FileTemplate,
+} from '@/blocks/chat-file-tools';
+import {
   ChatModelPicker,
   type SelectableChatModelId,
 } from '@/blocks/chat-model-picker';
+import { ChatMarkdown } from '@/blocks/chat-shared';
+import { CompareBoard, useCompareChat } from '@/blocks/compare-board';
 import { Pricing } from '@/blocks/pricing';
 import {
   CaptchaWidget,
@@ -83,7 +104,6 @@ import {
 } from '@/components/captcha-widget';
 import { ClonePreview } from '@/components/clone-preview';
 import { ImageStreamHero } from '@/components/image-stream-hero';
-import { MarkdownContent } from '@/components/markdown-content';
 import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Dialog,
@@ -178,6 +198,15 @@ interface Message {
   // Assistant-only flags for the screenshot-clone flow:
   clone?: boolean; // this reply recreates a webpage → offer a live preview
   streaming?: boolean; // still receiving deltas → show code, not the preview
+}
+
+interface FileTurn {
+  id: string;
+  prompt: string;
+  kind: FileKind;
+  template: FileTemplate;
+  artifact?: FileArtifact;
+  pending: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -426,6 +455,9 @@ export function ApiPlayground() {
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [fileTool, setFileTool] = useState<FileKind | null>(null);
+  const [fileTemplate, setFileTemplate] = useState<FileTemplate>('business');
+  const [fileTurns, setFileTurns] = useState<FileTurn[]>([]);
 
   const [modelId, setModelId] = useState<SelectableChatModelId>('kimi-k3');
   const [authOpen, setAuthOpen] = useState(false);
@@ -473,7 +505,7 @@ export function ApiPlayground() {
       top: scrollRef.current.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages.length, isThinking, lastLen]);
+  }, [messages.length, isThinking, lastLen, fileTurns]);
 
   useEffect(() => {
     return () => {
@@ -658,6 +690,78 @@ export function ApiPlayground() {
       }
       return prev.filter((a) => a.id !== id);
     });
+  }
+
+  const fileGeneration = useMutation({
+    mutationFn: ({
+      kind,
+      prompt,
+    }: {
+      id: string;
+      kind: FileKind;
+      prompt: string;
+      template: FileTemplate;
+    }) =>
+      apiPost<FileArtifact>('/api/file-studio/generate', {
+        kind,
+        prompt,
+        template,
+      }),
+    onSuccess: (artifact, variables) => {
+      setFileTurns((turns) =>
+        turns.map((turn) =>
+          turn.id === variables.id
+            ? { ...turn, artifact, pending: false }
+            : turn
+        )
+      );
+      toast.success(m['file_studio.ready']());
+    },
+    onError: (error: Error, variables) => {
+      setFileTurns((turns) => turns.filter((turn) => turn.id !== variables.id));
+      toast.error(error.message || m['file_studio.error']());
+    },
+  });
+
+  function startFileGeneration(value: string) {
+    if (!fileTool) {
+      return;
+    }
+    if (!requireAuth() || fileGeneration.isPending) return;
+    const prompt = value.trim();
+    if (!prompt) return;
+
+    const id = `file-${Date.now()}`;
+    setInput('');
+    setFileTurns((turns) => [
+      ...turns,
+      {
+        id,
+        prompt,
+        kind: fileTool,
+        template: fileTemplate,
+        pending: true,
+      },
+    ]);
+    fileGeneration.mutate({
+      id,
+      kind: fileTool,
+      prompt,
+      template: fileTemplate,
+    });
+  }
+
+  function handleFileSend() {
+    if (!fileTool) {
+      void handleSend();
+      return;
+    }
+    startFileGeneration(input);
+  }
+
+  function handleFileToolChange(kind: FileKind | null) {
+    setFileTool(kind);
+    if (kind) setFileTemplate('business');
   }
 
   async function handleSend(opts?: {
@@ -938,25 +1042,42 @@ export function ApiPlayground() {
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (fileTool) {
+        handleFileSend();
+      } else {
+        void handleSend();
+      }
     }
   }
 
-  const hasThread = messages.length > 0 || isThinking;
+  // Gallery cards are suggestions, not a submit action. Let people refine the
+  // brief in the composer before they deliberately press Generate.
+  function pickFilePrompt(prompt: string) {
+    setInput(prompt);
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
+  }
+
+  const hasThread = messages.length > 0 || fileTurns.length > 0 || isThinking;
   const hasPendingUploads = attachments.some(
     (attachment) => attachment.uploadStatus === 'uploading'
   );
-  const canSend =
-    !!input.trim() ||
-    attachments.some((attachment) => isReadyAttachment(attachment));
+  const canSend = fileTool
+    ? !!input.trim()
+    : !!input.trim() ||
+      attachments.some((attachment) => isReadyAttachment(attachment));
 
   const composerProps = {
     input,
     setInput,
     onKeyDown: handleKeyDown,
-    onSend: handleSend,
+    onSend: fileTool ? handleFileSend : handleSend,
     canSend,
-    isThinking: isThinking || hasPendingUploads,
+    isThinking: isThinking || hasPendingUploads || fileGeneration.isPending,
     modelId,
     onModelChange: setModelId,
     taRef,
@@ -966,6 +1087,8 @@ export function ApiPlayground() {
     onFilesSelected: handleFilesSelected,
     onRemoveAttachment: removeAttachment,
     fileInputRef,
+    fileTool,
+    onFileToolChange: handleFileToolChange,
   };
 
   return (
@@ -993,6 +1116,16 @@ export function ApiPlayground() {
                 {messages.map((msg) => (
                   <MessageBubble key={msg.id} message={msg} />
                 ))}
+                {fileTurns.map((turn) => (
+                  <FileGenerationTurn
+                    key={turn.id}
+                    prompt={turn.prompt}
+                    kind={turn.kind}
+                    template={turn.template}
+                    artifact={turn.artifact}
+                    pending={turn.pending}
+                  />
+                ))}
                 {isThinking && <ThinkingBubble />}
               </div>
             </div>
@@ -1008,6 +1141,14 @@ export function ApiPlayground() {
             <WelcomeState />
             <div className="mt-14 w-full">
               <Composer {...composerProps} />
+              {fileTool && (
+                <FileStyleGallery
+                  kind={fileTool}
+                  value={fileTemplate}
+                  onTemplateChange={setFileTemplate}
+                  onPromptPick={pickFilePrompt}
+                />
+              )}
             </div>
           </div>
         </div>
@@ -1217,6 +1358,13 @@ function PlaygroundPaymentDialog({
 /*  Composer (textarea + toolbar + disclaimer)                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * File studio (pptx/docx/xlsx generation) is hidden from the UI for now —
+ * flip to `true` to restore the ✨ tool picker in the composer toolbar.
+ * The gallery / generation pipeline stays wired, just unreachable.
+ */
+const FILE_STUDIO_ENABLED = false;
+
 function Composer({
   input,
   setInput,
@@ -1233,6 +1381,12 @@ function Composer({
   onFilesSelected,
   onRemoveAttachment,
   fileInputRef,
+  fileTool,
+  onFileToolChange,
+  compareMode = false,
+  onToggleCompare,
+  compareStreaming = false,
+  onStopCompare,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -1249,6 +1403,13 @@ function Composer({
   onFilesSelected: (files: FileList | null) => void;
   onRemoveAttachment: (id: string) => void;
   fileInputRef: React.RefObject<HTMLInputElement | null>;
+  fileTool: FileKind | null;
+  onFileToolChange: (kind: FileKind | null) => void;
+  /** Side-by-side compare mode: columns own their models, composer is text-only. */
+  compareMode?: boolean;
+  onToggleCompare?: () => void;
+  compareStreaming?: boolean;
+  onStopCompare?: () => void;
 }) {
   const [isFileDragging, setIsFileDragging] = useState(false);
   const dragDepthRef = useRef(0);
@@ -1306,6 +1467,16 @@ function Composer({
       onSend();
     }
   }
+
+  const inputPlaceholder = compareMode
+    ? m['settings.chat.compare_placeholder']()
+    : fileTool === 'pptx'
+      ? m['file_studio.placeholder.pptx']()
+      : fileTool === 'docx'
+        ? m['file_studio.placeholder.docx']()
+        : fileTool === 'xlsx'
+          ? m['file_studio.placeholder.xlsx']()
+          : m['playground.input.placeholder']();
 
   return (
     <div className="w-full">
@@ -1437,6 +1608,8 @@ function Composer({
             // out and route it through the same attachment pipeline as the
             // picker (validate → dedup → optimistic chip → background upload).
             // Pure-text pastes have no image items and fall through untouched.
+            // Compare columns are text-only — pasted images have nowhere to go.
+            if (compareMode) return;
             const images = imageFilesFromClipboard(e.clipboardData);
             if (!images.length) return;
             e.preventDefault();
@@ -1445,46 +1618,211 @@ function Composer({
             onFilesSelected(dt.files);
           }}
           rows={1}
-          placeholder={m['playground.input.placeholder']()}
+          placeholder={inputPlaceholder}
           className="placeholder:text-foreground/40 block max-h-[280px] min-h-[2.5rem] w-full resize-none bg-transparent px-4 pt-2 font-mono text-[15px] leading-relaxed outline-none"
         />
 
         <div className="flex items-center justify-between gap-2 pt-3">
           <div className="flex translate-y-1 items-center gap-1.5">
-            <button
-              type="button"
-              onClick={onPlusClick}
-              aria-label={m['playground.attachment.add']()}
-              title={m['playground.attachment.add']()}
-              className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 items-center justify-center rounded-full transition-colors"
-            >
-              <Plus className="size-[22px]" />
-            </button>
-            <span className="text-foreground/40 text-[11px] leading-tight whitespace-nowrap">
-              {m['playground.attachment.upload_hint']()}
-            </span>
+            {!compareMode && (
+              <>
+                <button
+                  type="button"
+                  onClick={onPlusClick}
+                  aria-label={m['playground.attachment.add']()}
+                  title={m['playground.attachment.add']()}
+                  className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 items-center justify-center rounded-full transition-colors"
+                >
+                  <Plus className="size-[22px]" />
+                </button>
+                {FILE_STUDIO_ENABLED && (
+                  <ChatFileToolPicker
+                    value={fileTool}
+                    onChange={(kind) => {
+                      onFileToolChange(kind);
+                      if (kind) {
+                        requestAnimationFrame(() => taRef.current?.focus());
+                      }
+                    }}
+                    disabled={isThinking}
+                    compact
+                  />
+                )}
+              </>
+            )}
+            {onToggleCompare && (
+              <button
+                type="button"
+                onClick={onToggleCompare}
+                disabled={!compareMode && isThinking}
+                aria-label={
+                  compareMode
+                    ? m['settings.chat.compare_exit']()
+                    : m['settings.chat.compare_toggle']()
+                }
+                title={
+                  compareMode
+                    ? m['settings.chat.compare_exit']()
+                    : m['settings.chat.compare_toggle']()
+                }
+                className={cn(
+                  'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
+                  compareMode
+                    ? 'bg-foreground text-background ml-3'
+                    : 'text-foreground/55 hover:text-foreground hover:bg-foreground/5 ml-0.5'
+                )}
+              >
+                <Columns2 className="size-[22px]" />
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5">
-            <div className="mr-2">
-              <ChatModelPicker
-                selectedId={modelId}
-                onSelect={onModelChange}
-                disabled={isThinking}
-              />
-            </div>
-            <button
-              type="button"
-              onClick={onSend}
-              disabled={!canSend || isThinking}
-              aria-label={m['playground.input.send']()}
-              className="brand-gradient flex size-11 shrink-0 items-center justify-center rounded-full text-white shadow-sm transition-all hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              <ArrowUp className="size-5" />
-            </button>
+            {!compareMode && (
+              <div className="mr-2 translate-y-1">
+                <ChatModelPicker
+                  selectedId={modelId}
+                  onSelect={onModelChange}
+                  disabled={isThinking}
+                />
+              </div>
+            )}
+            {compareMode && compareStreaming ? (
+              <button
+                type="button"
+                onClick={onStopCompare}
+                aria-label="Stop"
+                className="text-foreground/70 hover:bg-foreground/5 border-foreground/10 flex size-11 shrink-0 items-center justify-center rounded-full border transition-colors"
+              >
+                <Square className="size-4" fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={!canSend || isThinking}
+                aria-label={m['playground.input.send']()}
+                className="border-foreground/10 bg-foreground/[0.05] text-foreground/75 hover:bg-foreground/[0.09] hover:text-foreground flex size-11 shrink-0 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowUp className="size-5" />
+              </button>
+            )}
           </div>
         </div>
       </motion.div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Tool chip marquee                                                  */
+/* ------------------------------------------------------------------ */
+
+interface ToolChip {
+  icon: LucideIcon;
+  hover: string;
+  label: string;
+  prompt: string;
+}
+
+// Tool shortcut chips on two auto-scrolling rows under the composer. Clicking
+// one fills its starter prompt into the input — the chat itself is the tool.
+// Tracks duplicate their row for a seamless loop (same pattern as
+// blocks/assets.tsx) and pause on hover/focus so chips stay clickable.
+function ToolChipMarquee({ onPick }: { onPick: (prompt: string) => void }) {
+  const rows: ToolChip[][] = [
+    [
+      {
+        icon: WholeWord,
+        hover: 'group-hover:text-purple-600',
+        label: m['playground.tools.summarize.label'](),
+        prompt: m['playground.tools.summarize.prompt'](),
+      },
+      {
+        icon: FileType,
+        hover: 'group-hover:text-red-500',
+        label: m['playground.tools.pdf.label'](),
+        prompt: m['playground.tools.pdf.prompt'](),
+      },
+      {
+        icon: Languages,
+        hover: 'group-hover:text-blue-500',
+        label: m['playground.tools.translate.label'](),
+        prompt: m['playground.tools.translate.prompt'](),
+      },
+      {
+        icon: ScanEye,
+        hover: 'group-hover:text-pink-500',
+        label: m['playground.tools.image.label'](),
+        prompt: m['playground.tools.image.prompt'](),
+      },
+      {
+        icon: RemoveFormatting,
+        hover: 'group-hover:text-green-500',
+        label: m['playground.tools.grammar.label'](),
+        prompt: m['playground.tools.grammar.prompt'](),
+      },
+    ],
+    [
+      {
+        icon: TextSearch,
+        hover: 'group-hover:text-red-500',
+        label: m['playground.tools.ai_detector.label'](),
+        prompt: m['playground.tools.ai_detector.prompt'](),
+      },
+      {
+        icon: UserRound,
+        hover: 'group-hover:text-green-500',
+        label: m['playground.tools.humanizer.label'](),
+        prompt: m['playground.tools.humanizer.prompt'](),
+      },
+      {
+        icon: Feather,
+        hover: 'group-hover:text-amber-700',
+        label: m['playground.tools.write.label'](),
+        prompt: m['playground.tools.write.prompt'](),
+      },
+      {
+        icon: GraduationCap,
+        hover: 'group-hover:text-orange-500',
+        label: m['playground.tools.learn.label'](),
+        prompt: m['playground.tools.learn.prompt'](),
+      },
+      {
+        icon: Terminal,
+        hover: 'group-hover:text-green-500',
+        label: m['playground.tools.code.label'](),
+        prompt: m['playground.tools.code.prompt'](),
+      },
+    ],
+  ];
+
+  return (
+    <div className="tools-marquee mt-4 flex w-full flex-col gap-4">
+      {rows.map((row, r) => (
+        <div key={r} className="marquee-mask relative flex overflow-hidden">
+          <div className="animate-marquee flex w-max shrink-0 items-center gap-3 pr-3">
+            {[...row, ...row].map((tool, i) => (
+              <button
+                key={`${r}-${i}`}
+                type="button"
+                onClick={() => onPick(tool.prompt)}
+                className="group border-border hover:bg-muted/50 flex shrink-0 items-center gap-1 rounded-md border px-2 py-1.5"
+              >
+                <tool.icon
+                  className={cn(
+                    'text-muted-foreground size-3 transition-colors duration-300',
+                    tool.hover
+                  )}
+                />
+                <span className="text-muted-foreground text-xs whitespace-nowrap">
+                  {tool.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1510,10 +1848,10 @@ function WelcomeState({}: { modelId?: string }) {
           {isZh ? '文档分析' : 'Document Analysis'}
         </button>
       </div>
-      <h1 className="font-serif text-[clamp(2.5rem,6vw,4rem)] leading-[1.05] font-normal tracking-[-0.025em]">
+      <h1 className="font-serif text-[clamp(2.25rem,4.5vw,3.25rem)] leading-[1.05] font-normal tracking-[-0.025em] whitespace-nowrap">
         {m['playground.welcome.greeting']()}
       </h1>
-      <p className="text-foreground/55 mt-5 max-w-md text-[15px] leading-relaxed">
+      <p className="text-foreground/55 mt-5 max-w-md text-[13px] leading-relaxed">
         {m['playground.welcome.subtitle']()}
       </p>
     </motion.div>
@@ -1651,7 +1989,10 @@ function MessageBubble({ message }: { message: Message }) {
           ) : message.clone && !message.streaming ? (
             <ClonePreview content={message.content} />
           ) : (
-            <MarkdownContent content={message.content} />
+            <ChatMarkdown
+              content={message.content}
+              streaming={message.streaming}
+            />
           ))}
       </div>
     </motion.div>
@@ -1907,6 +2248,11 @@ export function ChatPlayground() {
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [modelId, setModelId] = useState<SelectableChatModelId>('kimi-k3');
+  const [compareMode, setCompareMode] = useState(false);
+  const compare = useCompareChat();
+  const [fileTool, setFileTool] = useState<FileKind | null>(null);
+  const [fileTemplate, setFileTemplate] = useState<FileTemplate>('business');
+  const [fileTurns, setFileTurns] = useState<FileTurn[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -1990,7 +2336,7 @@ export function ChatPlayground() {
       top: scrollRef.current.scrollHeight,
       behavior: 'smooth',
     });
-  }, [messages.length, isThinking, lastLen]);
+  }, [messages.length, isThinking, lastLen, fileTurns]);
 
   useEffect(() => {
     return () => {
@@ -2009,6 +2355,8 @@ export function ChatPlayground() {
     setMessages([]);
     setInput('');
     setAttachments([]);
+    setFileTool(null);
+    setFileTurns([]);
     setIsThinking(false);
     for (const url of previewUrlsRef.current) URL.revokeObjectURL(url);
     previewUrlsRef.current.clear();
@@ -2153,11 +2501,94 @@ export function ChatPlayground() {
     });
   }
 
+  // File creation deliberately uses its own endpoint rather than the normal
+  // chat stream: the endpoint returns an editable PPTX/DOCX/XLSX artifact.
+  // Keep each request as a local turn so the progress and download result sit
+  // in the same conversation flow as the user expects.
+  const fileGeneration = useMutation({
+    mutationFn: ({
+      kind,
+      prompt,
+      template,
+    }: {
+      id: string;
+      kind: FileKind;
+      prompt: string;
+      template: FileTemplate;
+    }) =>
+      apiPost<FileArtifact>('/api/file-studio/generate', {
+        kind,
+        prompt,
+        template,
+      }),
+    onSuccess: (artifact, variables) => {
+      setFileTurns((turns) =>
+        turns.map((turn) =>
+          turn.id === variables.id
+            ? { ...turn, artifact, pending: false }
+            : turn
+        )
+      );
+      toast.success(m['file_studio.ready']());
+    },
+    onError: (error: Error, variables) => {
+      setFileTurns((turns) => turns.filter((turn) => turn.id !== variables.id));
+      toast.error(error.message || m['file_studio.error']());
+    },
+  });
+
+  function startFileGeneration(value: string) {
+    if (!fileTool || !requireAuth() || fileGeneration.isPending) return;
+    const prompt = value.trim();
+    if (!prompt) return;
+
+    const id = `file-${Date.now()}`;
+    setInput('');
+    setFileTurns((turns) => [
+      ...turns,
+      {
+        id,
+        prompt,
+        kind: fileTool,
+        template: fileTemplate,
+        pending: true,
+      },
+    ]);
+    fileGeneration.mutate({
+      id,
+      kind: fileTool,
+      prompt,
+      template: fileTemplate,
+    });
+  }
+
+  function handleFileSend() {
+    if (!fileTool) {
+      void handleSend();
+      return;
+    }
+    startFileGeneration(input);
+  }
+
+  function handleFileToolChange(kind: FileKind | null) {
+    setFileTool(kind);
+    if (kind) setFileTemplate('business');
+  }
+
   async function handleSend() {
     // Keep the draft in place and open the login dialog before creating a
     // chat row or submitting a stream. This gives anonymous users a clear
     // next step instead of briefly rendering a blocked message in the thread.
     if (!requireAuth()) return;
+    // Compare mode: one question fans out to every column's model via the
+    // stateless compare endpoint — no chat row is created, nothing persists.
+    if (compareMode) {
+      const compareText = input.trim();
+      if (!compareText || compare.isStreaming) return;
+      setInput('');
+      void compare.send(compareText);
+      return;
+    }
     const text = input.trim();
     if (attachments.some((a) => a.uploadStatus === 'uploading')) return;
     const submittedAttachments = attachments.filter(isReadyAttachment);
@@ -2372,8 +2803,57 @@ export function ChatPlayground() {
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (fileTool) {
+        handleFileSend();
+      } else {
+        void handleSend();
+      }
     }
+  }
+
+  // Enter compare mode with the current model as column one; the same toolbar
+  // slot becomes the exit button while the board is up. Entering mid-stream is
+  // blocked so the normal transcript's abort path can't be orphaned.
+  function toggleCompareMode() {
+    if (!compareMode) {
+      if (isThinking) return;
+      // Compare columns are text-only — drop any pending attachments AND any
+      // active file tool. The tool chip is hidden while the board is up, but a
+      // stale `fileTool` would keep routing sends to the (invisible) file
+      // generation flow instead of the compare fan-out — the send would look
+      // completely dead with a file quietly generating in the background.
+      for (const a of attachments) removeAttachment(a.id);
+      setFileTool(null);
+      compare.begin(modelId);
+      setCompareMode(true);
+    } else {
+      compare.exit();
+      setCompareMode(false);
+    }
+  }
+
+  // Closing the last remaining column would leave an empty board — treat it
+  // as exiting compare mode (back to the normal single-column chat).
+  function handleRemoveColumn(id: string) {
+    if (compare.columns.length <= 1) {
+      compare.exit();
+      setCompareMode(false);
+      return;
+    }
+    compare.removeColumn(id);
+  }
+
+  // A tool chip fills a starter prompt and focuses the textarea so the user
+  // pastes their content after it — sent only when they hit Enter themselves.
+  // Height re-syncs automatically via the [input] effect above.
+  function pickToolPrompt(prompt: string) {
+    setInput(prompt);
+    requestAnimationFrame(() => {
+      const el = taRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+    });
   }
 
   // Pass-through to the legacy Composer (re-uses the chat-mode file picker,
@@ -2385,11 +2865,12 @@ export function ChatPlayground() {
     input,
     setInput,
     onKeyDown: handleKeyDown,
-    onSend: handleSend,
-    canSend:
-      !!input.trim() ||
-      attachments.some((attachment) => isReadyAttachment(attachment)),
-    isThinking: isThinking || hasPendingUploads,
+    onSend: fileTool ? handleFileSend : handleSend,
+    canSend: fileTool
+      ? !!input.trim()
+      : !!input.trim() ||
+        attachments.some((attachment) => isReadyAttachment(attachment)),
+    isThinking: isThinking || hasPendingUploads || fileGeneration.isPending,
     modelId,
     onModelChange: setModelId,
     taRef,
@@ -2399,37 +2880,88 @@ export function ChatPlayground() {
     onFilesSelected: handleFilesSelected,
     onRemoveAttachment: removeAttachment,
     fileInputRef,
+    fileTool,
+    onFileToolChange: handleFileToolChange,
+    compareMode,
+    onToggleCompare: toggleCompareMode,
+    compareStreaming: compare.isStreaming,
+    onStopCompare: compare.stop,
   };
 
-  const hasThread = messages.length > 0 || isThinking;
+  const hasThread =
+    compareMode || messages.length > 0 || fileTurns.length > 0 || isThinking;
 
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       {hasThread ? (
         <>
-          <div
-            ref={scrollRef}
-            className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
-          >
-            <div className="mx-auto w-full max-w-3xl flex-1 px-4">
-              <div className="space-y-6 pt-16 pb-6">
-                {messages.map((msg) => (
-                  <MessageBubble key={msg.id} message={msg} />
-                ))}
-                {isThinking && <ThinkingBubble />}
+          {compareMode ? (
+            <div className="relative min-h-0 flex-1">
+              <CompareBoard
+                columns={compare.columns}
+                threads={compare.threads}
+                isStreaming={compare.isStreaming}
+                onAdd={compare.addColumn}
+                onRemove={handleRemoveColumn}
+                onSelectModel={compare.setColumnModel}
+              />
+            </div>
+          ) : (
+            <div
+              ref={scrollRef}
+              className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+            >
+              <div className="mx-auto w-full max-w-3xl flex-1 px-4">
+                <div className="space-y-6 pt-16 pb-6">
+                  {messages.map((msg) => (
+                    <MessageBubble key={msg.id} message={msg} />
+                  ))}
+                  {fileTurns.map((turn) => (
+                    <FileGenerationTurn
+                      key={turn.id}
+                      prompt={turn.prompt}
+                      kind={turn.kind}
+                      template={turn.template}
+                      artifact={turn.artifact}
+                      pending={turn.pending}
+                    />
+                  ))}
+                  {isThinking && <ThinkingBubble />}
+                </div>
               </div>
             </div>
-          </div>
+          )}
           <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
             <Composer {...composerProps} />
+            {!compareMode &&
+              (fileTool ? (
+                <FileStyleGallery
+                  kind={fileTool}
+                  value={fileTemplate}
+                  onTemplateChange={setFileTemplate}
+                  onPromptPick={pickToolPrompt}
+                />
+              ) : (
+                <ToolChipMarquee onPick={pickToolPrompt} />
+              ))}
           </div>
         </>
       ) : (
-        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-4 py-12">
-          <div className="flex w-full max-w-3xl translate-y-10 flex-col items-center sm:translate-y-12">
+        <div className="relative flex min-h-0 flex-1 flex-col items-center justify-start overflow-y-auto px-4 pt-[10vh] pb-20">
+          <div className="flex w-full max-w-3xl flex-col items-center">
             <WelcomeState />
             <div className="mt-14 w-full">
               <Composer {...composerProps} />
+              {fileTool ? (
+                <FileStyleGallery
+                  kind={fileTool}
+                  value={fileTemplate}
+                  onTemplateChange={setFileTemplate}
+                  onPromptPick={pickToolPrompt}
+                />
+              ) : (
+                <ToolChipMarquee onPick={pickToolPrompt} />
+              )}
             </div>
           </div>
         </div>

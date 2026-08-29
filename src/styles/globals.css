@@ -401,6 +401,12 @@
 .animate-marquee {
   animation: marquee 38s linear infinite;
 }
+/* Hero-chat tool chip rows: pause the scroll on hover/focus so individual
+   chips stay clickable. */
+.tools-marquee:hover .animate-marquee,
+.tools-marquee:focus-within .animate-marquee {
+  animation-play-state: paused;
+}
 @media (prefers-reduced-motion: reduce) {
   .animate-marquee {
     animation: none !important;

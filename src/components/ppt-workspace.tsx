@@ -1,15 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, FileText, Loader2, Plus, Sparkles, X } from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
-import {
-  CATEGORIES,
-  TEMPLATES,
-  type Template,
-  type TemplateCategory,
-} from '@/modules/ppt/templates';
+import { TEMPLATES, type Template } from '@/modules/ppt/templates';
 import { ApiError, apiGet, apiPost } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
@@ -62,9 +57,6 @@ export function PptWorkspace() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(
     TEMPLATES[0].id
   );
-  const [activeCategory, setActiveCategory] = useState<
-    TemplateCategory | 'all'
-  >('all');
   const [task, setTask] = useState<TaskRow | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -249,8 +241,6 @@ export function PptWorkspace() {
       <TemplatePicker
         selectedId={selectedTemplateId}
         onSelect={setSelectedTemplateId}
-        activeCategory={activeCategory}
-        onCategoryChange={setActiveCategory}
         disabled={submitting || isGenerating}
       />
 
@@ -466,34 +456,19 @@ function Field({
 }
 
 /**
- * Visual style picker — 6 templates, each rendered as a small card with
- * three mini SVG previews (cover / content / closing) drawn from the
- * template's color palette. Click a card to select it; the selected id
- * is passed straight to /api/ppt/generate as `templateId`.
- *
- * Category tabs (Business / Creative / Minimal / Education) filter the
- * visible templates. The All tab shows everything.
+ * Visual style picker — four simple cover-image cards. A selection is passed
+ * straight to /api/ppt/generate as `templateId`.
  */
 function TemplatePicker({
   selectedId,
   onSelect,
-  activeCategory,
-  onCategoryChange,
   disabled,
 }: {
   selectedId: string;
   onSelect: (id: string) => void;
-  activeCategory: TemplateCategory | 'all';
-  onCategoryChange: (c: TemplateCategory | 'all') => void;
   disabled: boolean;
 }) {
-  const visible = useMemo(
-    () =>
-      activeCategory === 'all'
-        ? TEMPLATES
-        : TEMPLATES.filter((t) => t.category.includes(activeCategory)),
-    [activeCategory]
-  );
+  const visible = TEMPLATES.slice(0, 4);
 
   return (
     <div>
@@ -508,27 +483,7 @@ function TemplatePicker({
         </div>
       </div>
 
-      {/* Category tabs */}
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        <CategoryChip
-          active={activeCategory === 'all'}
-          onClick={() => onCategoryChange('all')}
-          label={m['ppt.workspace.styles.tab.all']()}
-          disabled={disabled}
-        />
-        {CATEGORIES.map((c) => (
-          <CategoryChip
-            key={c.id}
-            active={activeCategory === c.id}
-            onClick={() => onCategoryChange(c.id)}
-            label={m[`ppt.workspace.styles.tab.${c.id}` as const]()}
-            disabled={disabled}
-          />
-        ))}
-      </div>
-
-      {/* Template cards grid */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="mt-3 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
         {visible.map((t) => (
           <TemplateCard
             key={t.id}
@@ -540,35 +495,6 @@ function TemplatePicker({
         ))}
       </div>
     </div>
-  );
-}
-
-function CategoryChip({
-  active,
-  onClick,
-  label,
-  disabled,
-}: {
-  active: boolean;
-  onClick: () => void;
-  label: string;
-  disabled: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className={cn(
-        'rounded-full border px-3 py-1 text-[11px] transition-colors',
-        active
-          ? 'bg-foreground text-background border-foreground'
-          : 'bg-card text-foreground/65 hover:text-foreground border-foreground/10 hover:border-foreground/25',
-        disabled && 'opacity-50'
-      )}
-    >
-      {label}
-    </button>
   );
 }
 
@@ -605,34 +531,20 @@ function TemplateCard({
         </div>
       )}
 
-      {/* Three mini slide previews stacked vertically — cover, content,
-          closing. The SVGs come pre-rendered from the template palette. */}
-      <div className="bg-foreground/[0.02] space-y-0.5 p-1.5">
+      <div className="bg-foreground/[0.02] p-1.5">
         <PreviewFrame
           svg={template.previews.cover}
           ariaLabel={`${template.name} cover`}
         />
-        <PreviewFrame
-          svg={template.previews.content}
-          ariaLabel={`${template.name} content`}
-        />
-        <PreviewFrame
-          svg={template.previews.closing}
-          ariaLabel={`${template.name} closing`}
-        />
       </div>
 
-      {/* Footer with swatch + name + blurb */}
-      <div className="px-2 py-1.5">
+      <div className="px-2 py-2">
         <div className="flex items-center gap-1.5">
           <span
             className="inline-block size-2.5 shrink-0 rounded-sm"
             style={{ background: template.swatch }}
           />
           <div className="text-[12px] font-medium">{m[nameKey]()}</div>
-        </div>
-        <div className="text-foreground/55 mt-0.5 line-clamp-2 text-[10px] leading-tight">
-          {template.blurb}
         </div>
       </div>
     </button>

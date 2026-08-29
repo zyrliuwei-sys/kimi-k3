@@ -310,8 +310,13 @@ export function computeChatReservationCost(params: {
   model: ChatModelId;
   estimatedInputTokens: number;
   rates: ChatTokenRates;
+  /** Output tokens included in the hold. Defaults to the model's full output
+   *  budget (worst case). Pass a lower cap when several holds coexist — e.g.
+   *  the compare endpoint fans out N columns in parallel, so N full-budget
+   *  holds would demand the SUM of all ceilings as liquid balance. */
+  outputBudgetTokens?: number;
 }): number {
-  const { model, estimatedInputTokens, rates } = params;
+  const { model, estimatedInputTokens, rates, outputBudgetTokens } = params;
   if (!isPremiumChatModel(model)) {
     return computeTokenCost(estimatedInputTokens, 0, rates);
   }
@@ -320,7 +325,9 @@ export function computeChatReservationCost(params: {
   const inputWithSafetyMargin = Math.ceil(estimatedInputTokens * 1.25);
   return computeTokenCost(
     inputWithSafetyMargin,
-    getChatModelMaxOutputTokens(model) ?? PREMIUM_CHAT_MAX_OUTPUT_TOKENS,
+    outputBudgetTokens ??
+      getChatModelMaxOutputTokens(model) ??
+      PREMIUM_CHAT_MAX_OUTPUT_TOKENS,
     {
       ...rates,
       inputRate: Math.max(rates.inputRate, rates.cacheWriteRate),
