@@ -91,6 +91,10 @@ export interface CompareStreamBody {
     model: string;
     messages: { role: 'user' | 'assistant'; content: string }[];
   }[];
+  /** Shared by every column — the board has one composer, so one set of
+   * files goes to all models (server splices them into each column's last
+   * user turn). Same shape as `ChatStreamBody.attachments`. */
+  attachments?: ChatStreamBody['attachments'];
 }
 
 export interface CompareStreamHandlers {

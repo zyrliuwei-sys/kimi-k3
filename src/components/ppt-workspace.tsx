@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, FileText, Loader2, Plus, Sparkles, X } from 'lucide-react';
+import { FileText, Loader2, Plus, Sparkles, X } from 'lucide-react';
 
 import { useSession } from '@/core/auth/client';
 import { TEMPLATES, type Template } from '@/modules/ppt/templates';
@@ -471,29 +471,16 @@ function TemplatePicker({
   const visible = TEMPLATES.slice(0, 4);
 
   return (
-    <div>
-      <div className="mb-2 flex items-baseline justify-between">
-        <div>
-          <div className="text-foreground/75 text-xs font-medium">
-            {m['ppt.workspace.styles.title']()}
-          </div>
-          <div className="text-foreground/45 mt-0.5 text-[11px]">
-            {m['ppt.workspace.styles.subtitle']()}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-3 grid grid-cols-2 gap-2.5 lg:grid-cols-4">
-        {visible.map((t) => (
-          <TemplateCard
-            key={t.id}
-            template={t}
-            selected={t.id === selectedId}
-            disabled={disabled}
-            onSelect={() => onSelect(t.id)}
-          />
-        ))}
-      </div>
+    <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4">
+      {visible.map((t) => (
+        <TemplateCard
+          key={t.id}
+          template={t}
+          selected={t.id === selectedId}
+          disabled={disabled}
+          onSelect={() => onSelect(t.id)}
+        />
+      ))}
     </div>
   );
 }
@@ -516,37 +503,19 @@ function TemplateCard({
       onClick={onSelect}
       disabled={disabled}
       aria-pressed={selected}
+      aria-label={m[nameKey]()}
       className={cn(
-        'group relative overflow-hidden rounded-xl border text-left transition-all',
+        'group focus-visible:ring-foreground/50 relative overflow-hidden rounded-xl border p-1.5 text-left transition-all focus-visible:ring-2 focus-visible:outline-none',
         selected
           ? 'border-foreground ring-foreground/30 ring-2 ring-offset-1'
           : 'border-foreground/10 hover:border-foreground/30',
         disabled && 'cursor-not-allowed opacity-60'
       )}
     >
-      {/* Selected checkmark badge */}
-      {selected && (
-        <div className="bg-foreground absolute top-1.5 right-1.5 z-10 grid size-5 place-items-center rounded-full">
-          <Check className="text-background size-3" strokeWidth={3} />
-        </div>
-      )}
-
-      <div className="bg-foreground/[0.02] p-1.5">
-        <PreviewFrame
-          svg={template.previews.cover}
-          ariaLabel={`${template.name} cover`}
-        />
-      </div>
-
-      <div className="px-2 py-2">
-        <div className="flex items-center gap-1.5">
-          <span
-            className="inline-block size-2.5 shrink-0 rounded-sm"
-            style={{ background: template.swatch }}
-          />
-          <div className="text-[12px] font-medium">{m[nameKey]()}</div>
-        </div>
-      </div>
+      <PreviewFrame
+        svg={template.previews.cover}
+        ariaLabel={`${template.name} cover`}
+      />
     </button>
   );
 }

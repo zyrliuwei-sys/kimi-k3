@@ -49,7 +49,7 @@ export function Hero() {
             <HoverBorderGradient
               as="div"
               duration={1.25}
-              containerClassName="group h-14 w-auto min-w-[15.5rem] rounded-full p-[2px] shadow-[0_12px_28px_rgba(20,18,15,0.13)] transition-transform duration-300 hover:-translate-y-0.5 sm:min-w-[17.5rem]"
+              containerClassName="group h-14 w-auto min-w-[12.5rem] rounded-full p-[2px] shadow-[0_12px_28px_rgba(20,18,15,0.13)] transition-transform duration-300 hover:-translate-y-0.5 sm:min-w-[14rem]"
               className="h-full rounded-full bg-[#1b1917] px-0 py-0 text-white dark:bg-[#f5f3ef] dark:text-[#1b1917]"
             >
               <Link

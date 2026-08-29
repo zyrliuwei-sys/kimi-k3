@@ -1,5 +1,12 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, X } from 'lucide-react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentProps,
+} from 'react';
+import { ArrowUp, Plus, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { AbortedError, streamCompare } from '@/lib/chat-stream';
@@ -12,6 +19,14 @@ import {
   type SelectableChatModelId,
 } from '@/blocks/chat-model-picker';
 
+import {
+  ATTACHMENT_ACCEPT,
+  AttachmentChips,
+  ChatFileToolPicker,
+  FileGenerationTurn,
+  type AttachmentChipItem,
+  type FileKind,
+} from './chat-file-tools';
 import { MessageBubble } from './chat-shared';
 
 /**
@@ -25,7 +40,7 @@ import { MessageBubble } from './chat-shared';
  * dropped when the user exits compare mode.
  */
 
-export const MAX_COMPARE_COLUMNS = 4;
+export const MAX_COMPARE_COLUMNS = 3;
 
 interface CompareColumnModel {
   id: string;
@@ -40,7 +55,32 @@ interface CompareMsg {
   streaming?: boolean;
   /** Terminal failure for this turn (gate / stream error) — excluded from follow-up history. */
   error?: boolean;
+  /** Display-only chips on the user bubble (sent to the server once, on this turn). */
+  attachments?: AttachmentChipItem[];
 }
+
+interface CompareComposer {
+  input: string;
+  onInputChange: (value: string) => void;
+  onSend: () => void;
+  onStop: () => void;
+  /** Active file-generation tool (PPT / Word / Excel) — routes the send. */
+  fileTool: FileKind | null;
+  onFileToolChange: (kind: FileKind | null) => void;
+  /** Files picked from any column's "+" — shared draft, shared chips. */
+  onFilesSelected: (files: FileList | null) => void;
+  attachments: AttachmentChipItem[];
+  onRemoveAttachment: (id: string) => void;
+  /** Uploads in flight — the send waits (same rule as the chat composer). */
+  uploading: boolean;
+  /** A file generation started from this board is still rendering. */
+  filePending: boolean;
+}
+
+/** One file-generation result, mirrored into every column's thread. */
+type CompareFileTurn = ComponentProps<typeof FileGenerationTurn> & {
+  id: string;
+};
 
 type GateStatus = 'login_required' | 'payment_required' | 'free_limit_reached';
 
@@ -148,9 +188,21 @@ export function useCompareChat() {
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
   const send = useCallback(
-    async (content: string) => {
+    async (content: string, attachmentChips?: AttachmentChipItem[]) => {
       const text = content.trim();
       if (!text || isStreaming || columns.length === 0) return;
+      // Only fully-uploaded attachments make it onto the wire; the chips are
+      // also kept on the user bubble (display only — follow-up turns don't
+      // replay them, matching image semantics on the chat page).
+      const chips = attachmentChips ?? [];
+      const payload = chips
+        .filter((a) => a.uploadStatus === 'done' && !a.url.startsWith('blob:'))
+        .map((a) => ({
+          type: a.type,
+          url: a.url,
+          key: a.key,
+          filename: a.filename,
+        }));
 
       // Snapshot: index-tagged SSE frames resolve against THIS array.
       const cols = columns;
@@ -176,7 +228,12 @@ export function useCompareChat() {
           const ph = placeholders.get(col.id)!;
           next[col.id] = [
             ...(next[col.id] ?? []),
-            { id: ph.userId, role: 'user', content: text },
+            {
+              id: ph.userId,
+              role: 'user',
+              content: text,
+              ...(chips.length ? { attachments: chips } : {}),
+            },
             {
               id: ph.assistantId,
               role: 'assistant',
@@ -238,6 +295,8 @@ export function useCompareChat() {
                 { role: 'user' as const, content: text },
               ],
             })),
+            // One composer → one attachment set for every column.
+            ...(payload.length ? { attachments: payload } : {}),
           },
           {
             signal: controller.signal,
@@ -319,6 +378,8 @@ export function CompareBoard({
   onAdd,
   onRemove,
   onSelectModel,
+  composer,
+  fileTurns,
 }: {
   columns: CompareColumnModel[];
   threads: Record<string, CompareMsg[]>;
@@ -326,19 +387,28 @@ export function CompareBoard({
   onAdd: () => void;
   onRemove: (id: string) => void;
   onSelectModel: (id: string, model: SelectableChatModelId) => void;
+  /** When supplied, render a mirrored composer at the foot of each column. */
+  composer?: CompareComposer;
+  /** File-generation results, mirrored at the top of every column's thread. */
+  fileTurns?: CompareFileTurn[];
 }) {
   return (
     <div className="relative flex h-full min-h-0 w-full">
       <div className="scrollbar-none flex h-full w-full snap-x snap-mandatory overflow-x-auto">
-        {columns.map((col) => (
+        {columns.map((col, index) => (
           <div
             key={col.id}
             className={cn(
-              'flex h-full min-w-0 shrink-0 grow basis-full snap-start flex-col',
-              columns.length !== 1 &&
-                'border-foreground/10 border-r last:border-r-0 md:basis-1/2 lg:basis-1/3 xl:basis-1/4'
+              'relative flex h-full min-w-0 shrink-0 grow basis-full snap-start flex-col',
+              columns.length !== 1 && 'md:basis-1/2 lg:basis-1/3'
             )}
           >
+            {columns.length !== 1 && index < columns.length - 1 && (
+              <span
+                aria-hidden="true"
+                className="bg-foreground/10 pointer-events-none absolute inset-y-0 right-0 z-10 w-px"
+              />
+            )}
             <div
               className={cn(
                 'flex h-full w-full min-w-0 flex-col',
@@ -356,6 +426,8 @@ export function CompareBoard({
                 isStreaming={isStreaming}
                 onRemove={onRemove}
                 onSelectModel={onSelectModel}
+                composer={composer}
+                fileTurns={fileTurns}
               />
             </div>
           </div>
@@ -386,12 +458,16 @@ const CompareColumn = memo(function CompareColumn({
   isStreaming,
   onRemove,
   onSelectModel,
+  composer,
+  fileTurns,
 }: {
   column: CompareColumnModel;
   msgs: CompareMsg[];
   isStreaming: boolean;
   onRemove: (id: string) => void;
   onSelectModel: (id: string, model: SelectableChatModelId) => void;
+  composer?: CompareComposer;
+  fileTurns?: CompareFileTurn[];
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
@@ -415,12 +491,19 @@ const CompareColumn = memo(function CompareColumn({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-11 shrink-0 items-center justify-between px-2">
-        <ChatModelPicker
-          selectedId={column.model}
-          onSelect={(id) => onSelectModel(column.id, id)}
-          disabled={isStreaming}
-          placement="down"
-        />
+        {composer ? (
+          // The picker lives beside this column's send button when the board
+          // owns the composer. Keep this side of the header intentionally
+          // quiet so it cannot be mistaken for a second model control.
+          <span aria-hidden="true" className="size-7" />
+        ) : (
+          <ChatModelPicker
+            selectedId={column.model}
+            onSelect={(id) => onSelectModel(column.id, id)}
+            disabled={isStreaming}
+            placement="down"
+          />
+        )}
         <button
           type="button"
           onClick={() => onRemove(column.id)}
@@ -442,12 +525,24 @@ const CompareColumn = memo(function CompareColumn({
         }}
         className="flex-1 overflow-y-auto px-3 py-4"
       >
-        {msgs.length === 0 ? (
+        {msgs.length === 0 && !fileTurns?.length ? (
           <div className="text-foreground/45 flex h-full items-center justify-center px-6 text-center text-sm text-balance">
             {m['settings.chat.compare_empty_hint']()}
           </div>
         ) : (
           <div className="space-y-4">
+            {/* Generated files aren't per-model — the same artifact is
+                mirrored into every column so any side can preview it. */}
+            {fileTurns?.map((turn) => (
+              <FileGenerationTurn
+                key={turn.id}
+                prompt={turn.prompt}
+                kind={turn.kind}
+                template={turn.template}
+                artifact={turn.artifact}
+                pending={turn.pending}
+              />
+            ))}
             {msgs.map((msg) =>
               msg.error ? (
                 <div
@@ -468,6 +563,171 @@ const CompareColumn = memo(function CompareColumn({
           </div>
         )}
       </div>
+      {composer && (
+        <CompareColumnComposer
+          column={column}
+          input={composer.input}
+          onInputChange={composer.onInputChange}
+          onSend={composer.onSend}
+          onStop={composer.onStop}
+          isStreaming={isStreaming}
+          onSelectModel={onSelectModel}
+          fileTool={composer.fileTool}
+          onFileToolChange={composer.onFileToolChange}
+          onFilesSelected={composer.onFilesSelected}
+          attachments={composer.attachments}
+          onRemoveAttachment={composer.onRemoveAttachment}
+          uploading={composer.uploading}
+          filePending={composer.filePending}
+        />
+      )}
     </div>
   );
 });
+
+/** One of the mirrored inputs at the bottom of the comparison columns. The
+ * draft is deliberately shared by the board, so sending from either side
+ * still asks the exact same question of every selected model — attachments
+ * and the active file tool ride along on that same shared send. */
+function CompareColumnComposer({
+  column,
+  input,
+  onInputChange,
+  onSend,
+  onStop,
+  isStreaming,
+  onSelectModel,
+  fileTool,
+  onFileToolChange,
+  onFilesSelected,
+  attachments,
+  onRemoveAttachment,
+  uploading,
+  filePending,
+}: {
+  column: CompareColumnModel;
+  input: string;
+  onInputChange: (value: string) => void;
+  onSend: () => void;
+  onStop: () => void;
+  isStreaming: boolean;
+  onSelectModel: (id: string, model: SelectableChatModelId) => void;
+  fileTool: FileKind | null;
+  onFileToolChange: (kind: FileKind | null) => void;
+  onFilesSelected: (files: FileList | null) => void;
+  attachments: AttachmentChipItem[];
+  onRemoveAttachment: (id: string) => void;
+  uploading: boolean;
+  filePending: boolean;
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const taRef = useRef<HTMLTextAreaElement>(null);
+
+  // A file tool redirects the send to the generation flow, so its own
+  // placeholder wins over the compare one.
+  const placeholder = fileTool
+    ? fileTool === 'pptx'
+      ? m['file_studio.placeholder.pptx']()
+      : fileTool === 'docx'
+        ? m['file_studio.placeholder.docx']()
+        : m['file_studio.placeholder.xlsx']()
+    : m['settings.chat.compare_placeholder']();
+
+  return (
+    <div className="shrink-0 px-3 py-3">
+      <div className="border-foreground/15 focus-within:border-foreground/30 dark:bg-foreground/[0.04] rounded-2xl border bg-white px-2 pt-2 pb-1.5 shadow-sm transition-colors">
+        {/* Each mirrored composer owns its picker input; the picked files
+            land in the board's shared attachment state. */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={ATTACHMENT_ACCEPT}
+          multiple
+          onChange={(event) => {
+            onFilesSelected(event.target.files);
+            // Re-picking the same file must fire change again.
+            event.target.value = '';
+          }}
+          className="hidden"
+        />
+        <AttachmentChips
+          attachments={attachments}
+          onRemove={onRemoveAttachment}
+        />
+        <textarea
+          ref={taRef}
+          value={input}
+          onChange={(event) => onInputChange(event.target.value)}
+          onKeyDown={(event) => {
+            if (
+              event.key === 'Enter' &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault();
+              onSend();
+            }
+          }}
+          rows={1}
+          placeholder={placeholder}
+          className="placeholder:text-foreground/40 block max-h-32 min-h-[2.5rem] w-full resize-none bg-transparent px-2 py-1 text-sm leading-6 outline-none"
+        />
+        <div className="flex items-center justify-between gap-1.5 pt-1">
+          {/* Attach + file tools — same affordances as the single-column
+              composer, so switching into compare mode keeps the workflow. */}
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isStreaming}
+              aria-label={m['playground.attachment.add']()}
+              title={m['playground.attachment.add']()}
+              className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40"
+            >
+              <Plus className="size-[18px]" />
+            </button>
+            <ChatFileToolPicker
+              value={fileTool}
+              onChange={(kind) => {
+                onFileToolChange(kind);
+                if (kind) {
+                  requestAnimationFrame(() => taRef.current?.focus());
+                }
+              }}
+              disabled={isStreaming || filePending}
+              compact
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <ChatModelPicker
+              selectedId={column.model}
+              onSelect={(id) => onSelectModel(column.id, id)}
+              disabled={isStreaming}
+              placement="up"
+            />
+            {isStreaming ? (
+              <button
+                type="button"
+                onClick={onStop}
+                aria-label="Stop"
+                className="text-foreground/70 hover:bg-foreground/5 border-foreground/10 flex size-9 shrink-0 items-center justify-center rounded-full border transition-colors"
+              >
+                <Square className="size-3.5" fill="currentColor" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onSend}
+                disabled={!input.trim() || uploading}
+                aria-label={m['settings.chat.send']()}
+                className="bg-foreground text-background hover:bg-foreground/85 flex size-9 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowUp className="size-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -48,8 +48,13 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 export const apiGet = <T>(url: string, init?: RequestInit) =>
   request<T>(url, init);
 
-export const apiPost = <T = void>(url: string, body?: unknown) =>
+export const apiPost = <T = void>(
+  url: string,
+  body?: unknown,
+  init?: RequestInit
+) =>
   request<T>(url, {
+    ...init,
     method: 'POST',
     body: body == null ? undefined : JSON.stringify(body),
   });
