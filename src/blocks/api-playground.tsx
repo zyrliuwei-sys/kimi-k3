@@ -696,6 +696,7 @@ export function ApiPlayground() {
     mutationFn: ({
       kind,
       prompt,
+      template,
     }: {
       id: string;
       kind: FileKind;
@@ -1358,13 +1359,6 @@ function PlaygroundPaymentDialog({
 /*  Composer (textarea + toolbar + disclaimer)                         */
 /* ------------------------------------------------------------------ */
 
-/**
- * File studio (pptx/docx/xlsx generation) is hidden from the UI for now —
- * flip to `true` to restore the ✨ tool picker in the composer toolbar.
- * The gallery / generation pipeline stays wired, just unreachable.
- */
-const FILE_STUDIO_ENABLED = false;
-
 function Composer({
   input,
   setInput,
@@ -1468,15 +1462,18 @@ function Composer({
     }
   }
 
-  const inputPlaceholder = compareMode
-    ? m['settings.chat.compare_placeholder']()
-    : fileTool === 'pptx'
+  // A file tool redirects the send to /api/file-studio/generate, so its
+  // placeholder wins even in compare mode (where the send is otherwise the
+  // compare fan-out).
+  const inputPlaceholder = fileTool
+    ? fileTool === 'pptx'
       ? m['file_studio.placeholder.pptx']()
       : fileTool === 'docx'
         ? m['file_studio.placeholder.docx']()
-        : fileTool === 'xlsx'
-          ? m['file_studio.placeholder.xlsx']()
-          : m['playground.input.placeholder']();
+        : m['file_studio.placeholder.xlsx']()
+    : compareMode
+      ? m['settings.chat.compare_placeholder']()
+      : m['playground.input.placeholder']();
 
   return (
     <div className="w-full">
@@ -1631,23 +1628,25 @@ function Composer({
                   onClick={onPlusClick}
                   aria-label={m['playground.attachment.add']()}
                   title={m['playground.attachment.add']()}
-                  className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 items-center justify-center rounded-full transition-colors"
+                  className="text-foreground/55 hover:text-foreground hover:bg-foreground/5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors"
                 >
                   <Plus className="size-[22px]" />
                 </button>
-                {FILE_STUDIO_ENABLED && (
-                  <ChatFileToolPicker
-                    value={fileTool}
-                    onChange={(kind) => {
-                      onFileToolChange(kind);
-                      if (kind) {
-                        requestAnimationFrame(() => taRef.current?.focus());
-                      }
-                    }}
-                    disabled={isThinking}
-                    compact
-                  />
-                )}
+                {/* Full three-tool file menu (PPT / Word / Excel) — normal mode
+                    only. Compare columns are text-only, so the entry is hidden
+                    while the board is up (and the tool is cleared on entry —
+                    see toggleCompareMode). */}
+                <ChatFileToolPicker
+                  value={fileTool}
+                  onChange={(kind) => {
+                    onFileToolChange(kind);
+                    if (kind) {
+                      requestAnimationFrame(() => taRef.current?.focus());
+                    }
+                  }}
+                  disabled={isThinking}
+                  compact
+                />
               </>
             )}
             {onToggleCompare && (
@@ -1669,7 +1668,7 @@ function Composer({
                   'flex size-10 shrink-0 items-center justify-center rounded-full transition-colors',
                   compareMode
                     ? 'bg-foreground text-background ml-3'
-                    : 'text-foreground/55 hover:text-foreground hover:bg-foreground/5 ml-0.5'
+                    : 'text-foreground/55 hover:text-foreground hover:bg-foreground/5'
                 )}
               >
                 <Columns2 className="size-[22px]" />
@@ -1798,7 +1797,7 @@ function ToolChipMarquee({ onPick }: { onPick: (prompt: string) => void }) {
   ];
 
   return (
-    <div className="tools-marquee mt-4 flex w-full flex-col gap-4">
+    <div className="tools-marquee mt-10 flex w-full flex-col gap-4">
       {rows.map((row, r) => (
         <div key={r} className="marquee-mask relative flex overflow-hidden">
           <div className="animate-marquee flex w-max shrink-0 items-center gap-3 pr-3">
@@ -2818,10 +2817,10 @@ export function ChatPlayground() {
     if (!compareMode) {
       if (isThinking) return;
       // Compare columns are text-only — drop any pending attachments AND any
-      // active file tool. The tool chip is hidden while the board is up, but a
+      // active file tool. The tool entry is hidden while the board is up, so a
       // stale `fileTool` would keep routing sends to the (invisible) file
       // generation flow instead of the compare fan-out — the send would look
-      // completely dead with a file quietly generating in the background.
+      // dead while a file quietly generates in the background.
       for (const a of attachments) removeAttachment(a.id);
       setFileTool(null);
       compare.begin(modelId);
@@ -2894,8 +2893,10 @@ export function ChatPlayground() {
   return (
     <div className="relative flex h-full min-h-0 flex-col">
       {hasThread ? (
-        <>
-          {compareMode ? (
+        compareMode ? (
+          // Compare keeps the fixed split: the board manages its own column
+          // scrolling, composer pinned below it.
+          <>
             <div className="relative min-h-0 flex-1">
               <CompareBoard
                 columns={compare.columns}
@@ -2906,35 +2907,48 @@ export function ChatPlayground() {
                 onSelectModel={compare.setColumnModel}
               />
             </div>
-          ) : (
-            <div
-              ref={scrollRef}
-              className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
-            >
-              <div className="mx-auto w-full max-w-3xl flex-1 px-4">
-                <div className="space-y-6 pt-16 pb-6">
-                  {messages.map((msg) => (
-                    <MessageBubble key={msg.id} message={msg} />
-                  ))}
-                  {fileTurns.map((turn) => (
-                    <FileGenerationTurn
-                      key={turn.id}
-                      prompt={turn.prompt}
-                      kind={turn.kind}
-                      template={turn.template}
-                      artifact={turn.artifact}
-                      pending={turn.pending}
-                    />
-                  ))}
-                  {isThinking && <ThinkingBubble />}
-                </div>
+            <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
+              <Composer {...composerProps} />
+              {fileTool && (
+                <FileStyleGallery
+                  kind={fileTool}
+                  value={fileTemplate}
+                  onTemplateChange={setFileTemplate}
+                  onPromptPick={pickToolPrompt}
+                />
+              )}
+            </div>
+          </>
+        ) : (
+          // One scroll container for the whole column — turns above, composer
+          // + gallery below. The file gallery (suggestion cards + templates)
+          // is tall; pinning it under a fixed-height transcript crushed the
+          // thread, so the page itself scrolls instead.
+          <div
+            ref={scrollRef}
+            className="relative flex min-h-0 flex-1 flex-col overflow-y-auto"
+          >
+            <div className="mx-auto w-full max-w-3xl flex-1 px-4">
+              <div className="space-y-6 pt-16 pb-6">
+                {messages.map((msg) => (
+                  <MessageBubble key={msg.id} message={msg} />
+                ))}
+                {fileTurns.map((turn) => (
+                  <FileGenerationTurn
+                    key={turn.id}
+                    prompt={turn.prompt}
+                    kind={turn.kind}
+                    template={turn.template}
+                    artifact={turn.artifact}
+                    pending={turn.pending}
+                  />
+                ))}
+                {isThinking && <ThinkingBubble />}
               </div>
             </div>
-          )}
-          <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
-            <Composer {...composerProps} />
-            {!compareMode &&
-              (fileTool ? (
+            <div className="relative z-10 mx-auto w-full max-w-3xl px-4 pt-2 pb-4">
+              <Composer {...composerProps} />
+              {fileTool ? (
                 <FileStyleGallery
                   kind={fileTool}
                   value={fileTemplate}
@@ -2943,9 +2957,10 @@ export function ChatPlayground() {
                 />
               ) : (
                 <ToolChipMarquee onPick={pickToolPrompt} />
-              ))}
+              )}
+            </div>
           </div>
-        </>
+        )
       ) : (
         <div className="relative flex min-h-0 flex-1 flex-col items-center justify-start overflow-y-auto px-4 pt-[10vh] pb-20">
           <div className="flex w-full max-w-3xl flex-col items-center">

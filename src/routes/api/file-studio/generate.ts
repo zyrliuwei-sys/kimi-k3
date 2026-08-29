@@ -6,14 +6,19 @@ import * as fileStudio from '@/modules/file-studio/service';
 import { respData, respErr } from '@/lib/resp';
 
 async function resolveModelConfig() {
-  const evolinkApiKey = (await getConfig('evolink_api_key')) || '';
-  if (evolinkApiKey) {
-    return {
-      apiKey: evolinkApiKey,
-      baseUrl:
-        (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1',
-      model: (await getConfig('evolink_model')) || 'kimi-k3',
-    };
+  try {
+    const evolinkApiKey = (await getConfig('evolink_api_key')) || '';
+    if (evolinkApiKey) {
+      return {
+        apiKey: evolinkApiKey,
+        baseUrl:
+          (await getConfig('evolink_base_url')) || 'https://api.evolink.ai/v1',
+        model: (await getConfig('evolink_model')) || 'kimi-k3',
+      };
+    }
+  } catch {
+    // The generator has a deterministic local-draft fallback. A temporary
+    // configuration-store outage must not prevent every file type from using it.
   }
 
   // Evolink is the verified chat route in this project. A separate OpenAI key
