@@ -1,5 +1,17 @@
 import { Buffer } from 'node:buffer';
-import JSZip from 'jszip';
+import {
+  AlignmentType,
+  BorderStyle,
+  Document,
+  Footer,
+  Header,
+  HeadingLevel,
+  Packer,
+  PageBreak,
+  PageNumber,
+  Paragraph,
+  TextRun,
+} from 'docx';
 import PptxGenJS from 'pptxgenjs';
 import * as XLSX from 'xlsx';
 
@@ -15,7 +27,12 @@ const PptxGenConstructor =
 // A file plan is deliberately compact JSON, not a long-form chat answer. Do
 // not let a slow reasoning model hold the editable export hostage; the
 // deterministic planner below can complete the same export immediately.
-const FILE_PLAN_TIMEOUT_MS = 18_000;
+// Measured one-shot plan latency behind EvoLink: kimi-k3 ≈ 22s,
+// claude-sonnet-5 ≈ 49s (reasoning models emit the whole JSON at the end).
+// 18s aborted every model, silently downgrading each request to the local
+// draft after a long blind wait. 75s clears the slowest model with margin
+// while staying well under the client's 180s abort.
+const FILE_PLAN_TIMEOUT_MS = 75_000;
 
 export type FileStudioKind = 'pptx' | 'docx' | 'xlsx';
 /**
@@ -451,7 +468,10 @@ function presentationTopics(prompt: string): string[] {
 }
 
 function topicHeading(topic: string, fallback: string): string {
-  const compact = topic.replace(/\s+/g, ' ').trim();
+  const compact = topic
+    .replace(/(?:https?:\/\/|www\.)\S+/giu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
   if (!compact) return fallback;
   return clip(compact, 52);
 }
@@ -598,7 +618,10 @@ async function createPlanWithModel(
           ? Math.min(3_200, 700 + target * 135)
           : kind === 'docx'
             ? Math.min(3_200, 900 + target * 190)
-            : Math.min(2_400, 700 + target * 65),
+            : // Verbatim table content needs far more room than summarized
+              // cells — 2.4k truncated the JSON mid-table and dropped the
+              // whole AI plan to the draft fallback.
+              Math.min(6_000, 900 + target * 220),
       messages: [
         {
           role: 'system',
@@ -631,8 +654,8 @@ function buildPlanPrompt(
   };
   const requirements: Record<FileStudioKind, string> = {
     pptx: `The brief has been planned into ${allocation.outputUnits} slides from ${allocation.sourceUnits} content units. Create exactly ${allocation.outputUnits} slides including one cover and one closing slide. Let the supplied material determine the narrative: one meaningful idea, decision, comparison, sequence, or section per slide; do not compress unrelated paragraphs into a single page. Mix the layouts: use cards for grouped ideas, split for contrast, flow for sequences, statement for a pivotal point, and bullets only when a list is clearest. Each content slide needs 2–4 short phrases. Do not invent precise facts that were not supplied.`,
-    docx: `The brief has been planned into ${allocation.outputUnits} sections from ${allocation.sourceUnits} content units. Create exactly ${allocation.outputUnits} sections, in a coherent reading order. Each section needs 1–3 concise paragraphs. Combine related source points, but do not bury unrelated decisions in one section. Do not invent precise facts that were not supplied.`,
-    xlsx: `The brief has been planned into ${allocation.outputUnits} data rows${allocation.columns ? ` and ${allocation.columns} columns` : ''} from ${allocation.sourceUnits} content units. Create exactly ${allocation.outputUnits} useful rows${allocation.columns ? ` and exactly ${allocation.columns} useful columns` : ''}. Give every row a distinct content unit, milestone, or clear planning placeholder derived from the brief. Use numeric values only when the brief includes them; otherwise use clear text values. Do not invent precise facts that were not supplied.`,
+    docx: `The brief has been planned into ${allocation.outputUnits} sections from ${allocation.sourceUnits} content units. Create exactly ${allocation.outputUnits} sections, in a coherent reading order. Each section needs 1–3 concise paragraphs. Use a concise, reader-facing title (not a pasted source line): never include URLs, table headers, IDs, or more than one idea in the title. Combine related source points, but do not bury unrelated decisions in one section. Do not invent precise facts that were not supplied.`,
+    xlsx: `The brief has been planned into about ${allocation.outputUnits} data rows${allocation.columns ? ` and ${allocation.columns} columns` : ''} from ${allocation.sourceUnits} content units. When the brief already contains table data or list items, copy every supplied value into the rows VERBATIM, word for word — never shorten, paraphrase, merge, or drop any item, and keep every column the user supplied; include every row the user listed even if there are more than ${allocation.outputUnits}. Only add distinct, clearly-derived planning rows when the brief supplies fewer items. Use numeric values only when the brief includes them; otherwise use clear text values. Do not invent precise facts that were not supplied.`,
   };
 
   return `Create a ${kind.toUpperCase()} plan from this brief:\n\n${prompt}\n\n${requirements[kind]}\n\nReturn only this JSON shape:\n${schemas[kind]}`;
@@ -648,7 +671,13 @@ function coercePlan(
     const parsed = JSON.parse(stripCodeFence(raw)) as unknown;
     if (!parsed || typeof parsed !== 'object') throw new Error('not an object');
     const record = parsed as Record<string, unknown>;
-    const title = stringValue(record.title, titleFromPrompt(prompt));
+    const fallbackTitle = titleFromPrompt(prompt);
+    const rawTitle = stringValue(record.title, fallbackTitle);
+    // A title occupies the largest type frame in a DOCX cover. Keep the
+    // model's good short titles, but never let a copied source row or URL
+    // turn into a multi-line wall of text there.
+    const title =
+      kind === 'docx' ? documentTitle(rawTitle, fallbackTitle) : rawTitle;
     const subtitle = stringValue(record.subtitle, 'Generated from your brief');
 
     if (kind === 'pptx') {
@@ -705,9 +734,13 @@ function coercePlan(
     }
 
     if (kind === 'xlsx') {
+      // The allocation is a planning hint, not a cut: a model that returns
+      // every user-supplied row (or a wider column set) must survive in full
+      // — slicing here used to silently delete supplied table content.
+      const modelColumns = stringArray(record.columns, 20);
       const columns = normalizedSpreadsheetColumns(
-        stringArray(record.columns, 10),
-        scope.allocation.columns ?? 5
+        modelColumns,
+        Math.max(scope.allocation.columns ?? 5, modelColumns.length)
       );
       const rows = arrayValue(record.rows)
         .map((row) =>
@@ -716,7 +749,7 @@ function coercePlan(
             .map((cell) => cellValue(cell))
         )
         .filter((row) => row.length)
-        .slice(0, scope.allocation.outputUnits);
+        .slice(0, 200);
       if (columns.length && rows.length)
         return {
           title,
@@ -743,7 +776,10 @@ function makeFallbackPlan(
   prompt: string,
   scope: FileContentScope
 ): GenerationPlan {
-  const title = titleFromPrompt(prompt);
+  const title =
+    kind === 'docx'
+      ? documentTitle(titleFromPrompt(prompt), 'Untitled document')
+      : titleFromPrompt(prompt);
   const context = clip(prompt, 160);
   if (kind === 'pptx') {
     return {
@@ -845,34 +881,66 @@ function expandDocumentSections(
   target: number,
   prompt: string
 ): DocumentPlan['sections'] {
-  const result = sections.slice(0, target);
-  const topics = contentTopics(prompt);
-  const fallbackHeadings = [
-    'Purpose and context',
-    'Key considerations',
-    'Recommended approach',
-    'Delivery plan',
-    'Responsibilities',
-    'Open questions',
-    'Measures of progress',
-    'Next steps',
-  ];
-
-  while (result.length < target) {
+  // A prose document reads as a memo, not a slide deck: past ~8 numbered
+  // sections each one is two thin paragraphs and the export looks shredded.
+  const capped = Math.min(target, 8);
+  const result = sections.slice(0, capped);
+  let topics = contentTopics(prompt);
+  // A single long thought often hides several section-sized sub-topics behind
+  // its commas; surface them before deciding the brief is too thin to pad.
+  if (topics.length < 3) {
+    const clauses = (topics[0] ?? '')
+      .split(/[，,、；;]/)
+      .map((clause) => clause.trim())
+      .filter((clause) => clause.length >= 8);
+    topics = [...new Set([...topics, ...clauses])];
+  }
+  // Padding must add distinct material, never copies: one undifferentiated
+  // paragraph repeated across every section made every exported page
+  // identical. Ship the sections that exist instead of cloning them.
+  if (topics.length <= 1) return result;
+  const cjk = /[一-鿿]/.test(prompt);
+  const fallbackHeadings = cjk
+    ? [
+        '目的与背景',
+        '关键信息',
+        '建议方向',
+        '执行计划',
+        '职责分工',
+        '待确认事项',
+        '衡量方式',
+        '下一步',
+      ]
+    : [
+        'Purpose and context',
+        'Key considerations',
+        'Recommended approach',
+        'Delivery plan',
+        'Responsibilities',
+        'Open questions',
+        'Measures of progress',
+        'Next steps',
+      ];
+  const followUps = cjk
+    ? [
+        '请补充这部分的责任人、前提假设与所需决策。',
+        '定稿前请结合原始材料补全此处的细节。',
+        '在此列出该部分的下一步行动与完成时间。',
+      ]
+    : [
+        'Confirm the owner, assumptions, and decision needed for this part.',
+        'Add supporting detail from the brief before circulating this draft.',
+        'Outline the next action and its deadline here.',
+      ];
+  while (result.length < capped) {
     const index = result.length;
     const topic = topics[index % topics.length];
     result.push({
-      heading:
-        topics.length > 1
-          ? topicHeading(
-              topic,
-              fallbackHeadings[index % fallbackHeadings.length]
-            )
-          : fallbackHeadings[index % fallbackHeadings.length],
-      paragraphs: [
-        clip(topic, 240),
-        'Confirm the owner, assumptions, and decision needed for this part.',
-      ],
+      heading: topicHeading(
+        topic,
+        fallbackHeadings[index % fallbackHeadings.length]
+      ),
+      paragraphs: [clip(topic, 240), followUps[index % followUps.length]],
     });
   }
   return result;
@@ -883,8 +951,14 @@ function makeDraftDocumentSections(
   prompt: string,
   target: number
 ): DocumentPlan['sections'] {
+  const cjk = /[一-鿿]/.test(prompt);
   return expandDocumentSections(
-    [{ heading: 'Purpose and context', paragraphs: [context] }],
+    [
+      {
+        heading: cjk ? '目的与背景' : 'Purpose and context',
+        paragraphs: [context],
+      },
+    ],
     target,
     prompt
   );
@@ -915,9 +989,9 @@ function expandSpreadsheetRows(
   columns: string[],
   prompt: string
 ): SpreadsheetPlan['rows'] {
-  const result = rows
-    .slice(0, target)
-    .map((row) => columns.map((_, index) => row[index] ?? ''));
+  // Supplied rows are user content — keep every one, only aligning cells to
+  // the column count. `target` pads a shortfall; it never truncates.
+  const result = rows.map((row) => columns.map((_, index) => row[index] ?? ''));
   const topics = contentTopics(prompt);
 
   while (result.length < target) {
@@ -2540,59 +2614,252 @@ function renderClosingLayout(
   );
 }
 
+/**
+ * A generated DOCX is a typeset document, not a text dump. Built with the
+ * `docx` package — the same library the official anthropics/skills docx
+ * skill drives — following its conventions: paragraph bottom borders as
+ * rules (never tables), explicit page-break paragraphs, US Letter in DXA.
+ * The document opens on a real cover — title block in the upper third,
+ * accent rule, date/section meta — and the rest of that page stays blank;
+ * sections then flow under a running header (document title over a
+ * hairline) and a centred live `page / total` footer on every page but
+ * the cover, as numbered Heading 1 sections over their own hairline rule.
+ */
 async function renderDocx(
   plan: DocumentPlan,
   template: FileStudioTemplate
 ): Promise<Buffer> {
   const palette = TEMPLATE_PALETTES[template];
-  const zip = new JSZip();
-  zip.file(
-    '[Content_Types].xml',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`
-  );
-  zip
-    .folder('_rels')
-    ?.file(
-      '.rels',
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`
-    );
-  const word = zip.folder('word');
-  word
-    ?.folder('_rels')
-    ?.file(
-      'document.xml.rels',
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`
-    );
-  word?.file(
-    'styles.xml',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:rPr><w:rFonts w:ascii="Aptos" w:hAnsi="Aptos"/><w:sz w:val="22"/></w:rPr></w:style></w:styles>`
-  );
-  const body = [
-    paragraphXml(plan.title, {
-      size: 36,
-      bold: true,
-      color: palette.ink,
-      after: 160,
-    }),
-    paragraphXml(plan.subtitle, { size: 20, color: palette.muted, after: 520 }),
-    ...plan.sections.flatMap((section) => [
-      paragraphXml(section.heading, {
-        size: 26,
-        bold: true,
-        color: palette.accent,
-        before: 260,
-        after: 120,
+  const cjk = /[一-鿿]/.test(`${plan.title}${plan.subtitle}`);
+  const coverTitleSize = documentCoverTitleSize(plan.title, cjk);
+  const now = new Date();
+  const coverDate = cjk
+    ? `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日`
+    : now.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      });
+  const baseFont = { ascii: 'Aptos', hAnsi: 'Aptos', eastAsia: 'DengXian' };
+
+  // Running header for content pages: the document title in small muted
+  // letterspaced type over a hairline. `titlePage` below keeps the cover
+  // clean, so the first-page header/footer are explicit empties.
+  const runningHeader = new Header({
+    children: [
+      new Paragraph({
+        border: {
+          bottom: {
+            style: BorderStyle.SINGLE,
+            size: 4,
+            space: 3,
+            color: 'D9DDE5',
+          },
+        },
+        spacing: { after: 0, line: 240 },
+        children: [
+          new TextRun({
+            text: clip(plan.title, 48),
+            color: palette.muted,
+            size: 16,
+            characterSpacing: 24,
+          }),
+        ],
       }),
-      ...section.paragraphs.map((text) =>
-        paragraphXml(text, { size: 22, color: palette.body, after: 150 })
-      ),
-    ]),
-  ].join('');
-  word?.file(
-    'document.xml',
-    `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440"/></w:sectPr></w:body></w:document>`
-  );
-  return zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    ],
+  });
+  // PAGE and NUMPAGES are live fields, so the numbers stay correct while
+  // the user edits the document in Word.
+  const runningFooter = new Footer({
+    children: [
+      new Paragraph({
+        alignment: AlignmentType.CENTER,
+        children: [
+          new TextRun({
+            children: [PageNumber.CURRENT],
+            color: palette.muted,
+            size: 16,
+          }),
+          new TextRun({ text: ' / ', color: palette.muted, size: 16 }),
+          new TextRun({
+            children: [PageNumber.TOTAL_PAGES],
+            color: palette.muted,
+            size: 16,
+          }),
+        ],
+      }),
+    ],
+  });
+
+  const cover: Paragraph[] = [
+    new Paragraph({
+      spacing: { before: 2000, after: 240 },
+      children: [
+        new TextRun({
+          text: cjk ? '文档' : 'DOCUMENT',
+          color: palette.accent,
+          size: 18,
+          bold: true,
+          characterSpacing: 30,
+        }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { after: 120, line: 320 },
+      children: [
+        new TextRun({
+          text: plan.title,
+          bold: true,
+          color: palette.ink,
+          size: coverTitleSize,
+        }),
+      ],
+    }),
+    // The rule needs a run — a runless paragraph renders as a placeholder
+    // glyph in some viewers. A 1pt space keeps the line height invisible
+    // while the border draws tight under the title.
+    new Paragraph({
+      border: {
+        bottom: {
+          style: BorderStyle.SINGLE,
+          size: 12,
+          space: 1,
+          color: palette.accent,
+        },
+      },
+      spacing: { after: 360 },
+      children: [new TextRun({ text: ' ', size: 2 })],
+    }),
+    new Paragraph({
+      spacing: { after: 0, line: 340 },
+      children: [
+        new TextRun({ text: plan.subtitle, color: palette.muted, size: 24 }),
+      ],
+    }),
+    new Paragraph({
+      spacing: { before: 4600 },
+      children: [
+        new TextRun({
+          text: `${coverDate} · ${plan.sections.length} ${cjk ? '节' : 'sections'}`,
+          color: palette.muted,
+          size: 18,
+          characterSpacing: 20,
+        }),
+      ],
+    }),
+    new Paragraph({ children: [new PageBreak()] }),
+  ];
+
+  const body: Paragraph[] = plan.sections.flatMap((section, index) => [
+    new Paragraph({
+      heading: HeadingLevel.HEADING_1,
+      children: [
+        new TextRun({
+          text: docxSectionNumberLabel(index, cjk),
+          color: palette.accent,
+        }),
+        new TextRun({ text: section.heading }),
+      ],
+    }),
+    ...section.paragraphs.map(
+      (text) =>
+        new Paragraph({
+          indent: cjk ? { firstLine: 480 } : undefined,
+          children: [new TextRun({ text, color: palette.body })],
+        })
+    ),
+  ]);
+
+  const doc = new Document({
+    title: plan.title,
+    description: plan.subtitle,
+    styles: {
+      default: {
+        document: {
+          run: { font: baseFont, size: 22 },
+          paragraph: {
+            alignment: AlignmentType.JUSTIFIED,
+            spacing: { after: 140, line: 340 },
+          },
+        },
+      },
+      paragraphStyles: [
+        {
+          id: 'Heading1',
+          name: 'Heading 1',
+          basedOn: 'Normal',
+          next: 'Normal',
+          quickFormat: true,
+          run: {
+            font: { ...baseFont, eastAsia: 'Microsoft YaHei' },
+            bold: true,
+            color: palette.ink,
+            size: 30,
+          },
+          paragraph: {
+            keepNext: true,
+            outlineLevel: 0,
+            border: {
+              bottom: {
+                style: BorderStyle.SINGLE,
+                size: 6,
+                space: 6,
+                color: 'D9DDE5',
+              },
+            },
+            spacing: { before: 420, after: 180, line: 276 },
+          },
+        },
+      ],
+    },
+    sections: [
+      {
+        properties: {
+          titlePage: true,
+          page: {
+            size: { width: 12240, height: 15840 },
+            margin: { top: 1440, right: 1440, bottom: 1440, left: 1440 },
+          },
+        },
+        headers: {
+          default: runningHeader,
+          first: new Header({ children: [] }),
+        },
+        footers: {
+          default: runningFooter,
+          first: new Footer({ children: [] }),
+        },
+        children: [...cover, ...body],
+      },
+    ],
+  });
+  return Packer.toBuffer(doc);
+}
+
+/** Chinese section numbering (一、二、…) for CJK documents, zero-padded
+ * Arabic elsewhere; past ten both fall back to plain numbers. */
+function docxSectionNumberLabel(index: number, cjk: boolean): string {
+  const numerals = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  const ordinal = index + 1;
+  if (cjk && ordinal <= 10) return `${numerals[ordinal - 1]}、`;
+  return `${String(ordinal).padStart(2, '0')} · `;
+}
+
+/** Word sizes are half-points. A large title still needs to respect the
+ * 6.5-inch text measure — especially for CJK, where a URL-free 20-character
+ * title can otherwise become four cramped lines on the cover. */
+function documentCoverTitleSize(title: string, cjk: boolean): number {
+  const length = [...title].length;
+  if (cjk) {
+    if (length > 22) return 48; // 24 pt
+    if (length > 16) return 56; // 28 pt
+    if (length > 11) return 64; // 32 pt
+    return 72; // 36 pt
+  }
+  if (length > 52) return 46; // 23 pt
+  if (length > 38) return 54; // 27 pt
+  if (length > 26) return 62; // 31 pt
+  return 72; // 36 pt
 }
 
 function renderXlsx(
@@ -2699,23 +2966,6 @@ function styledPresentationLayout(
   return sequence[(slideIndex - 1) % sequence.length];
 }
 
-function paragraphXml(
-  text: string,
-  options: {
-    size: number;
-    bold?: boolean;
-    color: string;
-    before?: number;
-    after?: number;
-  }
-): string {
-  const spacing =
-    options.before || options.after
-      ? `<w:spacing${options.before ? ` w:before="${options.before}"` : ''}${options.after ? ` w:after="${options.after}"` : ''}/>`
-      : '';
-  return `<w:p><w:pPr>${spacing}</w:pPr><w:r><w:rPr><w:sz w:val="${options.size}"/><w:color w:val="${options.color}"/>${options.bold ? '<w:b/>' : ''}</w:rPr><w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r></w:p>`;
-}
-
 function stripCodeFence(value: string): string {
   return value
     .trim()
@@ -2748,17 +2998,49 @@ function stringArray(value: unknown, max: number): string[] {
     .slice(0, max);
 }
 
+/** Cells carry user-supplied table content verbatim — never shorten them.
+ * Excel's own hard ceiling is 32,767 characters per cell; guard slightly
+ * under it (plain slice, no ellipsis) so a runaway model value cannot
+ * produce a file Word/Excel refuses to open. */
 function cellValue(value: unknown): string | number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string') return clip(value.trim(), 160);
+  if (typeof value === 'string') {
+    const text = value.trim();
+    return text.length > 32_000 ? text.slice(0, 32_000) : text;
+  }
   return '';
 }
 
 function titleFromPrompt(prompt: string): string {
+  const firstUsefulLine =
+    prompt
+      .split('\n')
+      .map((line) => line.trim())
+      .find(Boolean) ?? prompt;
+  // The first URL normally marks the start of a data row or source list.
+  // Keep the leading human label, not the date/status text that follows it.
+  const beforeFirstUrl = firstUsefulLine
+    .split(/(?:https?:\/\/|www\.)/iu)[0]
+    ?.trim();
+  const firstThought = beforeFirstUrl?.split(/[.!?。！？]/)[0]?.trim();
   return clip(
-    prompt.replace(/[.!?。！？].*$/, '').trim() || 'Untitled file',
+    firstThought?.replace(/\s{2,}/g, ' ').trim() || 'Untitled file',
     64
   );
+}
+
+/** A cover title is a label, never a verbatim excerpt. Model plans sometimes
+ * repeat the source row here; scrub URL-like tokens and cap by visual measure
+ * rather than allowing the generic 180-character schema string through. */
+function documentTitle(value: string, fallback: string): string {
+  const cleaned = value
+    .replace(/(?:https?:\/\/|www\.)\S+/giu, ' ')
+    .replace(/[|｜]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  const candidate = cleaned || fallback || 'Untitled document';
+  const cjk = /[一-鿿]/.test(candidate);
+  return clip(candidate, cjk ? 26 : 56);
 }
 
 function toFileStem(value: string): string {

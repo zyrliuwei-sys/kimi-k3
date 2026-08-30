@@ -1644,7 +1644,8 @@
   "file_studio.template.paper_ink": "Paper & Ink",
   "file_studio.template.preview_remove": "Hide style thumbnail",
   "file_studio.gallery.one_click": "One-click generate",
-  "file_studio.plan.slides": "Planned from {source} content points · {count} slides",
-  "file_studio.plan.sections": "Planned from {source} content points · {count} sections",
-  "file_studio.plan.rows": "Planned from {source} content points · {rows} rows × {columns} columns"
+  "files.gallery.title": "Files",
+  "files.gallery.all": "All",
+  "files.gallery.pptx.title": "Presentation",
+  "files.gallery.pptx.desc": "Type a topic, get a designed slide deck in one click."
 }

@@ -147,7 +147,7 @@ export function AttachmentChips({
 const GENERATION_PREVIEW_IMAGES: Record<FileKind, string> = {
   docx: '/imgs/generated/file-generation-document-1787980672654.png',
   pptx: '/imgs/generated/file-generation-presentation-1787990669577.png',
-  xlsx: '/imgs/generated/file-generation-spreadsheet-1787980735154.png',
+  xlsx: '/imgs/generated/file-generation-spreadsheet-1788089843131.png',
 };
 
 export interface FileArtifact {
@@ -1272,6 +1272,21 @@ export function FileGenerationTurn({
 }) {
   const [previewOpen, setPreviewOpen] = useState(false);
 
+  // Live elapsed counter for the pending card. A bare spinner reads as
+  // "nothing is happening" during the 20–60s an AI plan can legitimately
+  // take — a ticking number proves the request is still in flight.
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  useEffect(() => {
+    if (!pending) return;
+    setElapsedSeconds(0);
+    const startedAt = Date.now();
+    const timer = setInterval(
+      () => setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      1000
+    );
+    return () => clearInterval(timer);
+  }, [pending]);
+
   async function copyPrompt() {
     try {
       await navigator.clipboard.writeText(prompt);
@@ -1335,6 +1350,19 @@ export function FileGenerationTurn({
               <Loader2 className="size-4 animate-spin" strokeWidth={2.3} />
             </span>
           </div>
+          <div className="px-3 py-2">
+            <div className="text-foreground/70 flex items-center justify-between gap-2 text-[11px] font-medium">
+              <span>{m['file_studio.generating']()}</span>
+              <span className="text-foreground/50 font-mono tabular-nums">
+                {m['file_studio.generating_elapsed']({
+                  seconds: elapsedSeconds,
+                })}
+              </span>
+            </div>
+            <p className="text-foreground/40 mt-0.5 text-[10px] leading-snug">
+              {m['file_studio.generating_hint']()}
+            </p>
+          </div>
         </article>
       ) : artifact ? (
         /* Each result should look like the application that opens it: a deck
@@ -1344,10 +1372,10 @@ export function FileGenerationTurn({
           className={cn(
             'w-full',
             artifact.preview.kind === 'xlsx'
-              ? 'max-w-[480px]'
+              ? 'max-w-[340px]'
               : artifact.preview.kind === 'docx'
-                ? 'max-w-[300px]'
-                : 'max-w-[340px]'
+                ? 'max-w-[260px]'
+                : 'max-w-[300px]'
           )}
         >
           <button
@@ -1376,12 +1404,6 @@ export function FileGenerationTurn({
               </div>
             )}
           </button>
-          {artifact.allocation && (
-            <p className="text-muted-foreground mt-2 flex items-center gap-1.5 text-xs">
-              <FileText className="size-3 shrink-0" aria-hidden="true" />
-              {fileAllocationLabel(artifact)}
-            </p>
-          )}
           <div className="mt-2.5 flex items-center gap-1">
             <button
               type="button"
@@ -1535,7 +1557,7 @@ function DocumentArtifactCard({ artifact }: { artifact: FileArtifact }) {
         </span>
       </div>
 
-      <h2 className="mt-6 font-serif text-[1.65rem] leading-[1.05] font-semibold text-slate-900">
+      <h2 className="mt-6 line-clamp-3 font-serif text-[clamp(1.35rem,6.4vw,1.65rem)] leading-[1.08] font-semibold text-balance break-words text-slate-900">
         {artifact.preview.title}
       </h2>
       {artifact.preview.subtitle && (
@@ -1576,8 +1598,69 @@ function DocumentArtifactCard({ artifact }: { artifact: FileArtifact }) {
   );
 }
 
-/** One page of the right-side viewer: the cover, an editorial list page
- *  (a deck slide or a document section), or a chunk of spreadsheet rows. */
+/** The docx viewer's first page: a real cover, not another content page.
+ *  The title block sits in the upper third with an accent rule and subtitle,
+ *  and everything below stays whitespace — file meta lives on the exported
+ *  document itself, and stuffing teasers onto the cover made every page of
+ *  the document preview look the same. */
+function DocumentCoverPageView({
+  artifact,
+  index,
+  total,
+}: {
+  artifact: FileArtifact;
+  index: number;
+  total: number;
+}) {
+  const accent = TEMPLATE_ACCENTS[artifact.template] ?? '#4a7fb5';
+
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-[0_18px_45px_-24px_rgba(15,23,42,0.45)]">
+      {/* Same running chip row as the section pages so the deck reads as one
+          document. */}
+      <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+        <span
+          className="grid size-6 place-items-center rounded-md text-white"
+          style={{ backgroundColor: accent }}
+        >
+          <FileText className="size-3.5" />
+        </span>
+        <span className="text-[10px] font-bold tracking-[0.16em] text-slate-500">
+          DOCX
+        </span>
+        <span className="ml-auto text-[10px] font-medium text-slate-400 tabular-nums">
+          {index + 1} / {total}
+        </span>
+      </div>
+
+      {/* Title block in the upper third; the remaining height is the cover's
+          intentional blank space. */}
+      <div className="pt-[18%]">
+        <p
+          className="text-[9px] font-bold tracking-[0.24em] uppercase"
+          style={{ color: accent }}
+        >
+          {m['file_studio.tool.docx_short']()}
+        </p>
+        <h2 className="mt-4 line-clamp-3 font-serif text-[clamp(1.45rem,7.2vw,1.9rem)] leading-[1.12] font-semibold text-balance break-words text-slate-900">
+          {artifact.preview.title}
+        </h2>
+        <span
+          className="mt-5 block h-[3px] w-10 rounded-full"
+          style={{ backgroundColor: accent }}
+        />
+        {artifact.preview.subtitle && (
+          <p className="mt-5 max-w-[85%] text-xs leading-relaxed text-slate-500">
+            {artifact.preview.subtitle}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** One page of the right-side viewer: the cover, a document section page,
+ *  a deck slide, or a chunk of spreadsheet rows. */
 type ContentPage =
   | { type: 'cover' }
   | { type: 'list'; title: string; body: string[] }
@@ -1668,30 +1751,6 @@ function fileCountLabel(artifact: FileArtifact): string {
   });
 }
 
-/** Make the pre-generation allocation visible once the downloadable result arrives. */
-function fileAllocationLabel(artifact: FileArtifact): string {
-  const allocation = artifact.allocation;
-  if (!allocation) return fileCountLabel(artifact);
-
-  if (allocation.unit === 'slides') {
-    return m['file_studio.plan.slides']({
-      source: allocation.sourceUnits,
-      count: allocation.outputUnits,
-    });
-  }
-  if (allocation.unit === 'sections') {
-    return m['file_studio.plan.sections']({
-      source: allocation.sourceUnits,
-      count: allocation.outputUnits,
-    });
-  }
-  return m['file_studio.plan.rows']({
-    source: allocation.sourceUnits,
-    rows: allocation.outputUnits,
-    columns: allocation.columns ?? artifact.preview.columns?.length ?? 0,
-  });
-}
-
 /** The cover's small uppercase line under the title. */
 function coverTagline(artifact: FileArtifact): string {
   const { preview } = artifact;
@@ -1735,9 +1794,12 @@ export function useFilePreviewOpen(): boolean {
 /* Side-panel width, shared with the host shells through the --file-preview-w
  * CSS variable on <html>: the drawer and the shells' ceded padding all read
  * the same var, so dragging the divider resizes both with zero re-renders.
- * Unset = the 42rem fallback everywhere (the pre-resize default). */
+ * Unset = the 36rem fallback everywhere (the pre-resize default). The CSS
+ * side additionally caps the rendered width at viewport − 560px (see the
+ * min() in the panel and shells), which is exactly what previewWidthMax()
+ * clamps drags to — JS and CSS never disagree. */
 const PREVIEW_WIDTH_MIN = 384;
-const PREVIEW_WIDTH_DEFAULT = 42 * 16;
+const PREVIEW_WIDTH_DEFAULT = 36 * 16;
 const PREVIEW_WIDTH_MAX_PX = 960;
 /** Keep at least ~560px of chat visible beside the panel. */
 function previewWidthMax(): number {
@@ -1858,7 +1920,7 @@ function FilePreviewPanel({
 
   const onDividerPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return;
-    if (!window.matchMedia('(min-width: 1280px)').matches) return;
+    if (!window.matchMedia('(min-width: 1024px)').matches) return;
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     dragRef.current = {
@@ -1893,7 +1955,7 @@ function FilePreviewPanel({
     document.body.style.userSelect = '';
     document.body.style.cursor = '';
   };
-  /** Double-click the divider: back to the 42rem default. */
+  /** Double-click the divider: back to the 36rem default. */
   const onDividerReset = () => {
     dragRef.current = null;
     document.documentElement.classList.remove('file-preview-resizing');
@@ -1923,22 +1985,25 @@ function FilePreviewPanel({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 xl:pointer-events-none"
+      className="fixed inset-0 z-50 lg:pointer-events-none"
       role="dialog"
       aria-modal="true"
     >
-      {/* Below xl the viewer is a classic overlay (dim + click-outside to
-          close). From xl up it becomes a side panel: no dim, clicks pass
-          through to the chat — the shell's ceded padding (same
-          --file-preview-w variable) keeps the composer clear of the panel. */}
+      {/* Below lg (1024px) there is no room for chat + panel side by side,
+          so the viewer is a classic overlay (dim + click-outside to close).
+          From lg up it becomes a side panel: no dim, clicks pass through to
+          the chat — the shell's ceded padding (the same width expression)
+          keeps the composer clear of the panel. The min() caps the panel at
+          viewport − 560px so a laptop window that sits under the old 1280px
+          threshold still keeps a ≥560px chat column beside it. */}
       <div
-        className="animate-in fade-in-0 absolute inset-0 bg-black/40 backdrop-blur-[2px] xl:bg-transparent xl:backdrop-blur-none"
+        className="animate-in fade-in-0 absolute inset-0 bg-black/40 backdrop-blur-[2px] lg:bg-transparent lg:backdrop-blur-none"
         onClick={onClose}
       />
       {/* Pure-white paper backdrop. The token overrides pin every
           `foreground`-derived utility inside to dark ink on white, so the
           viewer reads as a white page in dark mode too. */}
-      <div className="border-foreground/10 animate-in slide-in-from-right absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col border-l bg-white shadow-2xl duration-300 [--background:#ffffff] [--foreground:#2e2e2b] xl:pointer-events-auto xl:w-[var(--file-preview-w,42rem)] xl:max-w-none">
+      <div className="border-foreground/10 animate-in slide-in-from-right absolute inset-y-0 right-0 flex w-full max-w-xl flex-col border-l bg-white shadow-2xl duration-300 [--background:#ffffff] [--foreground:#2e2e2b] lg:pointer-events-auto lg:w-[min(var(--file-preview-w,36rem),calc(100vw-560px))] lg:max-w-none">
         {/* The panel's left edge doubles as the resize divider: drag to
             resize, double-click to snap back to the default width. */}
         <div
@@ -1951,7 +2016,7 @@ function FilePreviewPanel({
           onPointerUp={onDividerPointerEnd}
           onPointerCancel={onDividerPointerEnd}
           onDoubleClick={onDividerReset}
-          className="group absolute inset-y-0 -left-1.5 z-20 hidden w-3 cursor-col-resize touch-none select-none xl:block"
+          className="group absolute inset-y-0 -left-1.5 z-20 hidden w-3 cursor-col-resize touch-none select-none lg:block"
         >
           <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-black/10 transition-colors group-hover:bg-black/40" />
         </div>
@@ -2001,10 +2066,10 @@ function FilePreviewPanel({
                 className={cn(
                   'w-full shrink-0 snap-center',
                   isSpreadsheet
-                    ? 'aspect-[4/3] max-w-[560px]'
+                    ? 'aspect-[4/3] max-w-[500px]'
                     : isDocument
-                      ? 'aspect-[0.72] max-w-[360px] sm:max-w-[390px]'
-                      : 'aspect-video max-w-[500px]'
+                      ? 'aspect-[0.72] max-w-[320px] sm:max-w-[350px]'
+                      : 'aspect-video max-w-[440px]'
                 )}
               >
                 <PreviewPageView
@@ -2051,16 +2116,22 @@ function PreviewPageView({
   index: number;
   total: number;
 }) {
-  const accent = TEMPLATE_ACCENTS[artifact.template] ?? '#4a7fb5';
   if (page.type === 'cover') {
     return artifact.preview.kind === 'docx' ? (
-      <DocumentArtifactCard artifact={artifact} />
+      <DocumentCoverPageView artifact={artifact} index={index} total={total} />
     ) : (
       <PresentationCover artifact={artifact} />
     );
   }
   if (page.type === 'table') {
-    return <TablePageView page={page} index={index} total={total} />;
+    return (
+      <TablePageView
+        artifact={artifact}
+        page={page}
+        index={index}
+        total={total}
+      />
+    );
   }
   if (page.type === 'presentation') {
     return (
@@ -2072,8 +2143,15 @@ function PreviewPageView({
       />
     );
   }
+  // 'list' pages are document sections — keep the white Word styling the
+  // cover established instead of switching to the deck's editorial slides.
   return (
-    <ListPageView page={page} index={index} total={total} accent={accent} />
+    <DocumentSectionPageView
+      artifact={artifact}
+      page={page}
+      index={index}
+      total={total}
+    />
   );
 }
 
@@ -2824,80 +2902,99 @@ function CoverMiniTable({ artifact }: { artifact: FileArtifact }) {
 }
 
 /**
- * A numbered hairline list page under the page title — deck slides and
- * document sections share it.
+ * A document section page — the viewer's continuation of the white Word card
+ * that opens it. Documents must not switch to the presentation's editorial
+ * slides after the cover: background, palette, and prose stay one continuous
+ * file, so the preview reads like the DOCX it downloads as.
  */
-function ListPageView({
+/** Chinese numerals for CJK sections, zero-padded Arabic elsewhere — same
+ *  convention the DOCX renderer stamps into the exported headings. */
+function documentSectionLabel(ordinal: number, cjk: boolean): string {
+  const numerals = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+  if (cjk && ordinal <= 10) return `${numerals[ordinal - 1]}、`;
+  return `${String(ordinal).padStart(2, '0')} · `;
+}
+
+function DocumentSectionPageView({
+  artifact,
   page,
   index,
   total,
-  accent,
 }: {
+  artifact: FileArtifact;
   page: { title: string; body: string[] };
   index: number;
   total: number;
-  accent: string;
 }) {
-  const words = page.title.split(' ');
-  const lead = words.length > 1 ? words[0] : '';
-  const rest = words.length > 1 ? words.slice(1).join(' ') : page.title;
+  const accent = TEMPLATE_ACCENTS[artifact.template] ?? '#4a7fb5';
+  const cjkSection = /[一-鿿]/.test(page.title);
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden rounded-lg bg-[#f2efe6] p-[4.5%] text-[#1a1a1a] shadow-[0_18px_45px_-18px_rgba(0,0,0,0.4)] ring-1 ring-black/10">
-      <div className="flex items-center gap-2">
-        <span className="h-[3px] w-6 shrink-0 bg-[#f2b705]" />
-        <span className="text-[0.55rem] font-semibold tracking-[0.24em] text-black/55">
-          {String(index + 1).padStart(2, '0')}
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white p-5 text-slate-900 shadow-[0_18px_45px_-24px_rgba(15,23,42,0.45)]">
+      {/* Same running header as the cover card — icon chip + DOCX — with the
+          page counter in the WORD slot. */}
+      <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
+        <span
+          className="grid size-6 place-items-center rounded-md text-white"
+          style={{ backgroundColor: accent }}
+        >
+          <FileText className="size-3.5" />
         </span>
-      </div>
-
-      <div className="mt-[3%] flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
-          <h2 className="font-serif leading-none font-medium">
-            {lead && (
-              <span
-                className="block text-[1.15rem] tracking-[0.14em] break-words"
-                style={{ color: accent }}
-              >
-                {lead}
-              </span>
-            )}
-            <span className="mt-1 block text-[1.9rem] leading-[1.1] font-semibold text-balance">
-              {rest}
-            </span>
-          </h2>
-        </div>
-      </div>
-
-      <div className="mt-[2.5%] flex min-h-0 flex-1 flex-col divide-y divide-black/10 overflow-y-auto [scrollbar-width:none]">
-        {page.body.map((line, lineIndex) => (
-          <div key={lineIndex} className="flex items-baseline gap-3 py-[1.6%]">
-            <span
-              className="shrink-0 text-[0.6rem] font-bold tabular-nums"
-              style={{ color: accent }}
-            >
-              {String(lineIndex + 1).padStart(2, '0')}
-            </span>
-            <p className="text-[0.78rem] leading-relaxed break-words text-black/75">
-              {line}
-            </p>
-          </div>
-        ))}
-        <span className="ml-auto pt-[1.5%] text-[0.55rem] font-semibold tracking-[0.18em] text-black/40 tabular-nums">
+        <span className="text-[10px] font-bold tracking-[0.16em] text-slate-500">
+          DOCX
+        </span>
+        <span className="ml-auto text-[10px] font-medium text-slate-400 tabular-nums">
           {index + 1} / {total}
         </span>
+      </div>
+
+      {/* The section number mirrors the exported document's heading marks —
+          without it every page opened on the same anonymous title. */}
+      <p
+        className="mt-5 text-[10px] font-bold tracking-[0.2em]"
+        style={{ color: accent }}
+      >
+        {documentSectionLabel(index, cjkSection)}
+      </p>
+      <h2 className="mt-1.5 font-serif text-[1.35rem] leading-[1.15] font-semibold text-balance break-words text-slate-900">
+        {page.title}
+      </h2>
+
+      {/* Prose, not slide bullets: the section's full paragraphs, clipped
+          only by the page's own scroll. Chinese paragraphs get the classic
+          two-character first-line indent. */}
+      <div className="mt-4 min-h-0 flex-1 space-y-3 overflow-y-auto [scrollbar-width:none]">
+        {page.body.map((paragraph, paragraphIndex) => (
+          <p
+            key={paragraphIndex}
+            className={cn(
+              'text-[11px] leading-[1.75] break-words text-slate-600',
+              /[一-鿿]/.test(paragraph) && 'text-justify indent-8'
+            )}
+          >
+            {paragraph}
+          </p>
+        ))}
+      </div>
+
+      <div className="mt-4 border-t border-slate-100 pt-3 text-[10px] font-medium text-slate-400">
+        <span className="block truncate">{artifact.fileName}</span>
       </div>
     </div>
   );
 }
 
-/** A spreadsheet page: header row plus one chunk of data rows, hairline
- *  ruled, page number bottom-right like the list pages. */
+/** A spreadsheet page in the viewer: the same white workbook chrome as the
+ *  chat card — title bar, column-letter ruler, row-number gutter, accent
+ *  header row — scaled up to page size. The beige editorial paper used to
+ *  make a generated table read as a deck slide instead of a workbook. */
 function TablePageView({
+  artifact,
   page,
   index,
   total,
 }: {
+  artifact: FileArtifact;
   page: { columns: string[]; rows: Array<Array<string | number>> };
   index: number;
   total: number;
@@ -2906,46 +3003,94 @@ function TablePageView({
   const grid = {
     gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))`,
   };
+  // Pages chunk the workbook sequentially, so the page index gives the
+  // global row number — the gutter must match Excel's numbering.
+  const startRow = index * TABLE_PAGE_ROWS;
+  const totalRows = artifact.preview.rows?.length ?? 0;
+
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden rounded-lg bg-[#f2efe6] p-[4.5%] text-[#1a1a1a] shadow-[0_18px_45px_-18px_rgba(0,0,0,0.4)] ring-1 ring-black/10">
-      <div className="flex items-center gap-2">
-        <span className="h-[3px] w-6 shrink-0 bg-[#f2b705]" />
-        <span className="text-[0.55rem] font-semibold tracking-[0.24em] text-black/55">
-          {String(index + 1).padStart(2, '0')}
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-slate-200 bg-white text-slate-800 shadow-[0_18px_45px_-24px_rgba(15,23,42,0.45)]">
+      {/* Same title bar as the chat card so card and viewer read as one
+          workbook. */}
+      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-slate-200 bg-slate-50 px-3.5">
+        <span className="grid size-5.5 place-items-center rounded bg-emerald-600 text-white">
+          <Table2 className="size-3" />
+        </span>
+        <span className="min-w-0 truncate text-xs font-semibold text-slate-700">
+          {artifact.preview.title}
+        </span>
+        <span className="ml-auto text-[10px] font-medium text-slate-400 tabular-nums">
+          {index + 1} / {total}
         </span>
       </div>
 
-      <div className="mt-[3%] flex min-h-0 flex-1 flex-col overflow-hidden rounded-[4px] ring-1 ring-black/10">
-        <div
-          className="grid divide-x divide-black/10 bg-black/[0.05] text-[0.55rem] font-bold tracking-[0.06em] text-black/70"
-          style={grid}
-        >
-          {columns.map((column) => (
-            <span key={column} className="px-2 py-1.5 break-words">
-              {column}
-            </span>
-          ))}
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        {/* Letter ruler across the data columns; the row-number lane is a
+            fixed spacer of the same width so every strip shares one grid. */}
+        <div className="flex shrink-0 border-b border-slate-200 bg-slate-50">
+          <span className="w-8 shrink-0 border-r border-slate-200" />
+          <div
+            className="grid h-7 min-w-0 flex-1 divide-x divide-slate-200 text-center text-[9px] leading-7 font-medium text-slate-400"
+            style={grid}
+          >
+            {columns.map((_, columnIndex) => (
+              <span key={columnIndex}>
+                {String.fromCharCode(65 + (columnIndex % 26))}
+              </span>
+            ))}
+          </div>
         </div>
-        <div className="flex min-h-0 flex-1 flex-col divide-y divide-black/10 overflow-y-auto [scrollbar-width:none]">
+        {/* Accent header row: workbook identity, same as the chat card. */}
+        <div className="flex shrink-0 bg-emerald-600 text-[11px] font-semibold text-white">
+          <span className="w-8 shrink-0 border-r border-emerald-700/40 bg-slate-50" />
+          <div
+            className="grid min-w-0 flex-1 divide-x divide-white/20"
+            style={grid}
+          >
+            {columns.map((column) => (
+              <span key={column} className="truncate px-2.5 leading-8">
+                {column}
+              </span>
+            ))}
+          </div>
+        </div>
+        {/* Each data row carries its own number cell, so numbers stay
+            centered no matter how many lines a verbatim cell wraps to. */}
+        <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none]">
           {page.rows.map((row, rowIndex) => (
             <div
               key={rowIndex}
-              className="grid divide-x divide-black/10 text-[0.65rem] text-black/75"
-              style={grid}
+              className="flex min-h-7 border-b border-slate-100 text-[11px] text-slate-600"
             >
-              {columns.map((_, columnIndex) => (
-                <span key={columnIndex} className="px-2 py-1.5 break-words">
-                  {row[columnIndex] ?? ''}
-                </span>
-              ))}
+              <span className="flex w-8 shrink-0 items-center justify-center border-r border-slate-200 bg-slate-50 text-[9px] font-medium text-slate-400 tabular-nums">
+                {startRow + rowIndex + 1}
+              </span>
+              <div
+                className="grid min-w-0 flex-1 divide-x divide-slate-200"
+                style={grid}
+              >
+                {columns.map((_, columnIndex) => (
+                  <span
+                    key={columnIndex}
+                    className="px-2.5 py-1.5 leading-relaxed break-words"
+                  >
+                    {row[columnIndex] ?? ''}
+                  </span>
+                ))}
+              </div>
             </div>
           ))}
         </div>
       </div>
 
-      <span className="mt-[1.5%] text-right text-[0.55rem] font-semibold tracking-[0.18em] text-black/40 tabular-nums">
-        {index + 1} / {total}
-      </span>
+      <div className="flex h-8 shrink-0 items-center border-t border-slate-200 bg-slate-50 px-3.5 text-[10px] font-medium text-slate-500">
+        <span>{totalRows} rows</span>
+        <span className="ml-3">{columns.length} columns</span>
+        <span className="ml-auto tabular-nums">
+          {Math.min(startRow + 1, totalRows)}–
+          {Math.min(startRow + page.rows.length, totalRows)} / {totalRows}
+        </span>
+      </div>
     </div>
   );
 }

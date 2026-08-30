@@ -464,7 +464,7 @@ export function ApiPlayground() {
   const [showPresentationTemplatePreview, setShowPresentationTemplatePreview] =
     useState(false);
   const [fileTurns, setFileTurns] = useState<FileTurn[]>([]);
-  // While a file viewer is open the shell cedes the right 42rem to it, so
+  // While a file viewer is open the shell cedes the right 36rem to it, so
   // the thread AND the composer shift left instead of being covered.
   const filePreviewBeside = useFilePreviewOpen();
 
@@ -714,7 +714,7 @@ export function ApiPlayground() {
       template: FileTemplate;
       model: SelectableChatModelId;
     }) => {
-      // Client-side hard cap. The server gives AI planning 18s before its
+      // Client-side hard cap. The server gives AI planning 75s before its
       // deterministic draft fallback, so this only fires when the request is
       // wedged — without it isPending stays true forever and the composer
       // (send button, model picker) stays disabled until a reload.
@@ -1134,12 +1134,13 @@ export function ApiPlayground() {
     <div
       className={cn(
         'file-preview-shell relative flex h-full min-h-0 flex-col transition-[padding] duration-300',
-        // An open file viewer takes over the right side (42rem default,
+        // An open file viewer takes over the right side (36rem default,
         // resizable by dragging the panel's divider); the chat column
         // (composer included) narrows to the left of it. The ambient
         // decorations are absolutely positioned off the padding box, so
         // they stay full-bleed.
-        filePreviewBeside && 'xl:pr-[var(--file-preview-w,42rem)]'
+        filePreviewBeside &&
+          'lg:pr-[min(var(--file-preview-w,36rem),calc(100vw-560px))]'
       )}
     >
       {/* Ambient brand glow */}
@@ -2344,6 +2345,15 @@ export function ChatPlayground() {
   const [fileTurns, setFileTurns] = useState<FileTurn[]>([]);
   const filePreviewBeside = useFilePreviewOpen();
 
+  // Deep link: /api-playground?tool=pptx opens the composer with that file
+  // tool preselected — the /files gallery's "one-click" card lands here.
+  useEffect(() => {
+    const tool = new URLSearchParams(window.location.search).get('tool');
+    if (tool === 'pptx' || tool === 'docx' || tool === 'xlsx') {
+      setFileTool(tool);
+    }
+  }, []);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -2608,7 +2618,7 @@ export function ChatPlayground() {
       template: FileTemplate;
       model: SelectableChatModelId;
     }) => {
-      // Client-side hard cap. The server gives AI planning 18s before its
+      // Client-side hard cap. The server gives AI planning 75s before its
       // deterministic draft fallback, so this only fires when the request is
       // wedged — without it isPending stays true forever and the composer
       // (send button, model picker) stays disabled until a reload.
@@ -3038,10 +3048,11 @@ export function ChatPlayground() {
     <div
       className={cn(
         'file-preview-shell relative flex h-full min-h-0 flex-col transition-[padding] duration-300',
-        // An open file viewer takes over the right side (42rem default,
+        // An open file viewer takes over the right side (36rem default,
         // resizable by dragging the panel's divider); the chat column
         // (composer included) narrows to the left of it.
-        filePreviewBeside && 'xl:pr-[var(--file-preview-w,42rem)]'
+        filePreviewBeside &&
+          'lg:pr-[min(var(--file-preview-w,36rem),calc(100vw-560px))]'
       )}
     >
       {hasThread ? (

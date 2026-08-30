@@ -1644,7 +1644,8 @@
   "file_studio.template.paper_ink": "纸墨编辑",
   "file_studio.template.preview_remove": "隐藏样式缩略图",
   "file_studio.gallery.one_click": "一键生成",
-  "file_studio.plan.slides": "已识别 {source} 个内容点 · 分配为 {count} 页",
-  "file_studio.plan.sections": "已识别 {source} 个内容点 · 分配为 {count} 个章节",
-  "file_studio.plan.rows": "已识别 {source} 个内容点 · 分配为 {rows} 行 × {columns} 列"
+  "files.gallery.title": "文件",
+  "files.gallery.all": "全部",
+  "files.gallery.pptx.title": "演示文稿",
+  "files.gallery.pptx.desc": "输入主题,一键生成带设计感的幻灯片。"
 }
