@@ -2312,6 +2312,15 @@ interface ImageTaskRow {
   options?: Record<string, any> | null;
 }
 
+/** A local placeholder exists only until its just-created server task reaches
+ * the image history. `submittedAt` lets the renderer distinguish that task
+ * from an older generation made with the same prompt. */
+interface ImageSubmission {
+  id: string;
+  prompt: string;
+  submittedAt: number;
+}
+
 /* ------------------------------------------------------------------ */
 /*  ChatPlayground                                                     */
 /* ------------------------------------------------------------------ */
@@ -4813,7 +4822,7 @@ function MyImageRows({
   regenerateDisabled?: boolean;
   highlightId?: string | null;
   /** Appears before the submit endpoint returns a real task id. */
-  submitting?: { id: string; prompt: string } | null;
+  submitting?: ImageSubmission | null;
 }) {
   // Processing tile stays visible AS LONG AS the row is still reported
   // as in-flight by the server. The previous 30s timeout used to drop
@@ -4842,7 +4851,24 @@ function MyImageRows({
     return false;
   });
 
-  if (visibleRows.length === 0 && !submitting) {
+  // A fast `/api/ai-tasks` refetch can see the durable processing row before
+  // the POST response has cleared the local placeholder. Without this guard,
+  // both representations of the same request render as duplicate prompt +
+  // spinner pairs. Keep the placeholder only until that server row appears.
+  const hasDurableSubmittingRow = Boolean(
+    submitting &&
+    visibleRows.some((row) => {
+      if (row.prompt.trim() !== submitting.prompt.trim()) return false;
+      const createdAt = new Date(row.createdAt).getTime();
+      return (
+        Number.isFinite(createdAt) &&
+        createdAt >= submitting.submittedAt - 5_000
+      );
+    })
+  );
+  const pendingSubmission = hasDurableSubmittingRow ? null : submitting;
+
+  if (visibleRows.length === 0 && !pendingSubmission) {
     // The section header above still names "Your generated images" and
     // the right-aligned "← Community" link is the way out, so the list
     // area is deliberately left blank — no sparkles placeholder, no
@@ -4919,16 +4945,19 @@ function MyImageRows({
           </div>
         );
       })}
-      {submitting ? (
+      {pendingSubmission ? (
         <div className="flex w-full flex-col gap-5">
           <div className="flex justify-end">
             <ImagePromptBubble
-              prompt={submitting.prompt}
+              prompt={pendingSubmission.prompt}
               onEdit={onEditPrompt}
             />
           </div>
           <div className="flex w-full items-start">
-            <ProcessingTile prompt={submitting.prompt} taskId={submitting.id} />
+            <ProcessingTile
+              prompt={pendingSubmission.prompt}
+              taskId={pendingSubmission.id}
+            />
           </div>
         </div>
       ) : null}
@@ -5333,14 +5362,16 @@ export function ImagePlayground({
   // It is created in the click handler, before React Query starts the POST,
   // which guarantees that the left-aligned processing frame paints on the
   // very next render even on a cold connection.
-  const [submittingImage, setSubmittingImage] = useState<{
-    id: string;
-    prompt: string;
-  } | null>(() =>
-    autoSubmit && initialPrompt.trim()
-      ? { id: 'submitting-image', prompt: initialPrompt.trim() }
-      : null
-  );
+  const [submittingImage, setSubmittingImage] =
+    useState<ImageSubmission | null>(() =>
+      autoSubmit && initialPrompt.trim()
+        ? {
+            id: 'submitting-image',
+            prompt: initialPrompt.trim(),
+            submittedAt: Date.now(),
+          }
+        : null
+    );
   const [authOpen, setAuthOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
   const [uploadingReference, setUploadingReference] = useState(false);
@@ -5479,6 +5510,7 @@ export function ImagePlayground({
       setSubmittingImage({
         id: 'submitting-image',
         prompt: initialPrompt.trim(),
+        submittedAt: Date.now(),
       });
     }
     setTab('mine');
@@ -5643,9 +5675,11 @@ export function ImagePlayground({
           .filter(Boolean)
           .slice(0, MAX_REFERENCES);
       }
-      // Paid requests produce one result. The server expands an eligible
-      // first-free request to two 1K images; keeping this client value at 1
-      // prevents callers from turning paid generation into an unpriced batch.
+      // One image per request, always: the server slices the gateway's
+      // response to this count on both the sync and the async polling
+      // path (some gateways return a default batch even for n=1). Keeping
+      // this at 1 also prevents callers from turning a paid generation
+      // into an unpriced batch.
       body.n = 1;
       body.size = aspectRatio;
       return apiPost<{
@@ -5825,6 +5859,7 @@ export function ImagePlayground({
     const submission = {
       id: `submitting-image-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       prompt: submittedPrompt,
+      submittedAt: Date.now(),
     };
     setTab('mine');
     setSubmittingImage(submission);

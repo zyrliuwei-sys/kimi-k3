@@ -1597,6 +1597,8 @@
   "file_studio.tool.docx_short": "文档",
   "file_studio.tool.xlsx_short": "电子表格",
   "file_studio.generating": "正在创建可编辑文件",
+  "file_studio.generating_elapsed": "已用时 {seconds} 秒",
+  "file_studio.generating_hint": "AI 规划通常需要 15-40 秒，请稍候",
   "file_studio.status.plan": "规划结构",
   "file_studio.status.write": "撰写内容",
   "file_studio.status.render": "渲染 Office 文件",

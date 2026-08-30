@@ -1597,6 +1597,8 @@
   "file_studio.tool.docx_short": "Document",
   "file_studio.tool.xlsx_short": "Spreadsheet",
   "file_studio.generating": "Creating your editable file",
+  "file_studio.generating_elapsed": "{seconds}s elapsed",
+  "file_studio.generating_hint": "AI planning usually takes 15-40 seconds",
   "file_studio.status.plan": "Plan structure",
   "file_studio.status.write": "Write content",
   "file_studio.status.render": "Render Office file",

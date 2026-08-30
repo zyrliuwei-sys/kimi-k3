@@ -154,7 +154,17 @@ async function GET({
         model: task.model,
       });
       if (polled.status === 'success') {
-        const imageUrls: string[] = (polled as any).urls || [];
+        // The gateway can hand back its default batch even when the submit
+        // asked for one — Nano Banana models don't accept an `n` parameter,
+        // so the request cannot carry our intent. Enforce here the count the
+        // task was billed for (`n` is persisted at submit; older tasks that
+        // predate the field default to a single image). The sync submit path
+        // applies the identical slice.
+        const requestedCount = Number(stored?.n) > 0 ? Number(stored?.n) : 1;
+        const imageUrls: string[] = ((polled as any).urls || []).slice(
+          0,
+          requestedCount
+        );
         // Persist and return the provider URL immediately. Waiting for the
         // optional R2 copy here made a completed image sit on the spinner
         // for several extra seconds. The durable copy is upgraded below in
