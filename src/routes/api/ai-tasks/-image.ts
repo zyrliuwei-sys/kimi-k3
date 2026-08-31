@@ -1,7 +1,10 @@
 import {
   AIMediaType,
   EvolinkImageProvider,
-  getGptLowPrice,
+  getGptImagePrice,
+  getGptPlatformCreditEstimate,
+  GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
+  GPT_IMAGE_QUALITIES,
   IMAGE_MODELS,
   IMAGE_PRICING,
   IMAGE_RESOLUTIONS,
@@ -24,12 +27,14 @@ import { buildRehostSaveFiles } from './-shared';
  * Product pricing is intentionally resolved on the server. The client can
  * select a resolution tier, but it cannot submit arbitrary upstream values.
  *
- * GPT Image 2 uses the economical Low route. Its server-side estimate is
- * based on resolution and aspect ratio, then multiplied by the product
- * markup and rounded up. Nano Banana 2 keeps its resolution tiers.
+ * GPT Image 2 accepts only the supported Low, Medium, and High quality
+ * values. The server deducts the fixed 7× product-credit table shared with
+ * the client, so a request cannot select arbitrary upstream values or prices.
+ * Nano Banana 2 keeps its resolution tiers.
  */
 type ImageResolution = (typeof IMAGE_RESOLUTIONS)[number];
 type ImageModelChoice = (typeof IMAGE_MODELS)[number];
+type GptImageQuality = (typeof GPT_IMAGE_QUALITIES)[number];
 
 /**
  * Image generation branch of `POST /api/ai-tasks`.
@@ -95,8 +100,11 @@ export async function postImageTask({
   }
   const selectedResolution = requestedResolution as ImageResolution;
   let resolution = selectedResolution;
-  const qualityFor = (value: ImageResolution) =>
-    model === 'nano-banana-2' ? value : 'low';
+  const requestedQuality = String(body?.quality ?? 'low');
+  if (!GPT_IMAGE_QUALITIES.includes(requestedQuality as GptImageQuality)) {
+    return respErr('Unsupported GPT Image 2 quality.', { status: 400 });
+  }
+  const selectedQuality = requestedQuality as GptImageQuality;
 
   // Both selected upstream routes accept aspect-ratio strings. Falling back
   // to 1:1 instead of an upstream "auto" default makes the fixed model
@@ -112,8 +120,16 @@ export async function postImageTask({
 
   const selectedResolutionCost =
     model === 'gpt-image-2'
-      ? getGptLowPrice(selectedResolution, rawSize)
+      ? getGptImagePrice(selectedResolution, selectedQuality, rawSize)
       : IMAGE_PRICING[model][selectedResolution];
+  const platformCreditEstimate =
+    model === 'gpt-image-2'
+      ? getGptPlatformCreditEstimate(
+          selectedResolution,
+          selectedQuality,
+          rawSize
+        )
+      : undefined;
 
   const configs = await getAllConfigs();
   const pick = await pickImageProvider(configs);
@@ -146,13 +162,18 @@ export async function postImageTask({
       size: rawSize,
       hasReference: !!referenceUrl,
     }) &&
+    // A trial is intentionally the cheapest GPT Image 2 shape. Never let a
+    // high-quality request silently be fulfilled as a free low-quality one.
+    (model !== 'gpt-image-2' || selectedQuality === 'low') &&
     (await countUserActiveTasks(session.user.id, AIMediaType.IMAGE)) === 0;
   if (isFirstFreeTrial) {
     costCredits = 0;
     pricingReason = 'first_free';
     resolution = '1K';
   }
-  const quality = qualityFor(resolution);
+  // Nano Banana uses the resolution label in its `quality` field. GPT Image
+  // 2 uses low / medium / high and must receive the user's selected tier.
+  const quality = model === 'nano-banana-2' ? resolution : selectedQuality;
 
   // 1. Insert aiTask + consume credits (single transaction).
   let task;
@@ -167,10 +188,17 @@ export async function postImageTask({
         model,
         n,
         resolution,
+        quality,
         aspectRatio: rawSize,
         pricing: {
-          version: 'image-model-resolution-v2-low-observed',
+          version: 'image-model-resolution-quality-v4-platform-7x',
           credits: costCredits,
+          ...(platformCreditEstimate !== undefined
+            ? {
+                platformCreditEstimate,
+                platformCreditMultiplier: GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
+              }
+            : {}),
         },
         ...(referenceUrl ? { image: referenceUrl } : {}),
       },
@@ -247,6 +275,7 @@ export async function postImageTask({
         model,
         n,
         resolution,
+        quality,
       };
       await updateTask({
         taskId: task.id,
@@ -303,6 +332,7 @@ export async function postImageTask({
         model,
         n,
         resolution,
+        quality,
         // Pass the task row we already have (model, prompt, etc.) so
         // the client can render the active image without a follow-up
         // GET — saves a DB round-trip on every sync generation.
@@ -327,6 +357,7 @@ export async function postImageTask({
         model,
         n,
         resolution,
+        quality,
         // Persist the gateway estimate alongside the remote id so the
         // polling endpoint can re-surface it on every poll and the UI
         // shows a real "Generating… ~12s" countdown instead of just
@@ -347,6 +378,7 @@ export async function postImageTask({
       model,
       n,
       resolution,
+      quality,
       // Surface the estimate to the client immediately so the UI can
       // show a real countdown from the very first frame after submit.
       ...(result.mode === 'async' && result.estimatedSeconds

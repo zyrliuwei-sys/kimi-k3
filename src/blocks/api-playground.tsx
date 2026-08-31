@@ -61,8 +61,10 @@ import { toast } from 'sonner';
 
 import {
   ASPECT_RATIOS,
+  GPT_IMAGE_QUALITIES,
   IMAGE_RESOLUTIONS,
   SEEDANCE_VIDEO_MODEL,
+  type GptImageQuality,
   type ImageModel,
   type ImageResolution,
   type SeedanceVideoAspectRatio,
@@ -4104,6 +4106,11 @@ const IMAGE_RESOLUTION_OPTIONS = IMAGE_RESOLUTIONS.map((value) => ({
   value,
 }));
 
+const IMAGE_QUALITY_OPTIONS = GPT_IMAGE_QUALITIES.map((value) => ({
+  value,
+  label: m[`playground.image.quality_${value}`](),
+}));
+
 // Inline mini-swatch that mirrors the chosen ratio so the trigger
 // label and the menu row line up visually.
 function RatioSwatch({ value, size = 16 }: { value: string; size?: number }) {
@@ -4202,12 +4209,16 @@ function AspectRatioMenu({
   model,
   resolution,
   onResolutionChange,
+  quality,
+  onQualityChange,
 }: {
   value: string;
   onChange: (ratio: string) => void;
   model: ImageModel;
   resolution: ImageResolution;
   onResolutionChange: (resolution: ImageResolution) => void;
+  quality: GptImageQuality;
+  onQualityChange: (quality: GptImageQuality) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -4219,6 +4230,7 @@ function AspectRatioMenu({
         <RatioSwatch value={value} size={14} />
         <span className="font-mono">
           {value} / {resolution}
+          {model === 'gpt-image-2' ? ` / ${quality}` : ''}
         </span>
         <ChevronDown
           className={cn('size-3 transition-transform', open && 'rotate-180')}
@@ -4252,7 +4264,7 @@ function AspectRatioMenu({
             </button>
           ))}
         </div>
-        <div className="border-border/70 mt-3 border-t pt-3">
+        <div className="mt-3">
           <p className="text-foreground/45 px-1 pb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
             {m['playground.image.resolution_label']()}
           </p>
@@ -4277,6 +4289,33 @@ function AspectRatioMenu({
             })}
           </div>
         </div>
+        {model === 'gpt-image-2' ? (
+          <div className="mt-3">
+            <p className="text-foreground/45 px-1 pb-2 text-[11px] font-semibold tracking-[0.08em] uppercase">
+              {m['playground.image.quality_label']()}
+            </p>
+            <div className="bg-foreground/[0.045] grid grid-cols-3 gap-1 rounded-xl p-1">
+              {IMAGE_QUALITY_OPTIONS.map((option) => {
+                const selected = quality === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => onQualityChange(option.value)}
+                    className={cn(
+                      'text-muted-foreground flex flex-col items-center rounded-lg px-2 py-1.5 text-center text-xs font-medium transition-colors',
+                      'hover:text-foreground',
+                      selected && 'bg-background text-foreground shadow-sm'
+                    )}
+                  >
+                    <span>{option.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </PopoverContent>
     </Popover>
   );
@@ -5403,6 +5442,7 @@ export function ImagePlayground({
   >(null);
   const [aspectRatio, setAspectRatio] = useState<string>('1:1');
   const [imageResolution, setImageResolution] = useState<ImageResolution>('1K');
+  const [imageQuality, setImageQuality] = useState<GptImageQuality>('low');
   const [imageModel, setImageModel] = useState<ImageModelChoice>('gpt-image-2');
   // My Images tab — clicking a tile routes to the dedicated preview
   // page at /api-playground/image/$id rather than opening an overlay,
@@ -5661,6 +5701,7 @@ export function ImagePlayground({
         mediaType: 'image',
         model: imageModel,
         resolution: imageResolution,
+        quality: imageQuality,
         prompt: (() => {
           const main = submittedPrompt;
           if (!refsBlock) return main;
@@ -5746,6 +5787,7 @@ export function ImagePlayground({
           options: {
             model: imageModel,
             resolution: imageResolution,
+            quality: imageQuality,
             aspectRatio,
           },
         };
@@ -5834,6 +5876,7 @@ export function ImagePlayground({
       creditsQuery.data?.imageFirstFreeAvailable === true &&
       freeTrialGenerationsUsed < 1 &&
       imageResolution === '1K' &&
+      (imageModel !== 'gpt-image-2' || imageQuality === 'low') &&
       references.length === 0;
     if (
       creditsQuery.data &&
@@ -6466,6 +6509,8 @@ export function ImagePlayground({
                 model={imageModel}
                 resolution={imageResolution}
                 onResolutionChange={setImageResolution}
+                quality={imageQuality}
+                onQualityChange={setImageQuality}
               />
               <button
                 type="button"
