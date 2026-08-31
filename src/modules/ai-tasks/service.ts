@@ -3,7 +3,7 @@ import { and, count, desc, eq, inArray, isNull, ne } from 'drizzle-orm';
 import { AIMediaType } from '@/core/ai';
 import { db } from '@/core/db';
 import { aiTask } from '@/config/db/schema';
-import { consume, revoke } from '@/modules/credits/service';
+import { consume, revoke, settleConsumption } from '@/modules/credits/service';
 import { getUuid } from '@/lib/hash';
 
 export enum AITaskStatus {
@@ -134,6 +134,102 @@ export async function updateTask(params: {
       // Ignore parse errors
     }
   }
+}
+
+/**
+ * Atomically complete a token-billed image task and replace its temporary
+ * credit hold with the final customer charge. Calling this more than once is
+ * safe: a task already marked successful is returned untouched.
+ */
+export async function completeTaskWithUsage(params: {
+  taskId: string;
+  taskResult: any;
+  platformCredits: number;
+  finalCredits: number;
+  multiplier: number;
+  usage?: Record<string, number | undefined>;
+}) {
+  const {
+    taskId,
+    taskResult,
+    platformCredits,
+    finalCredits,
+    multiplier,
+    usage,
+  } = params;
+
+  return db().transaction(async (tx: any) => {
+    const [task] = await tx
+      .select()
+      .from(aiTask)
+      .where(eq(aiTask.id, taskId))
+      .limit(1)
+      .for('update');
+    if (!task) throw new Error('Task not found');
+    if (task.status === AITaskStatus.SUCCESS) return task;
+
+    let options: Record<string, any> = {};
+    try {
+      options = task.options ? JSON.parse(task.options) : {};
+    } catch {
+      options = {};
+    }
+    const originalPricing = options.pricing || {};
+    const reservationCredits = Number(
+      originalPricing.reservationCredits ?? task.costCredits
+    );
+    const isUsageSettled = originalPricing.settlement === 'evolink_final_usage';
+
+    if (isUsageSettled && reservationCredits > 0) {
+      let creditId: string | undefined;
+      try {
+        creditId = JSON.parse(task.taskInfo || '{}').creditId;
+      } catch {
+        creditId = undefined;
+      }
+      if (!creditId) throw new Error('Credit reservation is missing.');
+      await settleConsumption({
+        consumeCreditId: creditId,
+        credits: finalCredits,
+        tx,
+      });
+    }
+
+    options.pricing = {
+      ...originalPricing,
+      settlement: isUsageSettled
+        ? 'evolink_final_usage'
+        : originalPricing.settlement,
+      reservationCredits,
+      platformCredits,
+      platformCreditMultiplier: multiplier,
+      finalCredits,
+      settledAt: new Date().toISOString(),
+      usage,
+    };
+
+    const settledResult = {
+      ...taskResult,
+      billing: {
+        platformCredits,
+        multiplier,
+        finalCredits,
+        reservationCredits,
+        usage,
+      },
+    };
+    const [updated] = await tx
+      .update(aiTask)
+      .set({
+        status: AITaskStatus.SUCCESS,
+        costCredits: finalCredits,
+        options: JSON.stringify(options),
+        taskResult: JSON.stringify(settledResult),
+      })
+      .where(eq(aiTask.id, task.id))
+      .returning();
+    return updated;
+  });
 }
 
 /**

@@ -260,6 +260,102 @@ export async function revoke(consumeCreditId: string) {
   });
 }
 
+/**
+ * Reduce a previously-consumed hold to its final amount. Releasing from the
+ * newest FIFO slices preserves the original credit consumption, so a later
+ * revoke still restores exactly the final settled amount.
+ */
+export async function settleConsumption(params: {
+  consumeCreditId: string;
+  credits: number;
+  tx?: any;
+}) {
+  const { consumeCreditId, credits: finalCredits, tx } = params;
+  if (!Number.isInteger(finalCredits) || finalCredits < 0) {
+    throw new Error('Final credit amount must be a non-negative integer.');
+  }
+
+  const execute = async (transaction: any) => {
+    const [consumeRecord] = await transaction
+      .select()
+      .from(credit)
+      .where(
+        and(
+          eq(credit.id, consumeCreditId),
+          eq(credit.transactionType, CreditTransactionType.CONSUME),
+          eq(credit.status, CreditStatus.ACTIVE)
+        )
+      )
+      .limit(1)
+      .for('update');
+
+    if (!consumeRecord) {
+      throw new Error('Credit reservation was not found.');
+    }
+
+    const reservedCredits = Math.abs(Number(consumeRecord.credits));
+    if (finalCredits > reservedCredits) {
+      throw new Error('Final credits exceed the reserved credit hold.');
+    }
+    if (finalCredits === reservedCredits) return consumeRecord;
+
+    const items = JSON.parse(consumeRecord.consumedDetail || '[]') as Array<{
+      creditId: string;
+      creditsConsumed: number;
+      [key: string]: unknown;
+    }>;
+    let creditsToRelease = reservedCredits - finalCredits;
+
+    for (
+      let index = items.length - 1;
+      index >= 0 && creditsToRelease > 0;
+      index--
+    ) {
+      const item = items[index];
+      const consumed = Number(item.creditsConsumed);
+      if (!Number.isFinite(consumed) || consumed <= 0) continue;
+      const released = Math.min(consumed, creditsToRelease);
+      await transaction
+        .update(credit)
+        .set({
+          remainingCredits: sql`${credit.remainingCredits} + ${released}`,
+        })
+        .where(eq(credit.id, item.creditId));
+      item.creditsConsumed = consumed - released;
+      creditsToRelease -= released;
+    }
+
+    if (creditsToRelease > 0) {
+      throw new Error('Credit reservation detail is incomplete.');
+    }
+
+    const settledItems = items.filter((item) => item.creditsConsumed > 0);
+    if (finalCredits === 0) {
+      await transaction
+        .update(credit)
+        .set({ status: CreditStatus.DELETED })
+        .where(eq(credit.id, consumeCreditId));
+      return { ...consumeRecord, credits: 0, status: CreditStatus.DELETED };
+    }
+
+    await transaction
+      .update(credit)
+      .set({
+        credits: -finalCredits,
+        consumedDetail: JSON.stringify(settledItems),
+      })
+      .where(eq(credit.id, consumeCreditId));
+    return {
+      ...consumeRecord,
+      credits: -finalCredits,
+      consumedDetail: JSON.stringify(settledItems),
+    };
+  };
+
+  if (tx) return execute(tx);
+  return db().transaction(execute);
+}
+
 // --- Auto-grant for new user ---
 
 /**

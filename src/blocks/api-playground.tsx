@@ -61,6 +61,7 @@ import { toast } from 'sonner';
 
 import {
   ASPECT_RATIOS,
+  getGptImageReservationCredits,
   GPT_IMAGE_QUALITIES,
   IMAGE_RESOLUTIONS,
   SEEDANCE_VIDEO_MODEL,
@@ -4314,6 +4315,11 @@ function AspectRatioMenu({
                 );
               })}
             </div>
+            <p className="text-muted-foreground mt-2 px-1 text-[11px] leading-relaxed">
+              {m['playground.image.final_usage_billing']({
+                reservation: getGptImageReservationCredits(),
+              })}
+            </p>
           </div>
         ) : null}
       </PopoverContent>

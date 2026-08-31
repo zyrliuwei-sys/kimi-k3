@@ -1045,6 +1045,7 @@
   "playground.image.quality_medium": "中",
   "playground.image.quality_high": "高",
   "playground.image.credits_cost": "{count} 积分",
+  "playground.image.final_usage_billing": "付费生成前，最多临时预占 {reservation} 积分；完成后按平台实际用量结算，多余积分自动退回。",
   "playground.image.aspect_smart": "auto",
   "playground.image.model_search_placeholder": "搜索模型……",
   "playground.image.model_empty": "没有匹配的模型",

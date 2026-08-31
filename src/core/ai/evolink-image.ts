@@ -19,6 +19,41 @@
 
 import { extractImageUrls } from './image-urls';
 
+export type EvolinkFinalUsage = {
+  creditsUsed: number;
+  imageOutputTokens?: number;
+  imageInputTokens?: number;
+  imageCachedInputTokens?: number;
+  textInputTokens?: number;
+  textCachedInputTokens?: number;
+  totalTokens?: number;
+};
+
+/**
+ * The final task response is the source of truth for token-billed routes.
+ * Do not treat `credits_reserved` from an accepted task as a final charge.
+ */
+export function getEvolinkFinalUsage(raw: unknown): EvolinkFinalUsage | null {
+  const usage = (raw as any)?.usage;
+  const creditsUsed = Number(usage?.credits_used ?? usage?.cost?.credits);
+  if (!Number.isFinite(creditsUsed) || creditsUsed < 0) return null;
+
+  const optionalNumber = (value: unknown) => {
+    const number = Number(value);
+    return Number.isFinite(number) && number >= 0 ? number : undefined;
+  };
+
+  return {
+    creditsUsed,
+    imageOutputTokens: optionalNumber(usage?.image_output_tokens),
+    imageInputTokens: optionalNumber(usage?.image_input_tokens),
+    imageCachedInputTokens: optionalNumber(usage?.image_cached_input_tokens),
+    textInputTokens: optionalNumber(usage?.text_input_tokens),
+    textCachedInputTokens: optionalNumber(usage?.text_cached_input_tokens),
+    totalTokens: optionalNumber(usage?.total_tokens),
+  };
+}
+
 /**
  * Pull a completion-time estimate (seconds) out of an Evolink async submit
  * response. The gateway has reshuffled this field across past versions —

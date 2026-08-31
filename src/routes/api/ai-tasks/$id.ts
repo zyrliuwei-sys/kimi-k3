@@ -5,10 +5,18 @@ import {
   EvolinkVideoProvider,
   extractImageUrls,
   getAIManager,
+  getEvolinkFinalUsage,
+  getGptImageFinalCredits,
+  GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
 } from '@/core/ai';
 import { EvolinkImageProvider } from '@/core/ai/evolink-image';
 import { getAuth } from '@/core/auth';
-import { AITaskStatus, findTask, updateTask } from '@/modules/ai-tasks/service';
+import {
+  AITaskStatus,
+  completeTaskWithUsage,
+  findTask,
+  updateTask,
+} from '@/modules/ai-tasks/service';
 import { getAllConfigs } from '@/modules/config/service';
 import { respData, respErr } from '@/lib/resp';
 
@@ -69,6 +77,7 @@ function taskEnvelope(task: any) {
       model: task.model,
       provider: task.provider,
       prompt: task.prompt,
+      costCredits: task.costCredits,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt,
       // Expose image URLs through our authenticated proxy. Provider CDN hosts
@@ -169,16 +178,67 @@ async function GET({
         // optional R2 copy here made a completed image sit on the spinner
         // for several extra seconds. The durable copy is upgraded below in
         // the background, exactly as the synchronous submit path does.
-        const taskResult = {
+        let taskResult = {
           remoteTaskId,
           imageUrls,
           provider: task.provider,
         };
-        await updateTask({
-          taskId: task.id,
-          status: AITaskStatus.SUCCESS,
-          taskResult,
-        });
+        let completedTask: any = task;
+
+        if (task.model === 'gpt-image-2') {
+          let pricing: Record<string, any> = {};
+          try {
+            pricing = JSON.parse(task.options || '{}').pricing || {};
+          } catch {
+            pricing = {};
+          }
+
+          // Tasks submitted before actual-usage settlement was introduced
+          // retain their original billing and completion behavior. They have
+          // no compatible authorization hold to settle safely.
+          if (pricing.settlement !== 'evolink_final_usage') {
+            await updateTask({
+              taskId: task.id,
+              status: AITaskStatus.SUCCESS,
+              taskResult,
+            });
+          } else {
+            const finalUsage = getEvolinkFinalUsage(polled.raw);
+            // The upstream can expose the result URL just before its billing
+            // record. Keep this task in flight until its final usage arrives;
+            // charging the initial hold here would violate actual-usage billing.
+            if (!finalUsage) return respData(taskEnvelope(task));
+
+            const finalCredits =
+              Number(pricing.reservationCredits) > 0
+                ? getGptImageFinalCredits(finalUsage.creditsUsed)
+                : 0;
+            const billing = {
+              platformCredits: finalUsage.creditsUsed,
+              multiplier: GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
+              finalCredits,
+              reservationCredits: Number(
+                pricing.reservationCredits ?? task.costCredits
+              ),
+              usage: finalUsage,
+            };
+            taskResult = { ...taskResult, billing };
+            completedTask = await completeTaskWithUsage({
+              taskId: task.id,
+              taskResult,
+              platformCredits: finalUsage.creditsUsed,
+              finalCredits,
+              multiplier: GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
+              usage: finalUsage,
+            });
+          }
+        } else {
+          await updateTask({
+            taskId: task.id,
+            status: AITaskStatus.SUCCESS,
+            taskResult,
+          });
+        }
 
         void (async () => {
           const saveFiles = await buildRehostSaveFiles();
@@ -217,7 +277,7 @@ async function GET({
 
         return respData(
           taskEnvelope({
-            ...task,
+            ...completedTask,
             status: AITaskStatus.SUCCESS,
             taskResult,
           })

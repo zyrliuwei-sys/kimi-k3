@@ -101,7 +101,11 @@ async function main() {
     userEmail: target.email,
     transactionNo: getSnowId(),
     transactionType: CreditTransactionType.GRANT,
-    transactionScene: CreditTransactionScene.GIFT,
+    // REWARD matches the admin panel grant path. GIFT rows are excluded
+    // from the paid-balance query (see service.ts getPaidBalanceLike),
+    // so a manual grant recorded as GIFT would not count toward
+    // paid-tier gating (video generation, chat access).
+    transactionScene: CreditTransactionScene.REWARD,
     credits,
     remainingCredits: credits,
     status: CreditStatus.ACTIVE,

@@ -1,8 +1,9 @@
 import {
   AIMediaType,
   EvolinkImageProvider,
-  getGptImagePrice,
-  getGptPlatformCreditEstimate,
+  getEvolinkFinalUsage,
+  getGptImageFinalCredits,
+  getGptImageReservationCredits,
   GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
   GPT_IMAGE_QUALITIES,
   IMAGE_MODELS,
@@ -13,6 +14,7 @@ import {
 import { ASPECT_RATIOS } from '@/core/ai/aspect-ratios';
 import {
   AITaskStatus,
+  completeTaskWithUsage,
   countUserActiveTasks,
   createTask,
   updateTask,
@@ -28,8 +30,8 @@ import { buildRehostSaveFiles } from './-shared';
  * select a resolution tier, but it cannot submit arbitrary upstream values.
  *
  * GPT Image 2 accepts only the supported Low, Medium, and High quality
- * values. The server deducts the fixed 7× product-credit table shared with
- * the client, so a request cannot select arbitrary upstream values or prices.
+ * values. It reserves a safe credit hold before submission, then settles the
+ * final user charge from EvoLink's completed-task usage × 7.
  * Nano Banana 2 keeps its resolution tiers.
  */
 type ImageResolution = (typeof IMAGE_RESOLUTIONS)[number];
@@ -118,18 +120,10 @@ export async function postImageTask({
     );
   }
 
-  const selectedResolutionCost =
-    model === 'gpt-image-2'
-      ? getGptImagePrice(selectedResolution, selectedQuality, rawSize)
-      : IMAGE_PRICING[model][selectedResolution];
-  const platformCreditEstimate =
-    model === 'gpt-image-2'
-      ? getGptPlatformCreditEstimate(
-          selectedResolution,
-          selectedQuality,
-          rawSize
-        )
-      : undefined;
+  const isGptImage = model === 'gpt-image-2';
+  const standardCost = isGptImage
+    ? getGptImageReservationCredits()
+    : IMAGE_PRICING[model][selectedResolution];
 
   const configs = await getAllConfigs();
   const pick = await pickImageProvider(configs);
@@ -139,8 +133,6 @@ export async function postImageTask({
       { status: 400 }
     );
   }
-
-  const standardCost = selectedResolutionCost;
 
   // First-image-free trial (`image_first_free`, default on). The signup
   // bonus is 5 credits and one image costs ~10, so without this a brand-new
@@ -190,16 +182,19 @@ export async function postImageTask({
         resolution,
         quality,
         aspectRatio: rawSize,
-        pricing: {
-          version: 'image-model-resolution-quality-v4-platform-7x',
-          credits: costCredits,
-          ...(platformCreditEstimate !== undefined
-            ? {
-                platformCreditEstimate,
-                platformCreditMultiplier: GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
-              }
-            : {}),
-        },
+        pricing: isGptImage
+          ? {
+              version: 'gpt-image-2-final-usage-v5',
+              settlement: 'evolink_final_usage',
+              reservationCredits: costCredits,
+              platformCreditMultiplier: GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
+            }
+          : {
+              version: 'image-model-resolution-v4-fixed',
+              settlement: 'fixed',
+              reservationCredits: costCredits,
+              finalCredits: costCredits,
+            },
         ...(referenceUrl ? { image: referenceUrl } : {}),
       },
       costCredits,
@@ -255,10 +250,9 @@ export async function postImageTask({
     });
 
     // ── Sync path ────────────────────────────────────────────────────
-    // The gateway handed us the final image URLs inline (HTTP 200 +
-    // { data: [...] }). Mark the task SUCCESS and respond immediately
-    // with the provider URLs so the user sees the image right away
-    // (sub-second response — no waiting on the 3-5s R2 upload).
+    // The gateway handed us image URLs inline. GPT Image 2 still needs the
+    // terminal usage object before we can release its temporary hold and
+    // mark the task successful.
     //
     // The R2 rehost still happens, but in the BACKGROUND after the
     // response is sent. Once it completes we patch the task row with
@@ -277,11 +271,73 @@ export async function postImageTask({
         resolution,
         quality,
       };
-      await updateTask({
-        taskId: task.id,
-        status: AITaskStatus.SUCCESS,
-        taskResult,
-      });
+      let settledTask: any = task;
+      let settledTaskResult = taskResult;
+
+      if (isGptImage) {
+        let finalUsage = getEvolinkFinalUsage(result.raw);
+        if (!finalUsage && result.taskId.startsWith('task-')) {
+          const polled = await evolinkInstance.queryStatus({
+            taskId: result.taskId,
+            model,
+          });
+          if (polled.status === 'success') {
+            finalUsage = getEvolinkFinalUsage(polled.raw);
+          }
+        }
+
+        // A URL can arrive slightly before the billing-confirmed terminal
+        // task. Keep polling rather than charging an estimate.
+        if (!finalUsage && result.taskId.startsWith('task-')) {
+          await updateTask({
+            taskId: task.id,
+            status: AITaskStatus.PROCESSING,
+            taskResult,
+          });
+          return respData({
+            taskId: task.id,
+            status: AITaskStatus.PROCESSING,
+            reservationCredits: costCredits,
+            reason: pricingReason,
+            model,
+            n,
+            resolution,
+            quality,
+          });
+        }
+        if (!finalUsage) {
+          return await fail(
+            'EvoLink completed the image without final billing usage. The temporary hold was released; please retry.'
+          );
+        }
+
+        const finalCredits =
+          pricingReason === 'first_free'
+            ? 0
+            : getGptImageFinalCredits(finalUsage.creditsUsed);
+        const billing = {
+          platformCredits: finalUsage.creditsUsed,
+          multiplier: GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
+          finalCredits,
+          reservationCredits: costCredits,
+          usage: finalUsage,
+        };
+        settledTaskResult = { ...taskResult, billing };
+        settledTask = await completeTaskWithUsage({
+          taskId: task.id,
+          taskResult: settledTaskResult,
+          platformCredits: finalUsage.creditsUsed,
+          finalCredits,
+          multiplier: GPT_IMAGE_PLATFORM_CREDIT_MULTIPLIER,
+          usage: finalUsage,
+        });
+      } else {
+        await updateTask({
+          taskId: task.id,
+          status: AITaskStatus.SUCCESS,
+          taskResult,
+        });
+      }
 
       // Fire-and-forget R2 rehost. The user already has the image in
       // their browser; this just upgrades the URL behind the scenes.
@@ -305,7 +361,7 @@ export async function postImageTask({
               taskId: task.id,
               status: AITaskStatus.SUCCESS,
               taskResult: {
-                ...taskResult,
+                ...settledTaskResult,
                 imageUrls: finalUrls,
               },
             });
@@ -326,8 +382,8 @@ export async function postImageTask({
         // What this generation actually cost, and why. `first_free` means
         // the trial was spent on this call — the client can use it to tell
         // the user the next one is paid. Mirrors -video.ts / website-audit.
-        costCredits,
-        standardCost,
+        costCredits: settledTask.costCredits,
+        reservationCredits: costCredits,
         reason: pricingReason,
         model,
         n,
@@ -337,8 +393,8 @@ export async function postImageTask({
         // the client can render the active image without a follow-up
         // GET — saves a DB round-trip on every sync generation.
         task: {
-          ...task,
-          taskResult,
+          ...settledTask,
+          taskResult: settledTaskResult,
         },
       });
     }
@@ -372,8 +428,7 @@ export async function postImageTask({
     return respData({
       taskId: task.id,
       status: AITaskStatus.PROCESSING,
-      costCredits,
-      standardCost,
+      reservationCredits: costCredits,
       reason: pricingReason,
       model,
       n,

@@ -1045,6 +1045,7 @@
   "playground.image.quality_medium": "Medium",
   "playground.image.quality_high": "High",
   "playground.image.credits_cost": "{count} credits",
+  "playground.image.final_usage_billing": "For paid generations, up to {reservation} credits are temporarily held. Final credits are settled from actual usage after generation; the difference is returned.",
   "playground.image.aspect_smart": "auto",
   "playground.image.model_search_placeholder": "Search models…",
   "playground.image.model_empty": "No matching models",
