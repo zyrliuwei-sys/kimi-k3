@@ -29,6 +29,11 @@ export const Route = createFileRoute('/api/payment/notify/$provider')({
             return Response.json({ code: 'SUCCESS', message: 'OK' });
           }
 
+          // Waffo checks both HTTP 200 and this exact response envelope.
+          if (provider === 'waffo') {
+            return Response.json({ message: 'success' });
+          }
+
           return respOk();
         } catch (error: any) {
           console.error('webhook error:', error);
@@ -38,6 +43,12 @@ export const Route = createFileRoute('/api/payment/notify/$provider')({
               status: 200,
               headers: { 'Content-Type': 'text/plain' },
             });
+          }
+
+          if (provider === 'waffo') {
+            // Invalid signatures and processing failures must be acknowledged
+            // as failed so Waffo can retry its signed delivery.
+            return Response.json({ message: 'failed' });
           }
 
           return respErr(error.message || 'Webhook handling failed');

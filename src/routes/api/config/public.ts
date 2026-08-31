@@ -23,6 +23,7 @@ const publicKeys = [
   'default_payment_provider',
   'stripe_enabled',
   'creem_enabled',
+  'waffo_enabled',
   'paypal_enabled',
   'alipay_enabled',
   'wechat_enabled',
@@ -44,7 +45,6 @@ const publicKeys = [
   // Whether Turnstile verification is enabled. The widget renders only
   // when both this is 'true' AND the site key is non-empty.
   'turnstile_enabled',
-
 ];
 
 function isEmailSendingConfigured(configs: Record<string, string>): boolean {

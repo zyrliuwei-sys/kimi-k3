@@ -10,6 +10,12 @@ import { useRouter } from '@/core/i18n/navigation';
 import { apiPost } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
+import { usePaymentProviders } from '@/hooks/use-payment-providers';
+import { usePublicConfig } from '@/hooks/use-public-config';
+import {
+  PaymentProviderModal,
+  type PaymentProvider,
+} from '@/components/payment-provider-modal';
 import {
   PricingTable,
   type PricingGroup,
@@ -194,10 +200,22 @@ export function Pricing({
 } = {}) {
   const router = useRouter();
   const { data: session } = useSession();
+  const { data: publicConfig } = usePublicConfig();
+  const { data: paymentProviderData, isLoading: paymentProvidersLoading } =
+    usePaymentProviders();
   // Three tabs: left = one-time packs, middle = monthly, right = yearly.
   // Default to monthly so the subscription tiers (the bread and butter) greet
   // the visitor before they have to click anything.
   const [mode, setMode] = useState<BillingMode>('monthly');
+  const [paymentPlan, setPaymentPlan] = useState<PricingPlan | null>(null);
+
+  // The server returns the providers actually registered in PaymentManager.
+  // Adding a future provider only requires registering it there; the picker
+  // discovers it automatically without a pricing-page edit.
+  const paymentProviders = paymentProviderData?.providers ?? [];
+  const showPaymentProviderSelector =
+    paymentProviders.length > 1 &&
+    publicConfig?.select_payment_enabled !== 'false';
 
   // Per product: monthly price, monthly credits, monthly productId
   const liteMonthly = {
@@ -425,7 +443,13 @@ export function Pricing({
   }, [mode, monthlyPlans, yearlyPlans, onetimePlans]);
 
   const checkoutMutation = useMutation({
-    mutationFn: (plan: PricingPlan) =>
+    mutationFn: ({
+      plan,
+      provider,
+    }: {
+      plan: PricingPlan;
+      provider?: PaymentProvider;
+    }) =>
       apiPost<{ checkout_url?: string }>('/api/payment/checkout', {
         product_id: plan.productId,
         product_name: plan.productName || plan.name,
@@ -435,6 +459,7 @@ export function Pricing({
         // Server reads the catalog and decides type itself.
         description: plan.name,
         credits: plan.credits,
+        payment_provider: provider,
       }),
     onSuccess: (data) => {
       if (!data?.checkout_url) {
@@ -448,6 +473,10 @@ export function Pricing({
     },
   });
 
+  function beginCheckout(plan: PricingPlan, provider?: PaymentProvider) {
+    checkoutMutation.mutate({ plan, provider });
+  }
+
   function handleCheckout(plan: PricingPlan) {
     if (!plan.priceInCents) return;
 
@@ -458,118 +487,170 @@ export function Pricing({
       router.push(`/sign-in?redirect=${redirect}`);
       return;
     }
-    checkoutMutation.mutate(plan);
+
+    if (showPaymentProviderSelector) {
+      setPaymentPlan(plan);
+      return;
+    }
+
+    if (paymentProvidersLoading) {
+      toast.message('Loading payment methods...');
+      return;
+    }
+
+    const provider = paymentProviderData?.defaultProvider;
+    if (!provider) {
+      toast.error('No payment provider is configured');
+      return;
+    }
+
+    beginCheckout(plan, provider);
+  }
+
+  function handlePaymentProviderSelect(provider: PaymentProvider) {
+    if (!paymentPlan) return;
+    beginCheckout(paymentPlan, provider);
   }
 
   if (embedded) {
     const activePlans = groups[0]?.plans ?? [];
     return (
-      <div className="w-full bg-white px-4 pt-4 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
-        <div className="relative top-2 mb-4 flex items-start justify-between gap-4">
-          <div className="w-full">
-            <p className="text-muted-foreground text-center text-sm leading-normal whitespace-nowrap">
-              {description ?? m['landing.pricing.description']()}
-            </p>
+      <>
+        <div className="w-full bg-white px-4 pt-4 pb-3 sm:px-5 sm:pt-5 sm:pb-4">
+          <div className="relative top-2 mb-4 flex items-start justify-between gap-4">
+            <div className="w-full">
+              <p className="text-muted-foreground text-center text-sm leading-normal whitespace-nowrap">
+                {description ?? m['landing.pricing.description']()}
+              </p>
+            </div>
           </div>
-        </div>
 
-        <div className="relative top-2">
-          <BillingModeToggle value={mode} onChange={setMode} compact />
-        </div>
+          <div className="relative top-2">
+            <BillingModeToggle value={mode} onChange={setMode} compact />
+          </div>
 
-        <div className="grid gap-2.5">
-          {activePlans.map((plan) => {
-            const isYearly = mode === 'yearly';
-            return (
-              <div
-                key={plan.id}
-                className={cn(
-                  'group relative rounded-2xl border p-3.5 transition-colors',
-                  plan.featured
-                    ? 'border-foreground bg-foreground text-background'
-                    : 'border-border bg-card hover:border-foreground/30'
-                )}
-              >
-                <div className="flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-semibold">{plan.name}</h3>
-                      {plan.badge ? (
-                        <span
-                          className={cn(
-                            'rounded-full px-2 py-0.5 text-[10px] font-medium',
-                            plan.featured
-                              ? 'bg-background/15 text-background/80'
-                              : 'bg-foreground/8 text-muted-foreground'
-                          )}
-                        >
-                          {plan.badge}
-                        </span>
-                      ) : null}
+          <div className="grid gap-2.5">
+            {activePlans.map((plan) => {
+              const isYearly = mode === 'yearly';
+              return (
+                <div
+                  key={plan.id}
+                  className={cn(
+                    'group relative rounded-2xl border p-3.5 transition-colors',
+                    plan.featured
+                      ? 'border-foreground bg-foreground text-background'
+                      : 'border-border bg-card hover:border-foreground/30'
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-base font-semibold">{plan.name}</h3>
+                        {plan.badge ? (
+                          <span
+                            className={cn(
+                              'rounded-full px-2 py-0.5 text-[10px] font-medium',
+                              plan.featured
+                                ? 'bg-background/15 text-background/80'
+                                : 'bg-foreground/8 text-muted-foreground'
+                            )}
+                          >
+                            {plan.badge}
+                          </span>
+                        ) : null}
+                      </div>
+                      <p
+                        className={cn(
+                          'mt-0.5 text-xs',
+                          plan.featured
+                            ? 'text-background/60'
+                            : 'text-muted-foreground'
+                        )}
+                      >
+                        {plan.credits.toLocaleString()} Credits
+                        {isYearly ? ' / year' : ''}
+                      </p>
                     </div>
-                    <p
+                    <div className="text-right">
+                      <div className="text-lg font-semibold tracking-tight">
+                        {plan.price}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleCheckout(plan)}
+                      disabled={checkoutMutation.isPending}
                       className={cn(
-                        'mt-0.5 text-xs',
+                        'shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold transition-transform active:scale-95 disabled:opacity-50',
                         plan.featured
-                          ? 'text-background/60'
-                          : 'text-muted-foreground'
+                          ? 'bg-background text-foreground hover:bg-background/90'
+                          : 'bg-foreground text-background hover:bg-foreground/90'
                       )}
                     >
-                      {plan.credits.toLocaleString()} Credits
-                      {isYearly ? ' / year' : ''}
-                    </p>
+                      {plan.buttonText}
+                    </button>
                   </div>
-                  <div className="text-right">
-                    <div className="text-lg font-semibold tracking-tight">
-                      {plan.price}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleCheckout(plan)}
-                    disabled={checkoutMutation.isPending}
-                    className={cn(
-                      'shrink-0 rounded-full px-3.5 py-2 text-xs font-semibold transition-transform active:scale-95 disabled:opacity-50',
-                      plan.featured
-                        ? 'bg-background text-foreground hover:bg-background/90'
-                        : 'bg-foreground text-background hover:bg-foreground/90'
-                    )}
-                  >
-                    {plan.buttonText}
-                  </button>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+        <PaymentProviderModal
+          open={!!paymentPlan}
+          onOpenChange={(open) => !open && setPaymentPlan(null)}
+          providers={paymentProviders}
+          loadingProvider={
+            checkoutMutation.isPending
+              ? (checkoutMutation.variables?.provider ?? null)
+              : null
+          }
+          onSelect={handlePaymentProviderSelect}
+          planName={paymentPlan?.name}
+          price={paymentPlan?.price}
+        />
+      </>
     );
   }
 
   return (
-    <section
-      id={embedded ? undefined : 'pricing'}
-      className={cn(
-        !embedded && 'border-border border-t px-4 py-24 sm:py-32',
-        embedded && 'px-4 py-8 sm:px-8 sm:py-10'
-      )}
-    >
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-10 text-center">
-          <h2 className="font-serif text-4xl font-normal tracking-tight sm:text-5xl">
-            {title ?? m['landing.pricing.title']()}
-          </h2>
-          <p className="text-muted-foreground mt-5 text-left">
-            {description ?? m['landing.pricing.description']()}
-          </p>
+    <>
+      <section
+        id={embedded ? undefined : 'pricing'}
+        className={cn(
+          !embedded && 'border-border border-t px-4 py-24 sm:py-32',
+          embedded && 'px-4 py-8 sm:px-8 sm:py-10'
+        )}
+      >
+        <div className="mx-auto max-w-5xl">
+          <div className="mb-10 text-center">
+            <h2 className="font-serif text-4xl font-normal tracking-tight sm:text-5xl">
+              {title ?? m['landing.pricing.title']()}
+            </h2>
+            <p className="text-muted-foreground mt-5 text-left">
+              {description ?? m['landing.pricing.description']()}
+            </p>
+          </div>
+
+          {/* Three-tab pill — packs | monthly (default) | yearly */}
+          <BillingModeToggle value={mode} onChange={setMode} />
+
+          <PricingTable groups={groups} onCheckout={handleCheckout} />
         </div>
-
-        {/* Three-tab pill — packs | monthly (default) | yearly */}
-        <BillingModeToggle value={mode} onChange={setMode} />
-
-        <PricingTable groups={groups} onCheckout={handleCheckout} />
-      </div>
-    </section>
+      </section>
+      <PaymentProviderModal
+        open={!!paymentPlan}
+        onOpenChange={(open) => !open && setPaymentPlan(null)}
+        providers={paymentProviders}
+        loadingProvider={
+          checkoutMutation.isPending
+            ? (checkoutMutation.variables?.provider ?? null)
+            : null
+        }
+        onSelect={handlePaymentProviderSelect}
+        planName={paymentPlan?.name}
+        price={paymentPlan?.price}
+      />
+    </>
   );
 }
 

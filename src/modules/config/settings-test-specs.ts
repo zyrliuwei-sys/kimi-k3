@@ -81,6 +81,25 @@ export const testSpecs: Record<string, TestSpec> = {
       },
     ],
   },
+  waffo: {
+    group: 'waffo',
+    fields: [
+      {
+        name: 'productId',
+        label: 'Waffo product ID',
+        type: 'text',
+        placeholder: 'PROD_xxx',
+        required: true,
+      },
+      {
+        name: 'currency',
+        label: 'Currency',
+        type: 'text',
+        defaultValue: 'USD',
+        required: true,
+      },
+    ],
+  },
   paypal: {
     group: 'paypal',
     fields: [

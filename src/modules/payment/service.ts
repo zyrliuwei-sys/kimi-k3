@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, or } from 'drizzle-orm';
 
 import { db } from '@/core/db';
 import {
@@ -7,11 +7,13 @@ import {
   PaymentManager,
   PayPalProvider,
   StripeProvider,
+  WaffoProvider,
   WechatPayProvider,
 } from '@/core/payment';
 import {
   PaymentStatus,
   PaymentType,
+  SubscriptionCycleType,
   type CheckoutSession,
   type PaymentEvent,
   type PaymentOrder,
@@ -54,6 +56,10 @@ async function getPaymentManager(): Promise<PaymentManager> {
     c('creem_api_key'),
     c('paypal_enabled'),
     c('paypal_client_id'),
+    c('waffo_enabled'),
+    c('waffo_merchant_id'),
+    c('waffo_environment'),
+    c('waffo_product_ids_mapping'),
     c('alipay_app_id'),
     c('wechat_mch_id'),
     c('default_payment_provider'),
@@ -112,6 +118,23 @@ async function getPaymentManager(): Promise<PaymentManager> {
     );
   }
 
+  if (
+    c('waffo_enabled') === 'true' &&
+    c('waffo_merchant_id') &&
+    c('waffo_private_key')
+  ) {
+    const isDefault = c('default_payment_provider') === 'waffo';
+    manager.addProvider(
+      new WaffoProvider({
+        merchantId: c('waffo_merchant_id'),
+        privateKey: c('waffo_private_key'),
+        environment: c('waffo_environment') === 'prod' ? 'prod' : 'test',
+        webhookPublicKey: c('waffo_webhook_public_key') || undefined,
+      }),
+      isDefault
+    );
+  }
+
   if (c('alipay_app_id') && c('alipay_private_key')) {
     const isDefault = c('default_payment_provider') === 'alipay';
     manager.addProvider(
@@ -144,6 +167,22 @@ async function getPaymentManager(): Promise<PaymentManager> {
   return manager;
 }
 
+/**
+ * Return the providers that are actually ready to accept checkout requests.
+ *
+ * This intentionally reads from PaymentManager rather than from a hard-coded
+ * list or only the `*_enabled` config flags. New providers are therefore
+ * exposed to the checkout picker as soon as they are registered here with
+ * their required credentials.
+ */
+export async function getAvailablePaymentProviders() {
+  const paymentManager = await getPaymentManager();
+  return {
+    providers: paymentManager.getProviderNames(),
+    defaultProvider: paymentManager.getDefaultProvider()?.name,
+  };
+}
+
 // --- Checkout ---
 
 export async function createCheckout(params: {
@@ -171,11 +210,14 @@ export async function createCheckout(params: {
   const configs = await getAllConfigs();
   const appUrl = configs.app_url || 'http://localhost:3000';
 
-  // Resolve provider-specific product ID (e.g. Creem product_ids_mapping)
+  // Resolve provider-specific product IDs (e.g. Creem / Waffo Pancake).
   const resolvedProvider = provider || pm.getDefaultProvider()?.name;
   let resolvedProductId = paymentOrder.productId;
-  if (resolvedProvider === 'creem' && paymentOrder.productId) {
-    const mapping = configs.creem_product_ids_mapping;
+  if (
+    (resolvedProvider === 'creem' || resolvedProvider === 'waffo') &&
+    paymentOrder.productId
+  ) {
+    const mapping = configs[`${resolvedProvider}_product_ids_mapping`];
     if (mapping) {
       try {
         const map = JSON.parse(mapping) as Record<string, string>;
@@ -196,6 +238,12 @@ export async function createCheckout(params: {
     order: {
       ...paymentOrder,
       productId: resolvedProductId,
+      customer: {
+        ...paymentOrder.customer,
+        // Waffo binds checkout sessions to this stable internal identity. It
+        // is harmless metadata for the other provider adapters.
+        id: paymentOrder.customer?.id || userId,
+      },
       orderNo,
       successUrl: callbackSuccessUrl,
       cancelUrl:
@@ -277,7 +325,14 @@ export async function handleWebhook(params: {
 
   // Route event to appropriate handler
   if (eventType === 'checkout.success' || eventType === 'payment.success') {
-    await handleCheckoutSuccess(session, params.provider);
+    if (
+      session.paymentInfo?.subscriptionCycleType ===
+      SubscriptionCycleType.RENEWAL
+    ) {
+      await handleSubscriptionRenewal(session, params.provider);
+    } else {
+      await handleCheckoutSuccess(session, params.provider);
+    }
   } else if (eventType === 'subscribe.updated') {
     await handleSubscriptionUpdated(session, params.provider);
   } else if (eventType === 'subscribe.canceled') {
@@ -300,13 +355,23 @@ async function handleCheckoutSuccess(session: any, provider: string) {
     result.out_trade_no ||
     result.outTradeNo ||
     '';
-  if (!sessionId) return;
+  const orderNo: string =
+    result.orderMerchantExternalId || result.order_no || result.orderNo || '';
+  if (!sessionId && !orderNo) return;
 
   // Find order by session ID
   const [existingOrder] = await db()
     .select()
     .from(order)
-    .where(and(eq(order.paymentSessionId, sessionId), isNull(order.deletedAt)))
+    .where(
+      and(
+        or(
+          sessionId ? eq(order.paymentSessionId, sessionId) : undefined,
+          orderNo ? eq(order.orderNo, orderNo) : undefined
+        ),
+        isNull(order.deletedAt)
+      )
+    )
     .limit(1);
 
   if (!existingOrder) return;

@@ -112,6 +112,12 @@ export function getSettingGroups(): SettingGroup[] {
       tab: 'payment',
     },
     {
+      name: 'waffo',
+      title: 'Waffo Pancake',
+      description: 'Waffo Pancake hosted checkout gateway',
+      tab: 'payment',
+    },
+    {
       name: 'paypal',
       title: 'PayPal',
       description: 'PayPal payment gateway',
@@ -529,6 +535,7 @@ export function getSettings(): Setting[] {
       options: [
         { label: 'Stripe', value: 'stripe' },
         { label: 'Creem', value: 'creem' },
+        { label: 'Waffo Pancake', value: 'waffo' },
         { label: 'PayPal', value: 'paypal' },
         { label: 'Alipay', value: 'alipay' },
         { label: 'WeChat Pay', value: 'wechat' },
@@ -622,6 +629,60 @@ export function getSettings(): Setting[] {
       type: 'number',
       placeholder: '留空使用实际金额，填 1 则支付 $0.01',
       group: 'creem',
+      tab: 'payment',
+    },
+
+    // ─── Payment / Waffo Pancake ────────────────────────────────────
+    {
+      name: 'waffo_enabled',
+      title: 'Enable Waffo Pancake',
+      type: 'switch',
+      group: 'waffo',
+      tab: 'payment',
+    },
+    {
+      name: 'waffo_environment',
+      title: 'Environment',
+      type: 'select',
+      options: [
+        { label: 'Test', value: 'test' },
+        { label: 'Production', value: 'prod' },
+      ],
+      group: 'waffo',
+      tab: 'payment',
+      defaultValue: 'test',
+    },
+    {
+      name: 'waffo_merchant_id',
+      title: 'Merchant ID',
+      type: 'text',
+      placeholder: 'MER_xxx',
+      group: 'waffo',
+      tab: 'payment',
+    },
+    {
+      name: 'waffo_private_key',
+      title: 'Private Key (PEM)',
+      type: 'textarea',
+      placeholder: '-----BEGIN PRIVATE KEY-----',
+      group: 'waffo',
+      tab: 'payment',
+    },
+    {
+      name: 'waffo_webhook_public_key',
+      title: 'Webhook Public Key',
+      type: 'textarea',
+      placeholder: '-----BEGIN PUBLIC KEY-----',
+      group: 'waffo',
+      tab: 'payment',
+    },
+    {
+      name: 'waffo_product_ids_mapping',
+      title: 'Product IDs Mapping',
+      type: 'textarea',
+      placeholder: '{"lite_monthly": "PROD_xxx", "starter_once": "PROD_yyy"}',
+      tip: 'Map each local pricing catalog ID to the Waffo Pancake product ID. Must be valid JSON.',
+      group: 'waffo',
       tab: 'payment',
     },
 
