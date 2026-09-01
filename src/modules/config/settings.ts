@@ -37,6 +37,7 @@ export function getSettingTabs(): SettingTab[] {
     { name: 'email', title: 'Email' },
     { name: 'storage', title: 'Storage' },
     { name: 'ai', title: 'AI' },
+    { name: 'seo', title: 'SEO' },
     { name: 'analytics', title: 'Analytics' },
     { name: 'customer_service', title: 'Customer Service' },
     { name: 'custom', title: 'Custom' },
@@ -164,6 +165,15 @@ export function getSettingGroups(): SettingGroup[] {
       tab: 'storage',
     },
 
+    // SEO
+    {
+      name: 'indexnow',
+      title: 'IndexNow',
+      description:
+        'Notify participating search engines when public URLs change',
+      tab: 'seo',
+    },
+
     // AI
     {
       name: 'openai',
@@ -250,6 +260,26 @@ export function getSettingGroups(): SettingGroup[] {
 
 export function getSettings(): Setting[] {
   return [
+    // ─── SEO / IndexNow ──────────────────────────────────────────────
+    {
+      name: 'indexnow_enabled',
+      title: 'Enable IndexNow notifications',
+      type: 'switch',
+      group: 'indexnow',
+      tab: 'seo',
+      defaultValue: 'false',
+      tip: 'When enabled, published, updated, and archived blog articles are submitted automatically.',
+    },
+    {
+      name: 'indexnow_key',
+      title: 'IndexNow key',
+      type: 'text',
+      placeholder: 'Generate an 8–128 character key at bing.com/indexnow',
+      group: 'indexnow',
+      tab: 'seo',
+      tip: 'The site serves this key at /<key>.txt to prove ownership. It may contain letters, numbers, and dashes only.',
+    },
+
     // ─── General / App Info ──────────────────────────────────────────
     {
       name: 'app_name',
