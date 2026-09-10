@@ -37,6 +37,7 @@ pnpm dev
 - **MDX Pages** — Privacy policy, terms of service (content in `src/content/pages/`), extensible via skill
 - **Database** — SQLite (dev) / PostgreSQL / MySQL via Drizzle ORM
 - **All code self-contained** — no external packages for business logic
+- https://www.kimik3.net
 
 ## Tech Stack
 
