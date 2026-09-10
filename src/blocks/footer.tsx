@@ -414,6 +414,21 @@ export function Footer() {
             © {new Date().getFullYear()} kimik3 Team.{' '}
             {m['landing.footer.rights']()}
           </p>
+          <a
+            href="https://shinylaunch.com/product/kimik3"
+            target="_blank"
+            rel="nofollow noopener noreferrer"
+            className="inline-block transition-opacity hover:opacity-80"
+          >
+            <img
+              src="https://shinylaunch.com/assets/images/badge-dark.png"
+              alt="ShinyLaunch"
+              width={240}
+              height={54}
+              loading="lazy"
+              decoding="async"
+            />
+          </a>
           <div className="flex items-center gap-4">
             {socials.map(({ label, icon: Icon, href }) => (
               <a
