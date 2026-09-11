@@ -65,6 +65,12 @@ function AdminLayout() {
       icon: LifeBuoy,
       group,
     },
+    {
+      href: '/admin/link/config',
+      label: m['admin.nav.backlink'](),
+      icon: Settings,
+      group,
+    },
   ];
 
   const footerNavItems = [

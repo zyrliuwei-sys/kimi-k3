@@ -1668,5 +1668,12 @@
   "files.gallery.title": "文件",
   "files.gallery.all": "全部",
   "files.gallery.pptx.title": "演示文稿",
-  "files.gallery.pptx.desc": "输入主题,一键生成带设计感的幻灯片。"
+  "files.gallery.pptx.desc": "输入主题,一键生成带设计感的幻灯片。",
+  "admin.nav.backlink": "外链自动化",
+  "admin.backlink.title": "外链自动化",
+  "admin.backlink.description": "配置 Agent 可以发布的已批准外链代码。",
+  "admin.backlink.card_title": "已批准外链",
+  "admin.backlink.code_label": "外链 HTML 代码",
+  "admin.backlink.code_hint": "目前只支持安全的 a 链接，脚本和嵌入内容会被禁止。",
+  "admin.backlink.enabled_label": "启用外链发布"
 }

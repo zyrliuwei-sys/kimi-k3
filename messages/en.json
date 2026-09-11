@@ -1668,5 +1668,12 @@
   "files.gallery.title": "Files",
   "files.gallery.all": "All",
   "files.gallery.pptx.title": "Presentation",
-  "files.gallery.pptx.desc": "Type a topic, get a designed slide deck in one click."
+  "files.gallery.pptx.desc": "Type a topic, get a designed slide deck in one click.",
+  "admin.nav.backlink": "Backlink automation",
+  "admin.backlink.title": "Backlink automation",
+  "admin.backlink.description": "Configure the approved backlink code that an agent can publish.",
+  "admin.backlink.card_title": "Approved backlink",
+  "admin.backlink.code_label": "Backlink HTML",
+  "admin.backlink.code_hint": "Only safe anchor links are supported. Scripts and embeds are blocked.",
+  "admin.backlink.enabled_label": "Enable backlink publication"
 }
