@@ -41,6 +41,26 @@ function HomePage() {
         <FAQ />
         <CTA />
       </main>
+      <section
+        aria-label="My Launch Stash badge"
+        className="flex justify-center bg-neutral-950 px-6 py-4"
+      >
+        <a
+          href="https://mylaunchstash.com/product/kimik3"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="View kimik3 on My Launch Stash"
+          className="inline-block transition-opacity hover:opacity-80"
+        >
+          <img
+            src="https://mylaunchstash.com/assets/images/badge-dark.png"
+            alt="My Launch Stash"
+            height={54}
+            loading="lazy"
+            decoding="async"
+          />
+        </a>
+      </section>
       <Footer />
       <SupportWidget />
     </div>

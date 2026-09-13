@@ -71,3 +71,5 @@ package-lock.json
 /public/uploads/
 backup-pre-pivot-2026-07-20/
 backup-motion-cta-2026-07-21/
+# Local Cupsfilter logs are machine artifacts, not project source.
+/artifacts/document_qa/cupsfilter.log
