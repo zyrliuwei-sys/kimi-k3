@@ -1,5 +1,6 @@
 import { createFileRoute, Outlet } from '@tanstack/react-router';
 import {
+  BadgeCheck,
   CreditCard,
   FolderOpen,
   Home,
@@ -65,15 +66,15 @@ function AdminLayout() {
       icon: LifeBuoy,
       group,
     },
-    {
-      href: '/admin/link/config',
-      label: m['admin.nav.backlink'](),
-      icon: Settings,
-      group,
-    },
   ];
 
   const footerNavItems = [
+    {
+      href: '/admin/footer-badges',
+      label: m['admin.nav.footer_badges'](),
+      icon: BadgeCheck,
+      permission: '*',
+    },
     {
       href: '/admin/settings',
       label: m['admin.nav.settings'](),

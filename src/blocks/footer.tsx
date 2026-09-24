@@ -3,6 +3,7 @@ import { Facebook, Github, Instagram, Linkedin, Twitter } from 'lucide-react';
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
+import { FooterBadgeList } from '@/components/footer-badge-list';
 
 interface BadgeEntry {
   href: string;
@@ -406,6 +407,8 @@ export function Footer() {
             </Link>
           ))}
         </nav>
+
+        <FooterBadgeList className="mt-6" />
 
         <div className="mt-8 h-px w-full bg-white/10" />
 

@@ -1,6 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router';
 
 import { filterPublicConfigs, getAllConfigs } from '@/modules/config/service';
+import { getStoredFooterBadges } from '@/modules/footer-badges/service';
 import { respData } from '@/lib/resp';
 
 const noStore = {
@@ -45,6 +46,7 @@ const publicKeys = [
   // Whether Turnstile verification is enabled. The widget renders only
   // when both this is 'true' AND the site key is non-empty.
   'turnstile_enabled',
+  'footer_badges',
 ];
 
 function isEmailSendingConfigured(configs: Record<string, string>): boolean {
@@ -60,8 +62,15 @@ function isEmailSendingConfigured(configs: Record<string, string>): boolean {
 }
 
 async function GET({ request }: { request: Request }) {
-  const configs = await getAllConfigs();
+  const [configs, storedFooterBadges] = await Promise.all([
+    getAllConfigs(),
+    // Keep public configuration best-effort when the optional badge setting
+    // cannot be read during a transient database outage.
+    getStoredFooterBadges().catch(() => undefined),
+  ]);
   const result = filterPublicConfigs(configs, publicKeys);
+  if (storedFooterBadges === undefined) delete result.footer_badges;
+  else result.footer_badges = storedFooterBadges;
   const emailConfigured = isEmailSendingConfigured(configs);
   result.password_reset_enabled =
     configs.email_auth_enabled !== 'false' && emailConfigured

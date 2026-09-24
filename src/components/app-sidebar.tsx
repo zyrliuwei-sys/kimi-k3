@@ -3,9 +3,11 @@
 import { useEffect, useState } from 'react';
 import { ChevronRight, type LucideIcon } from 'lucide-react';
 
+import { matchPermission } from '@/core/auth/rbac';
 import { Link, usePathname } from '@/core/i18n/navigation';
 import { cn } from '@/lib/utils';
 import { localizeHref } from '@/paraglide/runtime.js';
+import { useUserPermissions } from '@/hooks/use-user-permissions';
 import { HoverBorderGradient } from '@/components/ui/hover-border-gradient';
 import {
   Sidebar,
@@ -35,6 +37,8 @@ export interface NavItem {
   icon: LucideIcon;
   group?: string;
   newTab?: boolean;
+  /** Optional permission required to show this item. */
+  permission?: string;
   /** Sub-items render as a collapsible group under this item. */
   items?: NavSubItem[];
 }
@@ -76,11 +80,20 @@ export function AppSidebar({
   navItemsVariant?: 'default' | 'hoverborder';
 }) {
   const pathname = usePathname();
+  const hasPermissionAwareItems = [...navItems, ...(footerNavItems ?? [])].some(
+    (item) => item.permission
+  );
+  const permissionsQuery = useUserPermissions(hasPermissionAwareItems);
+  const canRenderItem = (item: NavItem) =>
+    !item.permission ||
+    matchPermission(item.permission, permissionsQuery.data?.permissions ?? []);
+  const visibleNavItems = navItems.filter(canRenderItem);
+  const visibleFooterNavItems = footerNavItems?.filter(canRenderItem);
 
   // Group nav items by their (static) group label.
   const groups: { label?: string; items: NavItem[] }[] = [];
   let currentGroup: string | undefined = '__initial__';
-  for (const item of navItems) {
+  for (const item of visibleNavItems) {
     if (item.group !== currentGroup) {
       groups.push({ label: item.group, items: [item] });
       currentGroup = item.group;
@@ -92,7 +105,7 @@ export function AppSidebar({
   // The first nav item (dashboard root, e.g. /admin) matches exactly; everything
   // else matches by path prefix so sub-routes light up their entry.
   const isActiveHref = (href: string) =>
-    href === navItems[0]?.href
+    href === visibleNavItems[0]?.href
       ? pathname === href
       : pathname === href || pathname.startsWith(href + '/');
 
@@ -296,9 +309,9 @@ export function AppSidebar({
             {upgradeCard}
           </div>
         )}
-        {footerNavItems && footerNavItems.length > 0 && (
+        {visibleFooterNavItems && visibleFooterNavItems.length > 0 && (
           <SidebarMenu>
-            {footerNavItems.map((item) => {
+            {visibleFooterNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = item.newTab
                 ? false
