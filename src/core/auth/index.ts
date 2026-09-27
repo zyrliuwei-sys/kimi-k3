@@ -10,7 +10,7 @@ import { VerifyEmail } from '@/core/email/templates/verify-email';
 import { WelcomeEmail } from '@/core/email/templates/welcome-email';
 import { AUTH_SECRET_PLACEHOLDER, envConfigs } from '@/config';
 import * as schema from '@/config/db/schema';
-import { getAllConfigs } from '@/modules/config/service';
+import { getAllConfigs, type ConfigMap } from '@/modules/config/service';
 import { getUuid } from '@/lib/hash';
 
 function assertProductionAuthSecret() {
@@ -206,13 +206,19 @@ function isEmailConfigured(configs: Record<string, string>): boolean {
  * shown in the email stays in sync with what `grantForNewUser` actually
  * grants on the credit side.
  */
-async function sendWelcomeEmail(user: {
-  id: string;
-  email: string;
-  name?: string | null;
-}) {
+async function sendWelcomeEmail(
+  user: {
+    id: string;
+    email: string;
+    name?: string | null;
+  },
+  configs?: ConfigMap
+) {
   try {
-    const all = await getAllConfigs(true);
+    // Reuse the config snapshot already loaded by the auth request. A welcome
+    // email is best-effort and should not trigger a second config-table scan
+    // for every signup.
+    const all = configs ?? (await getAllConfigs());
     const emailCtx = getEmailProvider(all);
     if (!emailCtx) {
       // Email is optional — silently skip if not configured.

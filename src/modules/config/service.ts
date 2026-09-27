@@ -13,6 +13,7 @@ export type ConfigMap = Record<string, string>;
 let cachedConfigs: ConfigMap | null = null;
 let cacheTime = 0;
 const CACHE_TTL = 3600_000; // 1 hour
+let pendingConfigRead: Promise<ConfigMap> | null = null;
 
 /**
  * Get all configs from database.
@@ -26,7 +27,19 @@ export async function getDbConfigs(
     return cachedConfigs;
   }
 
-  try {
+  // Auth, root-loader, and public-config requests can all arrive together
+  // after a cold start. Share the in-flight read so a burst produces one
+  // SELECT instead of one SELECT per request.
+  if (pendingConfigRead) {
+    try {
+      return await pendingConfigRead;
+    } catch (error) {
+      if (throwOnError) throw error;
+      return {};
+    }
+  }
+
+  const read = (async () => {
     if (!envConfigs.database_url && envConfigs.database_provider !== 'd1') {
       return {};
     }
@@ -50,8 +63,13 @@ export async function getDbConfigs(
     }
 
     cachedConfigs = result;
-    cacheTime = now;
+    cacheTime = Date.now();
     return result;
+  })();
+  pendingConfigRead = read;
+
+  try {
+    return await read;
   } catch (error) {
     // Auth flows that rely on a security switch must distinguish "no DB
     // configuration" from "the configuration read failed". Silently
@@ -60,6 +78,8 @@ export async function getDbConfigs(
     // best-effort fallback; strict callers fail closed instead.
     if (throwOnError) throw error;
     return {};
+  } finally {
+    if (pendingConfigRead === read) pendingConfigRead = null;
   }
 }
 

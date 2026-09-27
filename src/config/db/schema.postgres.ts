@@ -42,6 +42,7 @@ export const user = table(
   (table) => [
     index('idx_user_name').on(table.name),
     index('idx_user_created_at').on(table.createdAt),
+    index('idx_user_ip').on(table.ip),
   ]
 );
 

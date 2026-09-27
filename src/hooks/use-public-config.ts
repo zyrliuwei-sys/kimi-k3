@@ -12,6 +12,9 @@ export function usePublicConfig() {
     queryKey: ['public-config'],
     queryFn: () =>
       apiGet<PublicConfig>('/api/config/public', { cache: 'no-store' }),
-    staleTime: 0,
+    // Public config changes are explicitly invalidated by the admin settings
+    // screen. Keep normal navigation from refetching this endpoint on every
+    // mount while still picking up changes from another admin/session soon.
+    staleTime: 60_000,
   });
 }

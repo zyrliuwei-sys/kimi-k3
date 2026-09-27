@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router';
-import { and, count, eq, gt, sql } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 
 import { getAuth, sendWelcomeEmail } from '@/core/auth';
 import { db } from '@/core/db';
@@ -151,6 +151,20 @@ function captchaFailureResponse() {
 const BLOCKED_EMAIL_REGEX = /@(?:qq|foxmail)\.com$/i;
 const MAX_REGISTRATIONS_PER_IP = 3;
 
+async function hasReachedIpRegistrationLimit(ip: string): Promise<boolean> {
+  if (!ip) return false;
+
+  // We only need to know whether the cap is reached. LIMIT avoids counting
+  // every row when an abusive IP has already created many accounts, and the
+  // idx_user_ip index keeps this check off the user-table heap.
+  const rows = await db()
+    .select({ id: user.id })
+    .from(user)
+    .where(eq(user.ip, ip))
+    .limit(MAX_REGISTRATIONS_PER_IP);
+  return rows.length >= MAX_REGISTRATIONS_PER_IP;
+}
+
 // Auth endpoints that can create a brand-new user. better-auth mounts
 // social-provider callbacks at `/callback/:id` (302 redirect) and the
 // magic-link plugin verifies new emails at `/magic-link/verify` (200
@@ -202,12 +216,10 @@ async function handle(request: Request) {
   // (IP cap check), Turnstile, and the post-signup IP persistence below.
   const clientIp = getClientIpFromRequest(request);
 
-  // Force-refresh the config cache — signup bonus decisions must reflect
-  // the latest admin-set values, not whatever was cached up to 1h ago.
-  // `getAuth()` needs the resolved configuration, not just the DB rows.
-  // OAuth credentials deliberately support environment fallbacks for local
-  // development. Passing `getDbConfigs()` here skipped those fallbacks when
-  // an admin value was absent or the config database was temporarily down.
+  // Reuse the process cache. Admin writes invalidate it, and the cache read is
+  // coalesced during cold-start bursts. Forcing a full config-table scan on
+  // every auth/session request was a major source of unnecessary Neon CPU.
+  // `getAuth()` still receives env + DB config, preserving local fallbacks.
   let configs: Record<string, string>;
   try {
     // A protected endpoint cannot safely continue when a live config read
@@ -215,16 +227,16 @@ async function handle(request: Request) {
     // appear disabled. Non-protected auth endpoints retain the template's
     // normal best-effort configuration fallback.
     configs = captchaAction
-      ? await getAllConfigsStrict(true)
-      : await getAllConfigs(true);
+      ? await getAllConfigsStrict()
+      : await getAllConfigs();
   } catch {
     return captchaFailureResponse();
   }
 
   // Cloudflare Turnstile bot verification. The admin switch alone enables
   // enforcement: incomplete secrets or hostnames are rejected rather than
-  // silently switching security off. `configs` was force-refreshed above, so
-  // the current admin state applies to this request without another DB read.
+  // silently switching security off. `configs` is the single snapshot for
+  // this request, so verification does not trigger another DB read.
   if (captchaAction && configs.turnstile_enabled === 'true') {
     const expectedHostnames = getTurnstileExpectedHostnames(configs);
     if (!configs.turnstile_secret || expectedHostnames.length === 0) {
@@ -322,11 +334,7 @@ async function handle(request: Request) {
         );
       }
       if (clientIp) {
-        const [{ count: existing }] = await db()
-          .select({ count: count() })
-          .from(user)
-          .where(eq(user.ip, clientIp));
-        if ((existing ?? 0) >= MAX_REGISTRATIONS_PER_IP) {
+        if (await hasReachedIpRegistrationLimit(clientIp)) {
           return Response.json(
             {
               message: m['auth.signup.error_ip_limit']({
@@ -431,11 +439,7 @@ async function handle(request: Request) {
         // IP signing in don't hit this path — the newSignups filter
         // excludes pre-existing user rows.
         if (clientIp) {
-          const [{ count: existingIpCount }] = await db()
-            .select({ count: count() })
-            .from(user)
-            .where(eq(user.ip, clientIp));
-          if ((existingIpCount ?? 0) >= MAX_REGISTRATIONS_PER_IP) {
+          if (await hasReachedIpRegistrationLimit(clientIp)) {
             await db()
               .delete(user)
               .where(eq(user.id, newUser.userId))
@@ -478,11 +482,14 @@ async function handle(request: Request) {
         );
         // Best-effort welcome email. sendWelcomeEmail swallows its own
         // errors and runs against the email provider in the background.
-        void sendWelcomeEmail({
-          id: newUser.userId,
-          email: newUser.userEmail,
-          name: newUser.userName,
-        });
+        void sendWelcomeEmail(
+          {
+            id: newUser.userId,
+            email: newUser.userEmail,
+            name: newUser.userName,
+          },
+          configs
+        );
       }
     } catch (e) {
       console.error('[auth] detect new sign-ups failed:', e);
@@ -517,11 +524,14 @@ async function handle(request: Request) {
       }).catch((e) =>
         console.error(`[auth] signup bonus failed (user=${body.user.id}):`, e)
       );
-      void sendWelcomeEmail({
-        id: body.user.id,
-        email: body.user.email,
-        name: body.user.name,
-      });
+      void sendWelcomeEmail(
+        {
+          id: body.user.id,
+          email: body.user.email,
+          name: body.user.name,
+        },
+        configs
+      );
     }
   } catch {
     // Non-JSON response — let it through unchanged.
