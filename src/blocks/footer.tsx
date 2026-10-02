@@ -408,20 +408,12 @@ export function Footer() {
           ))}
         </nav>
 
-        <FooterBadgeList className="mt-6" />
-
-        <div className="mt-8 h-px w-full bg-white/10" />
-
-        <div className="mt-7 flex w-full flex-col items-center justify-between gap-5 text-base sm:flex-row">
-          <p className="text-neutral-400">
-            © {new Date().getFullYear()} kimik3 Team.{' '}
-            {m['landing.footer.rights']()}
-          </p>
+        <FooterBadgeList className="mt-6">
           <a
             href="https://shinylaunch.com/product/kimik3"
             target="_blank"
             rel="nofollow noopener noreferrer"
-            className="inline-block transition-opacity hover:opacity-80"
+            className="inline-flex transition-opacity hover:opacity-80"
           >
             <img
               src="https://shinylaunch.com/assets/images/badge-dark.png"
@@ -430,8 +422,34 @@ export function Footer() {
               height={54}
               loading="lazy"
               decoding="async"
+              className="h-7 w-auto"
             />
           </a>
+          <a
+            href="https://mylaunchstash.com/product/kimik3"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="View kimik3 on My Launch Stash"
+            className="inline-flex transition-opacity hover:opacity-80"
+          >
+            <img
+              src="https://mylaunchstash.com/assets/images/badge-dark.png"
+              alt="My Launch Stash"
+              height={54}
+              loading="lazy"
+              decoding="async"
+              className="h-7 w-auto"
+            />
+          </a>
+        </FooterBadgeList>
+
+        <div className="mt-8 h-px w-full bg-white/10" />
+
+        <div className="mt-7 flex w-full flex-col items-center justify-between gap-5 text-base sm:flex-row">
+          <p className="text-neutral-400">
+            © {new Date().getFullYear()} kimik3 Team.{' '}
+            {m['landing.footer.rights']()}
+          </p>
           <div className="flex items-center gap-4">
             {socials.map(({ label, icon: Icon, href }) => (
               <a
