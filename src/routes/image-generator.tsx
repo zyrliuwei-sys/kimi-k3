@@ -10,14 +10,14 @@ import {
 import { PlaygroundShell } from '@/components/playground-shell';
 
 const IMAGE_GENERATOR_TITLE =
-  'Free AI Image Generator | Kimi K3 - Create Images Online';
+  'Free AI Image Generator — Text to Image Online | kimik3';
 const IMAGE_GENERATOR_DESCRIPTION =
-  'Generate images free with Kimi K3 AI image generator. Describe your idea and get HD images in seconds. Sign in for 2 free image generations.';
+  'Turn a text prompt into HD images with the kimik3 AI image generator. Describe your idea and get results in seconds. Sign in for 2 free image generations.';
 const IMAGE_GENERATOR_CANONICAL = 'https://www.kimik3.net/image-generator';
 const IMAGE_GENERATOR_STRUCTURED_DATA = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'Kimi K3 Image Generator',
+  name: 'kimik3 AI Image Generator',
   applicationCategory: 'MultimediaApplication',
   operatingSystem: 'Web',
   url: IMAGE_GENERATOR_CANONICAL,
@@ -74,7 +74,7 @@ function ImageGeneratorWorkspace() {
   return (
     <>
       <PlaygroundShell
-        brand="Kimi K3"
+        brand="kimik3"
         brandHref="/api-playground"
         upgradeCard={<PlaygroundUpgradeCard />}
         navItems={[

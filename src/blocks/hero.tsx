@@ -28,7 +28,7 @@ export function Hero() {
             className="font-serif text-[clamp(1.75rem,5vw,3.5rem)] leading-[1.05] font-medium tracking-tight md:text-6xl"
           >
             {m['landing.hero.headline_prefix']()}{' '}
-            <span className="text-brand-gradient">
+            <span className="text-brand-gradient block">
               {m['landing.hero.headline_gradient']()}
             </span>
           </motion.h1>

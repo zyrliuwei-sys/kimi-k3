@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Check, Sparkles, Zap } from 'lucide-react';
+import { Sparkles, Zap } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { useSession } from '@/core/auth/client';
@@ -24,167 +24,108 @@ import {
 
 type BillingMode = 'packs' | 'monthly' | 'yearly';
 
-const FEATURE_CHECK = { icon: Check, label: '' };
-
 function feat(iconComponent: any, label: string) {
   return { icon: iconComponent, label };
 }
 
-// Feature builders — one per (tier × mode) so the monthly and yearly lists can
-// diverge. Each list is intentionally 3× the original (~12/9/9) so the cards
-// tell a richer story drawn from the landing-page copy (hero, stats, features,
-// vfeatures, api-playground). Higher tiers include a "Includes every X
-// feature" line so we don't repeat Lite/Plus bullets wholesale.
+// Feature builders — one per tier. Every bullet must describe something the
+// product actually ships: buyers who spot an invented feature (SSO, SLAs,
+// team seats…) stop trusting the price next to it.
 
-// ── Lite ────────────────────────────────────────────────────────────────
+/** Conservative credits-per-message used for the "≈ N messages" estimate.
+ * Production median for a Kimi K3 reply is ~3 credits and the mean ~15
+ * (skewed by long documents); 10 keeps the estimate honest for most users. */
+const CREDITS_PER_MESSAGE_ESTIMATE = 10;
 
-function buildLiteMonthlyFeatures(
+export function estimateMessages(credits: number): string {
+  const n = Math.floor(credits / CREDITS_PER_MESSAGE_ESTIMATE);
+  const rounded =
+    n >= 1000 ? Math.floor(n / 100) * 100 : Math.floor(n / 10) * 10;
+  return rounded.toLocaleString('en-US');
+}
+
+type Feature = { icon: any; label: string };
+
+function creditLines(
   icon: any,
-  credits: number
-): { icon: any; label: string }[] {
+  credits: number,
+  period: 'month' | 'year' | 'once'
+): Feature[] {
+  const creditLabel =
+    period === 'month'
+      ? m['landing.pricing.feature_credits_month']({ credits })
+      : period === 'year'
+        ? m['landing.pricing.feature_credits_year']({ credits })
+        : m['landing.pricing.feature_credits_once']({ credits });
   return [
-    feat(icon, m['landing.pricing.feature_credits_month']({ credits })),
+    feat(icon, creditLabel),
+    feat(
+      icon,
+      m['landing.pricing.feature_messages_estimate']({
+        count: estimateMessages(credits),
+      })
+    ),
+  ];
+}
+
+function buildLiteFeatures(
+  icon: any,
+  credits: number,
+  period: 'month' | 'year'
+): Feature[] {
+  return [
+    ...creditLines(icon, credits, period),
     feat(icon, m['landing.pricing.feature_kimi_access']()),
-    feat(icon, m['landing.pricing.feature_context']()),
+    feat(icon, m['landing.pricing.feature_premium_models']()),
+    feat(icon, m['landing.pricing.feature_file_tools']()),
+    feat(icon, m['landing.pricing.feature_image_gen']()),
     feat(icon, m['landing.pricing.feature_email_support']()),
-    feat(icon, m['landing.pricing.feature_streaming']()),
-    feat(icon, m['landing.pricing.feature_json_mode']()),
-    feat(icon, m['landing.pricing.feature_python_sdk']()),
-    feat(icon, m['landing.pricing.feature_node_sdk']()),
-    feat(icon, m['landing.pricing.feature_api_playground']()),
+    feat(icon, m['landing.pricing.feature_cancel_anytime']()),
   ];
 }
 
-function buildLiteYearlyFeatures(
+function buildPlusFeatures(
   icon: any,
-  credits: number
-): { icon: any; label: string }[] {
+  credits: number,
+  period: 'month' | 'year'
+): Feature[] {
   return [
-    feat(icon, m['landing.pricing.feature_credits_year']({ credits })),
-    feat(icon, m['landing.pricing.feature_kimi_access']()),
-    feat(icon, m['landing.pricing.feature_context']()),
-    feat(icon, m['landing.pricing.feature_email_support']()),
-    feat(icon, m['landing.pricing.feature_streaming']()),
-    feat(icon, m['landing.pricing.feature_json_mode']()),
-    feat(icon, m['landing.pricing.feature_python_sdk']()),
-    feat(icon, m['landing.pricing.feature_locked_price']()),
-    feat(icon, m['landing.pricing.feature_annual_billing']()),
-  ];
-}
-
-// ── Plus ────────────────────────────────────────────────────────────────
-
-function buildPlusMonthlyFeatures(
-  icon: any,
-  credits: number
-): { icon: any; label: string }[] {
-  return [
-    feat(icon, m['landing.pricing.feature_credits_month']({ credits })),
-    feat(icon, m['landing.pricing.feature_priority_queue']()),
-    feat(icon, m['landing.pricing.feature_priority_chat']()),
+    ...creditLines(icon, credits, period),
     feat(icon, m['landing.pricing.feature_includes_lite']()),
-    feat(icon, m['landing.pricing.feature_function_calling']()),
-    feat(icon, m['landing.pricing.feature_webhooks']()),
-    feat(icon, m['landing.pricing.feature_vector_search']()),
-    feat(icon, m['landing.pricing.feature_workspaces']()),
-    feat(icon, m['landing.pricing.feature_uptime_high']()),
+    feat(icon, m['landing.pricing.feature_priority_support']()),
+    feat(icon, m['landing.pricing.feature_cancel_anytime']()),
   ];
 }
 
-function buildPlusYearlyFeatures(
+function buildProFeatures(
   icon: any,
-  credits: number
-): { icon: any; label: string }[] {
+  credits: number,
+  period: 'month' | 'year'
+): Feature[] {
   return [
-    feat(icon, m['landing.pricing.feature_credits_year']({ credits })),
-    feat(icon, m['landing.pricing.feature_priority_queue']()),
-    feat(icon, m['landing.pricing.feature_priority_chat']()),
-    feat(icon, m['landing.pricing.feature_includes_lite']()),
-    feat(icon, m['landing.pricing.feature_function_calling']()),
-    feat(icon, m['landing.pricing.feature_webhooks']()),
-    feat(icon, m['landing.pricing.feature_vector_search']()),
-    feat(icon, m['landing.pricing.feature_save_vs_monthly_plus']()),
-    feat(icon, m['landing.pricing.feature_annual_planning']()),
-  ];
-}
-
-// ── Pro ─────────────────────────────────────────────────────────────────
-
-function buildProMonthlyFeatures(
-  icon: any,
-  credits: number
-): { icon: any; label: string }[] {
-  return [
-    feat(icon, m['landing.pricing.feature_credits_month']({ credits })),
-    feat(icon, m['landing.pricing.feature_priority_queue']()),
-    feat(icon, m['landing.pricing.feature_dedicated_support']()),
+    ...creditLines(icon, credits, period),
     feat(icon, m['landing.pricing.feature_includes_plus']()),
-    feat(icon, m['landing.pricing.feature_sso']()),
-    feat(icon, m['landing.pricing.feature_team_seats']()),
-    feat(icon, m['landing.pricing.feature_custom_sla']()),
-    feat(icon, m['landing.pricing.feature_rate_limit_top']()),
-    feat(icon, m['landing.pricing.feature_qbr']()),
-  ];
-}
-
-function buildProYearlyFeatures(
-  icon: any,
-  credits: number
-): { icon: any; label: string }[] {
-  return [
-    feat(icon, m['landing.pricing.feature_credits_year']({ credits })),
-    feat(icon, m['landing.pricing.feature_priority_queue']()),
-    feat(icon, m['landing.pricing.feature_dedicated_support']()),
-    feat(icon, m['landing.pricing.feature_includes_plus']()),
-    feat(icon, m['landing.pricing.feature_sso']()),
-    feat(icon, m['landing.pricing.feature_team_seats']()),
-    feat(icon, m['landing.pricing.feature_custom_sla']()),
-    feat(icon, m['landing.pricing.feature_locked_price']()),
-    feat(icon, m['landing.pricing.feature_annual_review']()),
-  ];
-}
-
-// ── One-time packs ──────────────────────────────────────────────────────
-
-function buildStarterPackFeatures(
-  icon: any,
-  credits: number
-): { icon: any; label: string }[] {
-  return [
-    feat(icon, m['landing.pricing.feature_credits_month']({ credits })),
-    feat(icon, m['landing.pricing.feature_kimi_access']()),
-    feat(icon, m['landing.pricing.feature_streaming']()),
-    feat(icon, m['landing.pricing.feature_no_expiry']()),
-    feat(icon, m['landing.pricing.feature_instant_delivery']()),
-    feat(icon, m['landing.pricing.feature_no_card']()),
-  ];
-}
-
-function buildStandardPackFeatures(
-  icon: any,
-  credits: number
-): { icon: any; label: string }[] {
-  return [
-    feat(icon, m['landing.pricing.feature_credits_month']({ credits })),
-    feat(icon, m['landing.pricing.feature_kimi_access']()),
-    feat(icon, m['landing.pricing.feature_streaming']()),
-    feat(icon, m['landing.pricing.feature_no_expiry']()),
-    feat(icon, m['landing.pricing.feature_priority_queue']()),
-    feat(icon, m['landing.pricing.feature_multi_project']()),
-  ];
-}
-
-function buildBoostPackFeatures(
-  icon: any,
-  credits: number
-): { icon: any; label: string }[] {
-  return [
-    feat(icon, m['landing.pricing.feature_credits_month']({ credits })),
-    feat(icon, m['landing.pricing.feature_kimi_access']()),
-    feat(icon, m['landing.pricing.feature_streaming']()),
-    feat(icon, m['landing.pricing.feature_no_expiry']()),
     feat(icon, m['landing.pricing.feature_best_per_request']()),
-    feat(icon, m['landing.pricing.feature_unlocks_all']()),
+    feat(icon, m['landing.pricing.feature_priority_support']()),
+    feat(icon, m['landing.pricing.feature_cancel_anytime']()),
+  ];
+}
+
+function withYearlySaving(features: Feature[], icon: any, pct: number) {
+  return [
+    ...features,
+    feat(icon, m['landing.pricing.feature_save_pct']({ pct })),
+  ];
+}
+
+function buildPackFeatures(icon: any, credits: number): Feature[] {
+  return [
+    ...creditLines(icon, credits, 'once'),
+    feat(icon, m['landing.pricing.feature_kimi_access']()),
+    feat(icon, m['landing.pricing.feature_premium_models']()),
+    feat(icon, m['landing.pricing.feature_file_tools']()),
+    feat(icon, m['landing.pricing.feature_no_expiry']()),
+    feat(icon, m['landing.pricing.feature_no_subscription']()),
   ];
 }
 
@@ -204,9 +145,9 @@ export function Pricing({
   const { data: paymentProviderData, isLoading: paymentProvidersLoading } =
     usePaymentProviders();
   // Three tabs: left = one-time packs, middle = monthly, right = yearly.
-  // Default to monthly so the subscription tiers (the bread and butter) greet
-  // the visitor before they have to click anything.
-  const [mode, setMode] = useState<BillingMode>('monthly');
+  // Default to one-time packs: a $9 no-subscription pack is the easiest first
+  // purchase for a visitor who has just tried the product.
+  const [mode, setMode] = useState<BillingMode>('packs');
   const [paymentPlan, setPaymentPlan] = useState<PricingPlan | null>(null);
 
   // The server returns the providers actually registered in PaymentManager.
@@ -279,7 +220,7 @@ export function Pricing({
         productId: liteMonthly.productId,
         productName: 'Lite',
         buttonText: m['landing.pricing.subscribe_monthly'](),
-        features: buildLiteMonthlyFeatures(Zap, liteMonthly.credits),
+        features: buildLiteFeatures(Zap, liteMonthly.credits, 'month'),
       },
       {
         id: plusMonthly.id,
@@ -296,7 +237,7 @@ export function Pricing({
         productId: plusMonthly.productId,
         productName: 'Plus',
         buttonText: m['landing.pricing.subscribe_monthly'](),
-        features: buildPlusMonthlyFeatures(Zap, plusMonthly.credits),
+        features: buildPlusFeatures(Zap, plusMonthly.credits, 'month'),
       },
       {
         id: proMonthly.id,
@@ -311,7 +252,7 @@ export function Pricing({
         productId: proMonthly.productId,
         productName: 'Pro',
         buttonText: m['landing.pricing.subscribe_monthly'](),
-        features: buildProMonthlyFeatures(Zap, proMonthly.credits),
+        features: buildProFeatures(Zap, proMonthly.credits, 'month'),
       },
     ],
     []
@@ -336,7 +277,11 @@ export function Pricing({
         productId: liteYearly.productId,
         productName: 'Lite',
         buttonText: `${m['landing.pricing.subscribe_yearly']()} · $${liteYearly.price}`,
-        features: buildLiteYearlyFeatures(Zap, liteYearly.credits),
+        features: withYearlySaving(
+          buildLiteFeatures(Zap, liteYearly.credits, 'year'),
+          Zap,
+          21
+        ),
       },
       {
         id: plusYearly.id,
@@ -356,7 +301,11 @@ export function Pricing({
         productId: plusYearly.productId,
         productName: 'Plus',
         buttonText: `${m['landing.pricing.subscribe_yearly']()} · $${plusYearly.price}`,
-        features: buildPlusYearlyFeatures(Zap, plusYearly.credits),
+        features: withYearlySaving(
+          buildPlusFeatures(Zap, plusYearly.credits, 'year'),
+          Zap,
+          10
+        ),
       },
       {
         id: proYearly.id,
@@ -374,7 +323,11 @@ export function Pricing({
         productId: proYearly.productId,
         productName: 'Pro',
         buttonText: `${m['landing.pricing.subscribe_yearly']()} · $${proYearly.price}`,
-        features: buildProYearlyFeatures(Zap, proYearly.credits),
+        features: withYearlySaving(
+          buildProFeatures(Zap, proYearly.credits, 'year'),
+          Zap,
+          20
+        ),
       },
     ],
     []
@@ -394,7 +347,7 @@ export function Pricing({
         productId: 'starter_once',
         productName: 'Starter Pack',
         buttonText: m['landing.pricing.buy_pack'](),
-        features: buildStarterPackFeatures(Zap, 612),
+        features: buildPackFeatures(Zap, 612),
       },
       {
         id: 'standard_once',
@@ -409,7 +362,7 @@ export function Pricing({
         productId: 'standard_once',
         productName: 'Standard Pack',
         buttonText: m['landing.pricing.buy_pack'](),
-        features: buildStandardPackFeatures(Zap, 1972),
+        features: buildPackFeatures(Zap, 1972),
       },
       {
         id: 'boost_once',
@@ -423,7 +376,7 @@ export function Pricing({
         productId: 'boost_once',
         productName: 'Boost Pack',
         buttonText: m['landing.pricing.buy_pack'](),
-        features: buildBoostPackFeatures(Zap, 5372),
+        features: buildPackFeatures(Zap, 5372),
       },
     ],
     []
@@ -568,7 +521,10 @@ export function Pricing({
                         )}
                       >
                         {plan.credits.toLocaleString()} Credits
-                        {isYearly ? ' / year' : ''}
+                        {isYearly ? ' / year' : ''} ·{' '}
+                        {m['landing.pricing.feature_messages_estimate']({
+                          count: estimateMessages(plan.credits),
+                        })}
                       </p>
                     </div>
                     <div className="text-right">
@@ -631,7 +587,7 @@ export function Pricing({
             </p>
           </div>
 
-          {/* Three-tab pill — packs | monthly (default) | yearly */}
+          {/* Three-tab pill — packs (default) | monthly | yearly */}
           <BillingModeToggle value={mode} onChange={setMode} />
 
           <PricingTable groups={groups} onCheckout={handleCheckout} />
@@ -654,7 +610,7 @@ export function Pricing({
   );
 }
 
-// Three-tab pill: packs (left) | monthly (middle, default) | yearly (right).
+// Three-tab pill: packs (left, default) | monthly (middle) | yearly (right).
 // Yearly keeps the emerald "Save 17%" badge to surface the discount.
 function BillingModeToggle({
   value,

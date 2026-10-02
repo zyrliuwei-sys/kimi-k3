@@ -34,6 +34,14 @@ const FREE_MODEL_IDS: readonly SelectableChatModelId[] = [
   'deepseek-v4-flash',
 ];
 
+/** Free model offered as a fallback when a paid model hits the paywall. */
+export const FALLBACK_FREE_MODEL_ID: SelectableChatModelId =
+  'deepseek-v4-flash';
+
+export function isFreeSelectableModel(id: SelectableChatModelId): boolean {
+  return FREE_MODEL_IDS.includes(id);
+}
+
 /**
  * Selectable model ids in picker display order (free → default → premium).
  * Mirrors getOptions() below — keep in sync. Consumers that need a model id

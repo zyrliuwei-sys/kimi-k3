@@ -12,11 +12,6 @@ const STATIC_PATHS = [
   '/blog',
   '/privacy-policy',
   '/terms-of-service',
-  // SEO landing pages for kimik3 spelling variants.
-  '/kimink3',
-  '/kimik-3',
-  '/kimika-3',
-  '/kimmik3',
   '/kimi-k3-prompts',
   '/kimi-k3-vs-claude',
   '/kimi-k3-api',

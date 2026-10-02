@@ -12,8 +12,8 @@ export const Route = createFileRoute('/pricing')({
     const locale = getLocale();
     return {
       locale,
-      title: m['landing.pricing.title']({}, { locale }),
-      description: m['landing.pricing.description']({}, { locale }),
+      title: m['landing.pricing.meta_title']({}, { locale }),
+      description: m['landing.pricing.meta_description']({}, { locale }),
     };
   },
   head: ({ loaderData }) => {

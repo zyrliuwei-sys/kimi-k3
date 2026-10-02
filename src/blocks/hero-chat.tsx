@@ -13,6 +13,7 @@ import { Link } from '@/core/i18n/navigation';
 import { streamChat } from '@/lib/chat-stream';
 import { cn } from '@/lib/utils';
 import { m } from '@/paraglide/messages.js';
+import { FALLBACK_FREE_MODEL_ID } from '@/blocks/chat-model-picker';
 import { MarkdownContent } from '@/components/markdown-content';
 import { buttonVariants } from '@/components/ui/button';
 import {
@@ -28,7 +29,8 @@ import {
  * endpoint `POST /api/playground/chat` (SSE) and renders the gate the backend
  * signals mid-stream:
  *  - anonymous visitor: sign-up/login required;
- *  - signed-in user with no credits: paywall (must purchase a credit pack).
+ *  - signed-in user with no credits: paywall (buy a pack, or continue on the
+ *    free fallback model so the user isn't dropped at the first gate).
  * The conversation is stateless (not persisted) — reload resets the thread.
  *
  * Layout: a wide horizontal composer bar is the centerpiece. The conversation
@@ -46,6 +48,8 @@ export function HeroChat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [gate, setGate] = useState<'login' | 'pay' | null>(null);
+  // Once the user opts into the free model at the paywall, keep using it.
+  const [useFreeModel, setUseFreeModel] = useState(false);
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -91,9 +95,12 @@ export function HeroChat() {
     });
   }
 
-  async function submit(content: string) {
+  async function submit(content: string, opts?: { freeModel?: boolean }) {
     const text = content.trim();
-    if (!text || busy || gate) return;
+    // `opts.freeModel` comes from the paywall's fallback button, which closes
+    // the gate in the same tick — so the stale `gate` must not block it.
+    if (!text || busy || (gate && !opts?.freeModel)) return;
+    const freeModel = useFreeModel || !!opts?.freeModel;
 
     // Snapshot the pre-submit thread so we can roll back on gate/error.
     const prior = messages;
@@ -117,6 +124,7 @@ export function HeroChat() {
             role: msg.role,
             content: msg.content,
           })),
+          ...(freeModel ? { model: FALLBACK_FREE_MODEL_ID } : {}),
         },
         {
           signal: controller.signal,
@@ -240,6 +248,15 @@ export function HeroChat() {
           onOpenChange={(open) => {
             if (!open) setGate(null);
           }}
+          onUseFreeModel={
+            gate === 'pay' && !useFreeModel
+              ? () => {
+                  setGate(null);
+                  setUseFreeModel(true);
+                  submit(input, { freeModel: true });
+                }
+              : undefined
+          }
         />
       )}
     </div>
@@ -302,9 +319,11 @@ function Thinking() {
 function GateDialog({
   kind,
   onOpenChange,
+  onUseFreeModel,
 }: {
   kind: 'login' | 'pay';
   onOpenChange: (open: boolean) => void;
+  onUseFreeModel?: () => void;
 }) {
   const isLogin = kind === 'login';
   return (
@@ -354,6 +373,15 @@ function GateDialog({
             <ArrowUpRight className="size-4" />
           </Link>
         </div>
+        {onUseFreeModel && (
+          <button
+            type="button"
+            onClick={onUseFreeModel}
+            className="text-foreground/60 hover:text-foreground mx-auto text-[13px] underline-offset-4 hover:underline"
+          >
+            {m['playground.payment_required.use_free_model']()}
+          </button>
+        )}
       </DialogContent>
     </Dialog>
   );

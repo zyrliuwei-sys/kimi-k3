@@ -23,6 +23,16 @@ function ensureCloudflareEnv(): Promise<void> {
   return cfEnvPromise;
 }
 
+// Former thin "spelling variant" pages (kimink3, kimik-3, …). Google treats
+// near-identical typo pages as doorway pages, so they now 301 to the homepage
+// to consolidate their signals instead of risking a site-wide demotion.
+const RETIRED_TYPO_PATHS = new Set([
+  '/kimink3',
+  '/kimik-3',
+  '/kimika-3',
+  '/kimmik3',
+]);
+
 // Custom server entry — wraps every request in Paraglide's middleware so
 // getLocale() resolves per-request (AsyncLocalStorage) during SSR.
 export default {
@@ -38,6 +48,11 @@ export default {
       url.host = canonicalHost;
       url.protocol = 'https:';
       return Response.redirect(url.toString(), 308);
+    }
+
+    const bare = url.pathname.replace(/^\/zh(?=\/)/, '').replace(/\/$/, '');
+    if (RETIRED_TYPO_PATHS.has(bare)) {
+      return Response.redirect(new URL('/', url).toString(), 301);
     }
 
     await ensureCloudflareEnv();

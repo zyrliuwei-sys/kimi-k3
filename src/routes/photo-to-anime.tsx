@@ -14,9 +14,10 @@ import { PlaygroundShell } from '@/components/playground-shell';
 import { StyleIdeaCardStack } from '@/components/style-idea-card-stack';
 import { Timeline } from '@/components/timeline';
 
-const PHOTO_TO_ANIME_TITLE = 'Photo to Anime Converter | Kimi K3';
+const PHOTO_TO_ANIME_TITLE =
+  'Photo to Anime Converter — AI Anime Filter Online | kimik3';
 const PHOTO_TO_ANIME_DESCRIPTION =
-  'Turn a photo into anime art with Kimi K3 photo to anime converter. Upload a selfie or portrait for a unique anime-style image in seconds. Free to try—sign in.';
+  'Turn a photo into anime art with the kimik3 AI photo-to-anime converter. Upload a selfie or portrait for a unique anime-style image in seconds. Free to try—sign in.';
 const PHOTO_TO_ANIME_CANONICAL = 'https://www.kimik3.net/photo-to-anime';
 
 const PHOTO_TO_ANIME_FAQS = [
@@ -53,7 +54,7 @@ const PHOTO_TO_ANIME_STRUCTURED_DATA = [
   {
     '@context': 'https://schema.org',
     '@type': 'SoftwareApplication',
-    name: 'Kimi K3 Photo to Anime',
+    name: 'kimik3 Photo to Anime',
     applicationCategory: 'MultimediaApplication',
     operatingSystem: 'Web',
     url: PHOTO_TO_ANIME_CANONICAL,
@@ -120,7 +121,7 @@ function PhotoToAnimePage() {
 
   return (
     <PlaygroundShell
-      brand="Kimi K3"
+      brand="kimik3"
       brandHref="/api-playground"
       upgradeCard={<PlaygroundUpgradeCard />}
       navItems={[

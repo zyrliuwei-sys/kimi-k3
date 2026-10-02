@@ -99,6 +99,8 @@ import {
 } from '@/blocks/chat-file-tools';
 import {
   ChatModelPicker,
+  FALLBACK_FREE_MODEL_ID,
+  isFreeSelectableModel,
   type SelectableChatModelId,
 } from '@/blocks/chat-model-picker';
 import { ChatMarkdown } from '@/blocks/chat-shared';
@@ -1216,6 +1218,14 @@ export function ApiPlayground() {
       <PlaygroundPaymentDialog
         open={billingOpen}
         onOpenChange={setBillingOpen}
+        onUseFreeModel={
+          isFreeSelectableModel(modelId)
+            ? undefined
+            : () => {
+                setModelId(FALLBACK_FREE_MODEL_ID);
+                setBillingOpen(false);
+              }
+        }
       />
     </div>
   );
@@ -1389,9 +1399,13 @@ function AuthPromptDialog({
 function PlaygroundPaymentDialog({
   open,
   onOpenChange,
+  onUseFreeModel,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** When set, offers a "continue with the free model" escape hatch so a
+   * user who isn't ready to pay keeps chatting instead of leaving. */
+  onUseFreeModel?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1407,6 +1421,17 @@ function PlaygroundPaymentDialog({
           title={m['playground.payment_required.title']()}
           description={m['playground.payment_required.description']()}
         />
+        {onUseFreeModel && (
+          <div className="border-foreground/10 border-t bg-white px-4 py-3 text-center sm:px-5 dark:bg-neutral-950">
+            <button
+              type="button"
+              onClick={onUseFreeModel}
+              className="text-foreground/70 hover:text-foreground text-sm underline-offset-4 hover:underline"
+            >
+              {m['playground.payment_required.use_free_model']()}
+            </button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -3171,6 +3196,14 @@ export function ChatPlayground() {
       <PlaygroundPaymentDialog
         open={billingOpen}
         onOpenChange={setBillingOpen}
+        onUseFreeModel={
+          isFreeSelectableModel(modelId)
+            ? undefined
+            : () => {
+                setModelId(FALLBACK_FREE_MODEL_ID);
+                setBillingOpen(false);
+              }
+        }
       />
     </div>
   );
