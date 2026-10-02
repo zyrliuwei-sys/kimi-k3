@@ -1,0 +1,1 @@
+CREATE INDEX `idx_user_ip` ON `user` (`ip`);
