@@ -960,8 +960,12 @@ export const chatFreeQuota = table(
       .references(() => user.id),
     day: text('day').notNull(),
     count: integer('count').notNull().default(0),
-    createdAt: timestamp('created_at').defaultNow().notNull(),
-    updatedAt: timestamp('updated_at').defaultNow().notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' })
+      .default(sqliteNowMs)
+      .notNull(),
   },
   (t) => [
     uniqueIndex('idx_chat_free_quota_user_day').on(t.userId, t.day),

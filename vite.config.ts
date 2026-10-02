@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { tanstackStart } from '@tanstack/react-start/plugin/vite';
 import { paraglideVitePlugin } from '@inlang/paraglide-js';
 import mdx from '@mdx-js/rollup';
@@ -24,8 +25,9 @@ loadEnvFiles();
 const isCloudflareBuild = (process.env.NITRO_PRESET || '').includes(
   'cloudflare'
 );
-const driverStub = new URL('./src/core/db/driver-stub.ts', import.meta.url)
-  .pathname;
+const driverStub = fileURLToPath(
+  new URL('./src/core/db/driver-stub.ts', import.meta.url)
+);
 
 // Prefer wrangler.jsonc over the build-time env, which can be polluted by
 // .env.local (e.g. DATABASE_PROVIDER=sqlite for local dev).

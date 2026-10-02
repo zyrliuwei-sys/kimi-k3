@@ -27,6 +27,19 @@ function ensureCloudflareEnv(): Promise<void> {
 // getLocale() resolves per-request (AsyncLocalStorage) during SSR.
 export default {
   async fetch(req: Request): Promise<Response> {
+    // Bare apex → canonical www host (when the app URL is a www host).
+    const url = new URL(req.url);
+    const canonicalHost = new URL(import.meta.env.VITE_APP_URL || url.origin)
+      .host;
+    if (
+      canonicalHost.startsWith('www.') &&
+      url.host === canonicalHost.slice(4)
+    ) {
+      url.host = canonicalHost;
+      url.protocol = 'https:';
+      return Response.redirect(url.toString(), 308);
+    }
+
     await ensureCloudflareEnv();
     return paraglideMiddleware(req, () => handler.fetch(req));
   },
