@@ -1688,5 +1688,6 @@
   "landing.pricing.feature_image_gen": "AI image generation",
   "landing.pricing.feature_cancel_anytime": "Cancel anytime",
   "landing.pricing.feature_save_pct": "Save {pct}% vs monthly",
-  "landing.pricing.feature_no_subscription": "No subscription — pay once"
+  "landing.pricing.feature_no_subscription": "No subscription — pay once",
+  "common.payment.method_card": "Credit / Debit Card"
 }

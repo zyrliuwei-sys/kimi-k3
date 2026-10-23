@@ -1688,5 +1688,6 @@
   "landing.pricing.feature_image_gen": "AI 图片生成",
   "landing.pricing.feature_cancel_anytime": "随时取消",
   "landing.pricing.feature_save_pct": "比月付省 {pct}%",
-  "landing.pricing.feature_no_subscription": "非订阅 —— 一次付清"
+  "landing.pricing.feature_no_subscription": "非订阅 —— 一次付清",
+  "common.payment.method_card": "信用卡/借记卡"
 }

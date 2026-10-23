@@ -28,18 +28,19 @@ interface Props {
   description?: string;
 }
 
-const providerLabels: Record<string, string> = {
-  stripe: 'Stripe',
-  creem: 'Creem',
-  waffo: 'Waffo Pancake',
-  paypal: 'PayPal',
-  alipay: 'Alipay',
-  wechat: 'WeChat Pay',
+const providerLabels: Record<string, () => string> = {
+  stripe: () => 'Stripe',
+  creem: () => 'Creem',
+  // Shoppers see the payment type, not the gateway brand.
+  waffo: () => m['common.payment.method_card'](),
+  paypal: () => 'PayPal',
+  alipay: () => 'Alipay',
+  wechat: () => 'WeChat Pay',
 };
 
 function providerLabel(provider: PaymentProvider) {
   return (
-    providerLabels[provider] ||
+    providerLabels[provider]?.() ||
     provider
       .split(/[-_]+/)
       .filter(Boolean)
