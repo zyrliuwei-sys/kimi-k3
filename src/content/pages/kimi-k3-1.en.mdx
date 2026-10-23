@@ -1,0 +1,282 @@
+import {
+  KimiBenchmarkChart,
+  KimiK31Cover,
+  KimiMoeDiagram,
+} from '@/components/kimi-k3-1-figures';
+
+export const meta = {
+  title: 'Kimi K3.1: Release Date, Leaks & Expected Specs',
+  description:
+    'Every public signal about Kimi K3.1 as of October 23, 2026: what is confirmed, what is still rumor, what it means for developers, and what it builds on from Kimi K3.',
+  updated_at: '2026-10-23',
+};
+
+export const jsonLd = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: [
+    {
+      '@type': 'Question',
+      name: 'Has Kimi K3.1 been released?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'As of October 23, 2026, Moonshot AI has not officially released Kimi K3.1 and has published no model card, weights, or pricing. Current information comes from leaks and press reports.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'When will Kimi K3.1 be released?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Multiple reports point to mid-to-late October 2026, but earlier predicted dates have already passed. Treat Moonshot AI’s official announcement as the only confirmation.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'How much will Kimi K3.1 cost?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Pricing is not announced. A reported preview listing showed the same rates as K3 ($3 input and $15 output per million tokens), which may be a placeholder.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'Will I need to change code to move from K3 to K3.1?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'Reports say K3.1 keeps the K3 tokenizer and chat format, so switching may only require a new model ID. This is not officially confirmed — run your own regression evaluation before switching.',
+      },
+    },
+    {
+      '@type': 'Question',
+      name: 'What is the difference between Kimi K3.1 and Kimi K3?',
+      acceptedAnswer: {
+        '@type': 'Answer',
+        text: 'No source currently distinguishes K3.1 from K3 on any technical metric. Leaks point to stronger long-horizon agent work, better reasoning efficiency, and reliability, but none of it is confirmed.',
+      },
+    },
+  ],
+};
+
+<div className="border-primary/30 bg-primary/5 my-6 rounded-xl border p-4 text-sm leading-6">
+  <strong className="text-foreground">Status:</strong> as of October 23, 2026,
+  Moonshot AI has not announced Kimi K3.1. Everything about K3.1 on this page
+  comes from leaks and press reports, each with a credibility note; K3 figures
+  come from the official release. We will update this page when the model ships.
+</div>
+
+<KimiK31Cover
+  eyebrow="Moonshot AI · Preview"
+  title="Kimi K3.1"
+  subtitle="The next iteration of Kimi K3, the 2.8-trillion-parameter open-weights model — focused on long-horizon agents and reasoning efficiency."
+  chips={['Not announced', '1M context (leaked)', 'Low / High / Max']}
+  caption="Figure 1: the crescent is made of 896 dots, one per K3 routed expert; the 16 lit dots are the experts each token actually activates."
+/>
+
+## Kimi K3.1 in one sentence
+
+Kimi K3.1 is widely expected to be an iteration of Kimi K3, which launched on July 16, 2026 as the largest open-weights model to date at 2.8 trillion parameters. The leaks suggest an evolution rather than a rebuild: the same tokenizer and chat format, with the focus on long-horizon agent tasks, reasoning efficiency, and reliability. Think of it as a refinement, not a new architecture.
+
+<div className="my-8 grid grid-cols-2 gap-3 md:grid-cols-4">
+  <div className="border-border bg-muted/40 rounded-xl border p-4">
+    <div className="text-muted-foreground text-xs">Expected window</div>
+    <div className="text-foreground mt-1 text-lg font-semibold">
+      Mid–late Oct
+    </div>
+    <div className="text-muted-foreground mt-1 text-xs">Not confirmed</div>
+  </div>
+  <div className="border-border bg-muted/40 rounded-xl border p-4">
+    <div className="text-muted-foreground text-xs">Context</div>
+    <div className="text-foreground mt-1 text-lg font-semibold">1M tokens</div>
+    <div className="text-muted-foreground mt-1 text-xs">Leaked config</div>
+  </div>
+  <div className="border-border bg-muted/40 rounded-xl border p-4">
+    <div className="text-muted-foreground text-xs">Reasoning tiers</div>
+    <div className="text-foreground mt-1 text-lg font-semibold">
+      Low / High / Max
+    </div>
+    <div className="text-muted-foreground mt-1 text-xs">Leaked config</div>
+  </div>
+  <div className="border-border bg-muted/40 rounded-xl border p-4">
+    <div className="text-muted-foreground text-xs">Reported model ID</div>
+    <div className="text-foreground mt-1 text-lg font-semibold">kimi-k3-1</div>
+    <div className="text-muted-foreground mt-1 text-xs">API registry</div>
+  </div>
+</div>
+
+## From K2 to K3: Moonshot’s release rhythm
+
+In July 2025 Moonshot open-sourced Kimi K2 (1 trillion total, 32 billion active parameters), which drew wide attention in the open-source community for its agentic coding. The K2 line kept shipping incremental updates: as of mid-October, Moonshot’s API still serves kimi-k2.6 and the coding-focused kimi-k2.7-code. On July 16, 2026, K3 pushed the scale to 2.8 trillion parameters, and the full weights and technical report followed eleven days later.
+
+Following the K2 pattern, “major release, then a point release a few months later” is Moonshot’s usual cadence. K3 is now three months old, so a K3.1 fits that rhythm.
+
+## Timeline of signals, with credibility
+
+<ol className="border-border my-6 ml-2 space-y-5 border-l pl-6 text-sm leading-6">
+  <li className="relative">
+    <span className="bg-muted-foreground absolute top-1.5 -left-[29px] size-2.5 rounded-full" />
+    <strong className="text-foreground">Jul 18</strong> · Two days after K3
+    launched, a post said Moonshot researchers acknowledged requests for speed,
+    more token-efficient reasoning, and reliability.{' '}
+    <span className="text-muted-foreground">(Credibility: medium)</span>
+  </li>
+  <li className="relative">
+    <span className="bg-primary absolute top-1.5 -left-[29px] size-2.5 rounded-full" />
+    <strong className="text-foreground">Sep 19</strong> · Kimi’s official
+    account posts a string of pi digits, read by the community as a “3.1” hint.{' '}
+    <span className="text-muted-foreground">
+      (Credibility: medium, community reading)
+    </span>
+  </li>
+  <li className="relative">
+    <span className="bg-primary absolute top-1.5 -left-[29px] size-2.5 rounded-full" />
+    <strong className="text-foreground">Sep 23</strong> · A leaker on X shares
+    an internal config screenshot showing a k3d1-agent identifier and three
+    reasoning options.{' '}
+    <span className="text-muted-foreground">
+      (Credibility: medium, screenshot unverified)
+    </span>
+  </li>
+  <li className="relative">
+    <span className="bg-primary absolute top-1.5 -left-[29px] size-2.5 rounded-full" />
+    <strong className="text-foreground">Sep 28</strong> · Developers spot a
+    kimi-k3-1 entry in Moonshot’s API model registry, reportedly callable; a
+    preview page appears on the developer platform the same day.{' '}
+    <span className="text-muted-foreground">(Credibility: medium-high)</span>
+  </li>
+  <li className="relative">
+    <span className="bg-muted-foreground absolute top-1.5 -left-[29px] size-2.5 rounded-full" />
+    <strong className="text-foreground">Oct 10</strong> · A Nomura report says
+    K3.1 will launch before mid-October with a focus on long, multi-step agent
+    tasks; another leaker disputes the date the same day.{' '}
+    <span className="text-muted-foreground">
+      (Credibility: medium, contested)
+    </span>
+  </li>
+  <li className="relative">
+    <span className="bg-primary absolute top-1.5 -left-[29px] size-2.5 rounded-full" />
+    <strong className="text-foreground">Oct 17–18</strong> · The k3d1-agent
+    string appears in Kimi’s website code.{' '}
+    <span className="text-muted-foreground">
+      (Credibility: high, first-party code)
+    </span>
+  </li>
+  <li className="relative">
+    <span className="bg-muted-foreground absolute top-1.5 -left-[29px] size-2.5 rounded-full" />
+    <strong className="text-foreground">Oct 20</strong> · Reports of a quickly
+    closed SGLang change referencing Kimi-K3.1; other analysts could not find it
+    in public history.{' '}
+    <span className="text-muted-foreground">(Credibility: low)</span>
+  </li>
+</ol>
+
+The hardest evidence is Moonshot’s own website code and API registry. They show that “K3.1” exists internally — but say nothing about how strong it is or when it ships.
+
+## Why it matters
+
+After K3 launched, developer feedback clustered around three points: response speed, token spend during reasoning, and reliability on long tasks. If K3.1 keeps the capability of a 2.8T model while cutting reasoning overhead, open weights become an even stronger value for coding agents, deep research, and long-document analysis. The brokerage report and the leaked configuration point the same way: longer, more autonomous multi-step work.
+
+## K3 architecture: where K3.1 starts
+
+<KimiMoeDiagram
+  inputTitle="Input"
+  inputDetail="Text + images (MoonViT-V2 vision encoder)"
+  routerTitle="Router"
+  routerDetail="Picks experts for each token"
+  expertsTitle="896 routed experts"
+  expertsDetail="Only 16 activate per token (about 1.8%)"
+  sharedTitle="2 shared experts"
+  sharedDetail="Always active"
+  outputTitle="Output"
+  outputDetail="Text"
+  stats={[
+    { value: '2.8T', label: 'Total parameters' },
+    { value: '104B', label: 'Active per token' },
+    { value: '93', label: 'Layers' },
+    { value: '1,048,576', label: 'Context tokens' },
+  ]}
+  caption="Figure 2: Kimi K3’s sparse mixture-of-experts (MoE) design, from Moonshot’s official model description. K3.1’s architecture has not been published."
+/>
+
+Sparse MoE is how K3 stays “big but affordable”: 2.8 trillion parameters in total, yet each token touches only about 3.7% of them. Other official details:
+
+- **Attention:** Kimi Delta Attention plus Attention Residuals; Moonshot claims about 2.5× K2’s scaling efficiency.
+- **Numerics:** MXFP4 weights and MXFP8 activations; the full weights are about 1.56 TB across 97 shards, with 64+ accelerator supernodes recommended.
+- **Reasoning:** thinking is always on; reasoning_effort accepts low, high, or max (default max).
+- **Fixed sampling:** temperature 1.0 and top_p 0.95 — other values return an error, so check your client defaults.
+- **Pricing:** $3 input and $15 output per million tokens; $0.30 for cached input.
+
+## K3 benchmarks: the bar K3.1 has to clear
+
+<KimiBenchmarkChart
+  title="Kimi K3 third-party benchmark scores (%)"
+  items={[
+    { label: 'ARC-AGI-1', value: 94.5, source: 'ARC Prize' },
+    { label: 'SWE-bench', value: 93.4, source: 'Vals AI' },
+    { label: 'GPQA Diamond', value: 92.9, source: 'Vals AI' },
+    {
+      label: 'AA-LCR long context',
+      value: 88.7,
+      source: 'Artificial Analysis',
+    },
+    { label: 'MMLU-Pro', value: 88.0, source: 'Vals AI' },
+    { label: 'LiveCodeBench', value: 87.2, source: 'Vals AI' },
+    { label: 'ARC-AGI-2', value: 60.4, source: 'ARC Prize' },
+    { label: 'HLE (AA)', value: 46.9, source: 'Artificial Analysis' },
+  ]}
+  caption="Figure 3: independent third-party evaluations only (Vals AI, ARC Prize, Artificial Analysis), aggregated by BenchLM as of October 2026. Hover a bar to see its source."
+/>
+
+We show only third-party scores because vendor-reported numbers can’t be independently reproduced. K3 is already near the ceiling on knowledge Q&A and code repair; the real headroom is in abstract reasoning like ARC-AGI-2 and very hard questions like HLE — which is where K3.1 will be judged.
+
+There are **no K3.1 benchmarks yet**. The widely shared “Union Alpha” screenshots have no reliable evidence tying them to K3.1, and any K3 vs K3.1 spec table still lacks an official source.
+
+## Rumored capabilities
+
+- **Three reasoning tiers:** Low for cost, Max for quality. The K3 API already exposes the same three tiers, so this may not be new; one single-source report mentions an added medium tier.
+- **Million-token context:** internally labeled “Extra Long”, matching K3’s 1,048,576 tokens.
+- **Agents and multi-agent work:** the config lists Agent, Swarm, search, and batch modes. Kimi already supports Swarm, so these switches may be integration work rather than new capability.
+- **Other rumors:** a “make3d” mode in the web code and a coding-specific variant — all single-source.
+
+## What it means for developers
+
+If K3.1 really keeps K3’s tokenizer and chat format, migrating should be cheap. Three things worth doing now:
+
+1. **Make the model ID a config value.** When K3.1 ships, a one-line change rolls it out gradually, and a bad result rolls back in seconds.
+2. **Tier calls by reasoning_effort.** Use low for simple classification and extraction, max for complex coding and research — it noticeably cuts reasoning tokens and latency.
+3. **Do the real cost math.** At K3 rates, a request with 20,000 input tokens and 2,000 output tokens costs about $0.06 + $0.03 = **$0.09**. If that 20,000-token system prompt is cached, the input share drops to about $0.006. For long prompts, caching matters.
+
+## What to do now
+
+Don’t wait. K3 is available today: build a 30–100 task evaluation set from your real work in the [kimik3 workspace](/), with help from the [Kimi K3 API guide](/kimi-k3-api) and [prompt library](/kimi-k3-prompts). When K3.1 ships, rerun the same set and use the [model comparison](/compare) and [pricing page](/pricing) to decide whether to switch.
+
+## Frequently asked questions
+
+### Has Kimi K3.1 been released?
+
+Not yet. As of October 23, there is no official model card, weights, or pricing.
+
+### When will it be released?
+
+Reports point to mid-to-late October, but earlier predictions have already slipped. Wait for the official announcement.
+
+### How much will it cost?
+
+Not announced. A preview listing reportedly showed K3 pricing, which may be a placeholder.
+
+### Will I need to change code to switch from K3?
+
+The tokenizer and chat format are reportedly unchanged, so a new model ID may be enough — but run a regression evaluation before switching.
+
+### Will K3.1 be open weights?
+
+K3 is open weights, and one leak claims K3.1 will follow, but that is single-source with no official commitment.
+
+## Sources
+
+- [Xinhua: Kimi K3 released as the largest open-source model](https://www.news.cn/tech/20260717/01c04372f89a46e480206e1da2fb8e8c/c.html)
+- [IT Home: Kimi K3.1 reportedly arriving next month](https://www.ithome.com/1/006/719.htm)
+- [aiproducthub: Kimi K3.1 leak](https://aiproducthub.cn/newsflash/kimi-k31-leak-1m-token-swarm-multi-agent/)
+- [OrcaRouter: Kimi K3.1, four signals](https://www.orcarouter.ai/blog/kimi-k3-1-next-week-leak)
+- [CometAPI: Kimi K3.1 leaks and expected features](https://www.cometapi.com/kimi-k3-1-leaks/)
+- [BenchLM: Kimi K3 benchmarks](https://benchlm.ai/models/kimi-k3)

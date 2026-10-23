@@ -15,6 +15,7 @@ const STATIC_PATHS = [
   '/kimi-k3-prompts',
   '/kimi-k3-vs-claude',
   '/kimi-k3-api',
+  '/kimi-k3-1',
 ];
 
 type Entry = {

@@ -365,6 +365,7 @@ export function Footer() {
   ];
   const nav = [
     { label: m['landing.footer.product_pricing'](), href: '/pricing' },
+    { label: m['landing.footer.kimi_k3_1'](), href: '/kimi-k3-1' },
     { label: m['landing.footer.company_blog'](), href: '/blog' },
     { label: m['landing.footer.company_privacy'](), href: '/privacy-policy' },
     { label: m['landing.footer.company_terms'](), href: '/terms-of-service' },
