@@ -13,24 +13,26 @@ function seeded(seed: number) {
 function pickIndices(count: number, total: number, seed: number) {
   const rand = seeded(seed);
   const picked = new Set<number>();
-  while (picked.size < count) picked.add(Math.floor(rand() * total));
+  // Runs at module load (Worker cold start) — must always terminate.
+  const target = Math.min(count, total);
+  while (picked.size < target) picked.add(Math.floor(rand() * total));
   return picked;
 }
 
 // Dot positions forming a crescent, trimmed to exactly `total` dots
-// (one dot per routed expert).
+// (one dot per routed expert). Tightens the grid until enough dots fit.
 function crescentDots(total: number) {
-  const spacing = 13;
   const cx = 300;
   const cy = 260;
-  const cutX = cx + 120;
-  const cutY = cy - 70;
-  for (let r = 150; r < 320; r += 1) {
-    const cutR = r * 0.86;
+  const r = 230;
+  const cutX = cx + 110;
+  const cutY = cy - 60;
+  const cutR = r * 0.8;
+  for (let spacing = 16; spacing >= 6; spacing -= 0.25) {
     const dots: { x: number; y: number }[] = [];
-    for (let y = cy - r; y <= cy + r; y += spacing) {
-      const row = Math.round((y - (cy - r)) / spacing);
-      for (let x = cx - r; x <= cx + r; x += spacing) {
+    let row = 0;
+    for (let y = cy - r; y <= cy + r; y += spacing, row++) {
+      for (let x = cx - r; x <= cx + r + spacing; x += spacing) {
         const px = x + (row % 2 ? spacing / 2 : 0);
         const inMoon = (px - cx) ** 2 + (y - cy) ** 2 <= r * r;
         const inCut = (px - cutX) ** 2 + (y - cutY) ** 2 <= cutR * cutR;
@@ -86,15 +88,15 @@ export function KimiK31Cover({
           {COVER_DOTS.map((d, i) =>
             COVER_LIT.has(i) ? (
               <g key={i}>
-                <circle cx={d.x} cy={d.y} r="9" fill="rgba(34,211,238,0.25)" />
-                <circle cx={d.x} cy={d.y} r="3.6" fill="#67e8f9" />
+                <circle cx={d.x} cy={d.y} r="7" fill="rgba(34,211,238,0.25)" />
+                <circle cx={d.x} cy={d.y} r="3" fill="#67e8f9" />
               </g>
             ) : (
               <circle
                 key={i}
                 cx={d.x}
                 cy={d.y}
-                r="2.2"
+                r="1.9"
                 fill="rgba(165,180,252,0.45)"
               />
             )
