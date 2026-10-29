@@ -6,4 +6,4 @@ export interface FooterBadge {
   height?: number;
 }
 
-export const MAX_FOOTER_BADGES = 20;
+export const MAX_FOOTER_BADGES = 200;
