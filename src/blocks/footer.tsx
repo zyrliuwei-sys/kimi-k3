@@ -3,7 +3,28 @@ import { Facebook, Github, Instagram, Linkedin, Twitter } from 'lucide-react';
 import { Link } from '@/core/i18n/navigation';
 import { envConfigs } from '@/config';
 import { m } from '@/paraglide/messages.js';
-import { FooterBadgeList } from '@/components/footer-badge-list';
+import {
+  FooterBadgeList,
+  type ExtraFooterBadge,
+} from '@/components/footer-badge-list';
+
+// Directory badges that predate the admin-managed list; kept in code.
+const EXTRA_BADGES: ExtraFooterBadge[] = [
+  {
+    href: 'https://shinylaunch.com/product/kimik3',
+    src: 'https://shinylaunch.com/assets/images/badge-dark.png',
+    alt: 'ShinyLaunch',
+    width: 240,
+    height: 54,
+    rel: 'nofollow noopener noreferrer',
+  },
+  {
+    href: 'https://mylaunchstash.com/product/kimik3',
+    src: 'https://mylaunchstash.com/assets/images/badge-dark.png',
+    alt: 'My Launch Stash',
+    height: 54,
+  },
+];
 
 interface BadgeEntry {
   href: string;
@@ -409,40 +430,7 @@ export function Footer() {
           ))}
         </nav>
 
-        <FooterBadgeList className="mt-6">
-          <a
-            href="https://shinylaunch.com/product/kimik3"
-            target="_blank"
-            rel="nofollow noopener noreferrer"
-            className="inline-flex transition-opacity hover:opacity-80"
-          >
-            <img
-              src="https://shinylaunch.com/assets/images/badge-dark.png"
-              alt="ShinyLaunch"
-              width={240}
-              height={54}
-              loading="lazy"
-              decoding="async"
-              className="h-7 w-auto"
-            />
-          </a>
-          <a
-            href="https://mylaunchstash.com/product/kimik3"
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label="View kimik3 on My Launch Stash"
-            className="inline-flex transition-opacity hover:opacity-80"
-          >
-            <img
-              src="https://mylaunchstash.com/assets/images/badge-dark.png"
-              alt="My Launch Stash"
-              height={54}
-              loading="lazy"
-              decoding="async"
-              className="h-7 w-auto"
-            />
-          </a>
-        </FooterBadgeList>
+        <FooterBadgeList className="mt-6" extraBadges={EXTRA_BADGES} />
 
         <div className="mt-8 h-px w-full bg-white/10" />
 

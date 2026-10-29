@@ -1,51 +1,96 @@
+import type { CSSProperties } from 'react';
+import { getRouteApi } from '@tanstack/react-router';
 import { DEFAULT_FOOTER_BADGES } from '@/features/footer-badges/defaults';
+import type { FooterBadge } from '@/features/footer-badges/types';
 import { parseStoredFooterBadges } from '@/features/footer-badges/validation';
 
 import { cn } from '@/lib/utils';
 import { usePublicConfig } from '@/hooks/use-public-config';
 
+/** Each marquee half repeats the list until it holds at least this many badges, so short lists still span wide screens. */
+const MIN_BADGES_PER_LOOP = 12;
+const SECONDS_PER_BADGE = 3;
+
+/** A hard-coded badge; `rel` overrides the default (e.g. to add nofollow). */
+export type ExtraFooterBadge = FooterBadge & { rel?: string };
+
+function BadgeRow({
+  badges,
+  hidden,
+}: {
+  badges: ExtraFooterBadge[];
+  hidden?: boolean;
+}) {
+  return (
+    <ul
+      className="flex shrink-0 items-center"
+      aria-hidden={hidden || undefined}
+    >
+      {badges.map((badge, index) => (
+        <li
+          key={`${index}:${badge.href}:${badge.src}`}
+          className="shrink-0 pr-4"
+        >
+          <a
+            href={badge.href}
+            target="_blank"
+            rel={badge.rel ?? 'noopener noreferrer'}
+            tabIndex={hidden ? -1 : undefined}
+            className="flex h-12 items-center transition-opacity hover:opacity-80"
+          >
+            <img
+              src={badge.src}
+              alt={hidden ? '' : badge.alt}
+              width={badge.width ?? 250}
+              height={badge.height}
+              loading="lazy"
+              draggable={false}
+              className="h-full w-auto max-w-[260px] object-contain"
+            />
+          </a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+const rootRoute = getRouteApi('__root__');
+
 export function FooterBadgeList({
   className,
-  children,
+  extraBadges = [],
 }: {
   className?: string;
-  /** Extra hard-coded badges rendered in the same row, after the admin list. */
-  children?: React.ReactNode;
+  /** Hard-coded badges shown after the admin-managed list. */
+  extraBadges?: ExtraFooterBadge[];
 }) {
   const { data } = usePublicConfig();
-  const badges =
-    data?.footer_badges === undefined
+  // Server-rendered list from the root loader until the live config arrives.
+  const ssrStored = rootRoute.useLoaderData({
+    select: (d) => d.footerBadges,
+  });
+  const stored = data ? data.footer_badges : (ssrStored ?? undefined);
+  const badges: ExtraFooterBadge[] = [
+    ...(stored === undefined
       ? DEFAULT_FOOTER_BADGES
-      : parseStoredFooterBadges(data.footer_badges);
+      : parseStoredFooterBadges(stored)),
+    ...extraBadges,
+  ];
 
-  if (badges.length === 0 && !children) return null;
+  if (badges.length === 0) return null;
+
+  const repeat = Math.ceil(MIN_BADGES_PER_LOOP / badges.length);
+  const loop = Array.from({ length: repeat }, () => badges).flat();
+  const style = {
+    '--badge-marquee-duration': `${loop.length * SECONDS_PER_BADGE}s`,
+  } as CSSProperties;
 
   return (
-    <div
-      className={cn(
-        'flex flex-wrap items-center justify-center gap-3',
-        className
-      )}
-    >
-      {badges.map((badge) => (
-        <a
-          key={`${badge.href}:${badge.src}`}
-          href={badge.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex max-w-full transition-opacity hover:opacity-80"
-        >
-          <img
-            src={badge.src}
-            alt={badge.alt}
-            width={badge.width ?? 250}
-            height={badge.height}
-            loading="lazy"
-            className="h-7 w-auto"
-          />
-        </a>
-      ))}
-      {children}
+    <div className={cn('badge-marquee w-full overflow-hidden', className)}>
+      <div className="badge-marquee-track flex w-max" style={style}>
+        <BadgeRow badges={loop} />
+        <BadgeRow badges={loop} hidden />
+      </div>
     </div>
   );
 }

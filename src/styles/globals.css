@@ -413,29 +413,38 @@
   }
 }
 
-/* Footer directory badges use a duplicated track so they can move from left
-   to right without leaving an empty gap. The visible canonical links pause on
-   hover or keyboard focus, keeping each external destination usable. */
-@keyframes footer-badges-scroll-right {
+/* Footer directory badges (FooterBadgeList): a duplicated track that moves
+   left to right; pauses on hover/focus so each link stays clickable. */
+@keyframes badge-marquee {
   from {
-    transform: translateX(-50%);
+    transform: translate3d(-50%, 0, 0);
   }
   to {
-    transform: translateX(0);
+    transform: translate3d(0, 0, 0);
   }
 }
-.animate-footer-badges {
-  animation: footer-badges-scroll-right 110s linear infinite;
-  will-change: transform;
+.badge-marquee {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 6%,
+    #000 94%,
+    transparent
+  );
 }
-.footer-badge-marquee:hover .animate-footer-badges,
-.footer-badge-marquee:focus-within .animate-footer-badges {
+.badge-marquee-track {
+  animation: badge-marquee var(--badge-marquee-duration, 60s) linear infinite;
+}
+.badge-marquee:hover .badge-marquee-track,
+.badge-marquee:focus-within .badge-marquee-track {
   animation-play-state: paused;
 }
 @media (prefers-reduced-motion: reduce) {
-  .animate-footer-badges {
-    animation: none;
-    transform: none;
+  .badge-marquee {
+    overflow-x: auto;
+  }
+  .badge-marquee-track {
+    animation: none !important;
   }
 }
 
