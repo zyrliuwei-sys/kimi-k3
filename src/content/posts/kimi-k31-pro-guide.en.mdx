@@ -1,0 +1,118 @@
+export const meta = {
+  title: 'Kimi K3.1 Pro: The Complete Guide',
+  description:
+    'Kimi K3.1 Pro is here — what actually changed vs K3, how to use the reasoning_effort tiers, the new long-horizon agent modes, the caching cost math, and a migration checklist you can finish in an afternoon.',
+  created_at: '2026-11-02',
+  author_name: 'kimik3 Team',
+  author_image: '/logo.svg',
+  image: '/imgs/generated/kimi-k31-pro-cover-1793594830133.png',
+};
+
+Kimi K3.1 Pro shipped on **October 28, 2026** — one week after our [K3.1 preview page](/kimi-k3-1) last checked in, and the leaks mostly held. Same tokenizer, same chat format, the `kimi-k3-1-pro` model ID, a 1M-token context, and the low/high/max reasoning tiers. What the leaks did not capture is how the release is positioned: this is a **refinement of K3, not a new architecture**, and almost all of your K3 investment carries over.
+
+That makes K3.1 Pro one of the cheapest major-model upgrades you will ever do. This guide covers what changed, what did not, and how to move production traffic over without drama.
+
+![Kimi K3.1 Pro cover — crescent over a neural skyline](/imgs/generated/kimi-k31-pro-cover-1793594830133.png)
+
+## 1. What actually changed vs K3
+
+Start with the spec table, because most of it is "unchanged" — and that is the point:
+
+| Dimension             | Kimi K3                        | Kimi K3.1 Pro                | Changed?                  |
+| --------------------- | ------------------------------ | ---------------------------- | ------------------------- |
+| Total / active params | 2.8T / 104B                    | 2.8T / 104B                  | No — same chassis         |
+| Architecture          | KDA + Stable Latent MoE        | KDA + Stable Latent MoE      | No                        |
+| Context window        | 1M tokens                      | 1M tokens ("Extra Long")     | No                        |
+| Model ID              | `kimi-k3`                      | `kimi-k3-1-pro`              | **Yes — one line**        |
+| Tokenizer / format    | —                              | identical to K3              | No — drop-in              |
+| Reasoning tiers       | low / high / max               | low / high / max             | Same tiers, cheaper run   |
+| Agent modes           | tool calls, Swarm              | Agent, Swarm, search, batch  | **Yes — first-class**     |
+| Sampling              | temp 1.0, top_p 0.95           | temp 1.0, top_p 0.95 (fixed) | No — still non-negotiable |
+| Pricing (per M tok)   | $3 in / $15 out / $0.30 cached | same                         | No                        |
+
+Two rows carry the whole release:
+
+- **Reasoning efficiency.** At every `reasoning_effort` tier, K3.1 Pro burns noticeably fewer thinking tokens to reach the same answer quality. On long agent runs, that compounds into both lower cost and lower wall-clock latency.
+- **Long-horizon reliability.** The agent lineage behind the `k3d1-agent` codename surfaced as explicit Agent, Swarm, search, and batch modes in the API. Multi-hour, multi-step tasks now hold together instead of drifting around step 30.
+
+One thing Moonshot did **not** ship is a new benchmark suite. Consistent with how we treated the [K3 launch numbers](/blog/kimi-k3-architecture-benchmarks), we will wait for third-party evaluations (Vals AI, ARC Prize, Artificial Analysis) before quoting scores. Judge K3.1 Pro on your own eval set — Section 5 shows you how.
+
+## 2. Long-horizon agents: the headline capability
+
+"Long-horizon" means tasks measured in dozens of steps and hours of tool use: repository-wide refactors, deep research reports, migration projects. K3 could attempt them; K3.1 Pro is built to finish them.
+
+![Long-horizon agent loop — plan, tools, checkpoints](/imgs/generated/kimi-k31-pro-agent-workflow-1793594919604.png)
+
+Concretely, three behaviors changed:
+
+1. **Checkpointed progress.** Agent runs expose stable checkpoints, so a failed step 40 retries from the checkpoint instead of restarting the whole plan.
+2. **First-class agent modes.** Agent, Swarm, search, and batch are switches in the API config rather than prompt-engineering patterns. Swarm (multi-agent coordination) behaves like the Kimi Swarm you may already know.
+3. **Everything from K3 carries over.** Dynamic tool loading via the System message, `partial: true` prefix locking for structured output, Base64 image inputs, and `ms://` video inputs all work unchanged.
+
+The practical pattern for a research or coding agent:
+
+```python
+resp = client.chat.completions.create(
+    model="kimi-k3-1-pro",
+    messages=[
+        {"role": "system", "content": "You can call: search_web(query), read_file(path), run_tests()."},
+        {"role": "user", "content": "Refactor the auth module and keep the test suite green."},
+    ],
+    reasoning_effort="max",
+)
+```
+
+`max` effort plus tool access is where K3.1 Pro separates itself from K3 — that is the configuration the long-horizon work is tuned for.
+
+## 3. Reasoning efficiency — same tiers, cheaper runs
+
+Thinking mode stays always-on with three tiers, and the API shape is unchanged:
+
+```json
+{ "reasoning_effort": "high" }
+```
+
+How to pick:
+
+- **`low`** — classification, extraction, routing, formatting. Latency-sensitive paths where thinking adds little.
+- **`high`** — the new default for everyday feature work. On K3.1 Pro this tier covers what K3's `max` used to cost you.
+- **`max`** — multi-step agents, hard debugging, deep research. The efficiency gains show up most here because thinking tokens dominate long runs.
+
+![Token efficiency — same destination, fewer tokens](/imgs/generated/kimi-k31-pro-efficiency-1793596941316.png)
+
+The efficiency gain is why this release matters economically. Thinking tokens are billed as output tokens at $15 per million, so a long-horizon run is mostly paying for reasoning. Cutting the reasoning share without cutting quality is a direct discount on exactly the workload K3.1 Pro is best at.
+
+Two unchanged rules still bite people, so repeat after me: **temperature 1.0 and top_p 0.95 are fixed** — other values error — and thinking cannot be turned off, only dialed down.
+
+## 4. The cost math, updated
+
+Rates are identical to K3: **$3 input / $15 output / $0.30 cached input** per million tokens. The same worked example from our preview page, now on K3.1 Pro:
+
+- A request with 20,000 input tokens and 2,000 output tokens: **$0.06 + $0.03 = $0.09**.
+- With that 20,000-token system prompt served from the prefix cache: the input share drops to about **$0.006** — a 15× cut on the input side.
+- On K3.1 Pro, the 2,000 output tokens include fewer thinking tokens for the same quality, so the output share trends down too.
+
+Prefix caching still triggers automatically once the prompt exceeds 256 tokens — no refactoring required. Batch mode still takes 50% off for asynchronous jobs (bulk document extraction, image tagging, offline evaluation), and agent workloads that fan out into many calls are the ideal batch candidates.
+
+## 5. Migration checklist: an afternoon, not a quarter
+
+Because the tokenizer and chat format are unchanged, moving from K3 is close to a config flip. The discipline is in how you roll it out:
+
+1. **Make the model ID a config value.** If you did this when we [recommended it in October](/kimi-k3-1), switching is one line: `kimi-k3` → `kimi-k3-1-pro`. If not, do that refactor first.
+2. **Build a 30–100 task regression set from your real traffic** before switching. Cover your three most common request shapes plus your worst failure cases. This is the only benchmark that matters for your product.
+3. **Re-tier your calls.** Re-run the eval set at each `reasoning_effort` tier. Many teams find K3's `max` cases now pass at `high` — that is a straight cost cut.
+4. **Canary, don't flip.** Route 5–10% of traffic, watch quality and cost dashboards side by side for a few days, then ramp.
+5. **Warm your prefix caches** on the common system prompts right after cutover, so the first wave of user traffic does not pay full input price.
+6. **Keep schema validation downstream.** Partial mode plus zod / JSON Schema validation remains the cheapest insurance for structured output.
+
+Rollback is the model ID again — seconds, not sprints.
+
+## 6. Should you switch?
+
+If you run **agents, deep research, or long-document workflows** on K3: yes, switch now. Reasoning efficiency compounds on exactly those workloads, and the migration cost is an afternoon.
+
+If you run **high-volume, low-effort calls** (classification, extraction) that are already happy at `reasoning_effort: "low"`: switch when convenient — same price, same tiers, no regression risk worth blocking on, but no urgent win either.
+
+Either way, keep watching the independent scoreboards. When third-party K3.1 Pro numbers land, we will update the [model comparison](/compare) — and the [pricing page](/pricing) reflects current rates. For prompt patterns that exploit the agent modes, the [prompt library](/kimi-k3-prompts) is the fastest starting point, and the [API reference](/kimi-k3-api) has the full parameter surface.
+
+K3.1 Pro is not a new brain. It is the same 2.8-trillion-parameter brain, better at finishing what it starts — and for the first time in this model class, upgrading to it is barely an engineering project at all.

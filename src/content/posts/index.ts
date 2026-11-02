@@ -18,6 +18,7 @@ export const BLOG_POST_SLUGS = [
   'kimi-k3-architecture-benchmarks',
   'kimi-k3-production-deployment',
   'kimi-k3-tutorial',
+  'kimi-k31-pro-guide',
 ] as const;
 
 export type BlogPostMeta = {
