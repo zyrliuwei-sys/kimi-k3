@@ -43,6 +43,8 @@ export const envConfigs: Record<string, string> = {
     ''
   ),
   auth_secret: procEnv.AUTH_SECRET ?? '',
+  footer_badge_automation_token_hash:
+    procEnv.FOOTER_BADGE_AUTOMATION_TOKEN_HASH ?? '',
 
   // Social auth — env fallbacks. The admin DB still wins via the
   // { ...envConfigs, ...dbConfigs } merge in modules/config/service.

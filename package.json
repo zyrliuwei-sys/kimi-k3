@@ -21,7 +21,9 @@
     "rbac:assign": "tsx scripts/with-env.ts tsx scripts/assign-role.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:footer-badge-integration": "TSX_TSCONFIG_PATH=tests/tsconfig.badges.json node --import tsx --test tests/footer-badges.test.tsx tests/footer-badges-storage.test.ts tests/footer-badge-automation.test.ts",
+    "test:footer-badge-integration:d1": "TSX_TSCONFIG_PATH=tests/tsconfig.badges.json BADGES_D1=1 node --import tsx --test tests/footer-badges-storage.test.ts"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": "prettier --write",

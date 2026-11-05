@@ -1,0 +1,9 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/config/db/schema": ["../src/config/db/schema.sqlite.ts"],
+      "@/*": ["../src/*"]
+    }
+  }
+}
