@@ -1,5 +1,5 @@
 .model-guide-page {
-  background: #faf9f6;
+  background: white;
 }
 
 .dark .model-guide-page {
@@ -7,17 +7,19 @@
 }
 
 .model-guide {
-  --guide-accent: #52694a;
-  --guide-wash: #eef0e8;
-  --guide-ink: #253125;
+  --guide-accent: var(--brand-violet);
+  --guide-wash: color-mix(in srgb, var(--brand-indigo) 5%, var(--card));
+  --guide-ink: var(--foreground);
   --guide-line: color-mix(in srgb, var(--foreground) 13%, transparent);
   color: var(--foreground);
 }
 
 .dark .model-guide {
-  --guide-accent: #bdcda5;
-  --guide-wash: #22291f;
-  --guide-ink: #e0e8d6;
+  --guide-accent: color-mix(
+    in srgb,
+    var(--brand-violet) 55%,
+    var(--foreground)
+  );
 }
 
 .model-guide-hero {
@@ -79,17 +81,14 @@
   display: inline-flex;
   align-items: center;
   gap: 1.7rem;
-  border: 1px solid var(--guide-accent);
-  border-radius: 5px;
-  background: var(--guide-accent);
+  border: 1px solid var(--primary);
+  border-radius: 999px;
+  background: var(--primary);
   padding: 0.85rem 1.1rem;
-  color: #fff;
+  color: var(--primary-foreground);
   font-size: 0.83rem;
   font-weight: 500;
   transition: filter 160ms;
-}
-.dark .model-guide-button {
-  color: #172116;
 }
 .model-guide-button:hover {
   filter: brightness(1.12);
@@ -124,6 +123,11 @@
   border: 1px solid var(--guide-line);
   border-radius: 50% 50% 3px 3px;
   background: var(--guide-wash);
+  background-image: radial-gradient(
+    circle at 100% 0%,
+    color-mix(in srgb, var(--brand-sky) 10%, transparent),
+    transparent 65%
+  );
   color: var(--guide-ink);
 }
 .model-guide-orbit svg {

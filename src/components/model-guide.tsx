@@ -69,15 +69,13 @@ export function ModelGuide({
           <p className="model-guide-subtitle">{content.subtitle}</p>
           <p className="model-guide-summary">{content.summary}</p>
           <div className="model-guide-actions">
-            <a
+            <Link
               href={content.primaryAction.href}
-              target="_blank"
-              rel="noopener noreferrer"
               className="model-guide-button"
             >
               {content.primaryAction.label}
               <ArrowRight size={16} aria-hidden="true" />
-            </a>
+            </Link>
             <a
               href={content.secondaryAction.href}
               className="model-guide-text-link"
