@@ -8,6 +8,12 @@ const STATIC_PAGES: { path: string; title: string; description: string }[] = [
   { path: '', title: 'Home', description: 'Landing page' },
   { path: '/pricing', title: 'Pricing', description: 'Pricing plans' },
   { path: '/blog', title: 'Blog', description: 'Blog posts and articles' },
+  {
+    path: '/kimi-k3-1',
+    title: 'Kimi K 3.1 Guide',
+    description:
+      'K3.1 Pro features, official access, API pricing, and practical prompts',
+  },
 ];
 
 export const Route = createFileRoute('/llms.txt')({

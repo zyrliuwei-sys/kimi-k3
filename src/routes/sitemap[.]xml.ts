@@ -60,6 +60,7 @@ export const Route = createFileRoute('/sitemap.xml')({
 
         const entries: Entry[] = STATIC_PATHS.map((path) => ({
           path,
+          lastModified: path === '/kimi-k3-1' ? '2026-11-13' : undefined,
           changeFrequency: path === '/blog' ? 'daily' : 'weekly',
           priority: path === '' ? 1 : path === '/photo-to-anime' ? 0.6 : 0.8,
         }));

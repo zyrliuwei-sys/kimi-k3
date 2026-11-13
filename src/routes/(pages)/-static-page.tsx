@@ -9,6 +9,7 @@ import {
   locales,
   localizeUrl,
 } from '@/paraglide/runtime.js';
+import { ModelGuide, type ModelGuideContent } from '@/components/model-guide';
 
 type PageMeta = {
   title: string;
@@ -21,6 +22,7 @@ type PageModule = {
   meta: PageMeta;
   /** Optional structured data exported by content pages that need rich results. */
   jsonLd?: unknown;
+  guide?: ModelGuideContent;
 };
 
 // Eagerly bundle the static content pages (small legal/info MDX files).
@@ -37,7 +39,12 @@ function loadPage(slug: string, locale: string): PageModule | null {
   );
 }
 
-type LoaderData = { meta: PageMeta; slug: string; locale: string };
+type LoaderData = {
+  meta: PageMeta;
+  slug: string;
+  locale: string;
+  presentation: 'guide' | 'standard';
+};
 
 // Shared route options for static MDX pages. Each page gets its own
 // explicit route file (e.g. privacy-policy.tsx) so static segments
@@ -49,7 +56,12 @@ export function staticPageRouteOptions(slug: string) {
       const locale = getLocale();
       const page = loadPage(slug, locale);
       if (!page) throw notFound();
-      return { meta: page.meta, slug, locale };
+      return {
+        meta: page.meta,
+        slug,
+        locale,
+        presentation: page.guide ? 'guide' : 'standard',
+      };
     },
     head: ({ loaderData }: { loaderData?: LoaderData }) => {
       if (!loaderData) return {};
@@ -69,6 +81,12 @@ export function staticPageRouteOptions(slug: string) {
           { property: 'og:title', content: meta.title },
           { property: 'og:description', content: meta.description },
           { property: 'og:url', content: canonical },
+          ...(loaderData.presentation === 'guide'
+            ? [
+                { property: 'og:type', content: 'article' },
+                { property: 'article:modified_time', content: meta.updated_at },
+              ]
+            : []),
           { name: 'twitter:title', content: meta.title },
           { name: 'twitter:description', content: meta.description },
         ],
@@ -102,6 +120,14 @@ function StaticPage() {
 
   const page = loadPage(slug, locale)!;
   const Content = page.default;
+
+  if (page.guide) {
+    return (
+      <ModelGuide content={page.guide} updatedAt={meta.updated_at}>
+        <Content />
+      </ModelGuide>
+    );
+  }
 
   return (
     <article>
